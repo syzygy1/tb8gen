@@ -1,0 +1,6 @@
+TBGEN = tb8gen
+CLEAN = clean
+
+BUILD = build
+
+include Makefile.general

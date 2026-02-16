@@ -1,0 +1,22 @@
+.SUFFIXES:
+.SUFFIXES: .c .o .P
+
+GENOBJS = tb8gen.o movegen.o kslice.o bitmap.o probe.o rans.o util.o threads.o
+
+OBJS = $(sort $(GENOBJS) $(GEN2OBJS) $(VEROBJS))
+
+include $(OBJS:%.o=$(BUILD)/%.dep)
+
+$(BUILD)/%.o: %.c $(BUILD)/%.dep
+	@mkdir -p $(BUILD)
+	$(CC) $(CFLAGS) -c $*.c $(FLAGS) -o $(BUILD)/$*.o
+
+$(BUILD)/%.dep: %.c
+	@mkdir -p $(BUILD)
+	$(CC) -MM $(CFLAGS) $(FLAGS) $*.c -MT $(BUILD)/$*.o -MT $(BUILD)/$*.dep -MF $(BUILD)/$*.dep
+
+$(CLEAN):
+	rm -f $(BUILD)/*.o
+
+$(TBGEN): $(GENOBJS:%=$(BUILD)/%)
+	$(CC) $(CFLAGS) -o $(TBGEN) $(GENOBJS:%=$(BUILD)/%) $(LDFLAGS)
