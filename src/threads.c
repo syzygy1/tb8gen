@@ -31,38 +31,47 @@ bool g_thread_affinity;
 
 typedef struct {
   int needed;
-  int called;
+  int arrived;
+  int generation;
   mtx_t mutex;
   cnd_t cond;
 } barrier_t;
 
-static int barrier_init(barrier_t *barrier, int needed)
+static int barrier_init(barrier_t *b, int needed)
 {
-  barrier->needed = needed;
-  barrier->called = 0;
-  mtx_init(&barrier->mutex, mtx_plain);
-  cnd_init(&barrier->cond);
+  b->needed = needed;
+  b->arrived = 0;
+  b->generation = 0;
+  mtx_init(&b->mutex, mtx_plain);
+  cnd_init(&b->cond);
   return 0;
 }
 
-static int barrier_destroy(barrier_t *barrier)
+static int barrier_destroy(barrier_t *b)
 {
-  mtx_destroy(&barrier->mutex);
-  cnd_destroy(&barrier->cond);
+  mtx_destroy(&b->mutex);
+  cnd_destroy(&b->cond);
   return 0;
 }
 
-static int barrier_wait(barrier_t *barrier)
+static int barrier_wait(barrier_t *b)
 {
-  mtx_lock(&barrier->mutex);
-  barrier->called++;
-  if (barrier->called == barrier->needed) {
-    barrier->called = 0;
-    cnd_broadcast(&barrier->cond);
-  } else {
-    cnd_wait(&barrier->cond,&barrier->mutex);
+  mtx_lock(&b->mutex);
+
+  int gen = b->generation;
+
+  if (++b->arrived == b->needed) {
+    b->generation++;
+    b->arrived = 0;
+    cnd_broadcast(&b->cond);
+    mtx_unlock(&b->mutex);
+    return 1;
   }
-  mtx_unlock(&barrier->mutex);
+
+  while (gen == b->generation)
+    cnd_wait(&b->cond, &b->mutex);
+
+  mtx_unlock(&b->mutex);
   return 0;
 }
 

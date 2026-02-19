@@ -9,6 +9,7 @@
 #include <string.h>
 #include <stdlib.h>
 
+#include "defs.h"
 #include "movegen.h"
 #include "kslice.h"
 #include "probe.h"
@@ -20,10 +21,13 @@
 struct KSliceManager manager[2][462];
 
 uint8_t *kslice_buf[20];
+uint8_t *kslice_sub_buf[19];
+size_t sub_offset[MAX_SETS];
 static bool kslice_in_use[19];
 //static bool kslice_dirty[19];
 int8_t kslice_slot[463];
 uint64_t kslice_cache_lines;
+size_t sub_size[2];
 static uint64_t *work_cl, *work_clc;
 
 static int flip(int s)
@@ -83,11 +87,17 @@ struct KSliceManager *kslice_get_manager(int stm, int i)
   return &manager[stm][i];
 }
 
+// Convert number of bits to number of bytes rounded up to cache lines.
+INLINE size_t bits_to_aligned(size_t size)
+{
+  size = (size + 7) >> 3;
+  return (size + 0x3f) & ~0x3f;
+}
+
 void kslice_setup(void)
 {
   init_kslice_manager();
-  size_t size = (kslice_size + 7) >> 3;
-  size = (size + 0x3f) & ~0x3f;
+  size_t size = bits_to_aligned(kslice_size);
   for (int i = 0; i < 20; i++) {
     kslice_buf[i] = alloc_huge(size);
     if (!kslice_buf[i])
@@ -99,13 +109,28 @@ void kslice_setup(void)
   kslice_cache_lines = size >> 6;
   work_cl = create_work(g_total_work, kslice_cache_lines, 0);
   work_clc = create_work(g_total_work, kslice_cache_lines - 1, 0);
+  sub_size[0] = sub_size[1] = 0;
+  for (int i = 0; i < ii.numsets; i++) {
+    int stm = g_pos.pt[ii.first[i]] >> 3;
+    sub_offset[i] = sub_size[stm];
+    sub_size[stm] += bits_to_aligned(kslice_sub_size[i]);
+  }
+  size = max(sub_size[WHITE], sub_size[BLACK]);
+  for (int i = 0; i < 19; i++) {
+    kslice_sub_buf[i] = alloc_huge(size);
+    if (!kslice_sub_buf[i])
+      out_of_mem();
+  }
 }
 
 void kslice_cleanup(void)
 {
-  for (int i = 0; i < 19; i++)
+  for (int i = 0; i < 20; i++)
     if (kslice_buf[i])
       free(kslice_buf[i]);
+  for (int i = 0; i < 19; i++)
+    if (kslice_sub_buf[i])
+      free(kslice_sub_buf[i]);
 }
 
 void kslice_reserve(int s)
@@ -136,6 +161,12 @@ static void set_worker(struct ThreadData *thread)
   memset(p + (thread->begin << 6), 0xff, (thread->end - thread->begin) << 6);
 }
 
+void kslice_set_addr(void *p)
+{
+  work_p = p;
+  run_threaded(set_worker, work_cl, 0);
+}
+
 void kslice_set(int s)
 {
   work_p = kslice_get_address(s);
@@ -147,6 +178,12 @@ static void clear_worker(struct ThreadData *thread)
   uint8_t *restrict p = work_p;
 
   memset(p + (thread->begin << 6), 0x00, (thread->end - thread->begin) << 6);
+}
+
+void kslice_clear_addr(void *p)
+{
+  work_p = p;
+  run_threaded(clear_worker, work_cl, 0);
 }
 
 void kslice_clear(int s)
@@ -245,6 +282,24 @@ void kslice_not_and(int s1, int s2)
   run_threaded(not_and_worker, work_cl, 0);
 }
 
+void nor_worker(struct ThreadData *thread)
+{
+  uint64_t *restrict p = work_p;
+  uint64_t *restrict q = work_q;
+
+  for (uint64_t idx = thread->begin << 3, end = thread->end << 3; idx < end;
+      idx++)
+    p[idx] = ~(p[idx] | q[idx]);
+}
+
+void kslice_nor(int s1, int s2)
+{
+  work_p = kslice_get_address(s1);
+  work_q = kslice_get_address(s2);
+
+  run_threaded(nor_worker, work_cl, 0);
+}
+
 static void create_name(char *str, int s, int stm, const char *name, int n)
 {
   int wk = KKSquare[s][0], bk = KKSquare[s][1];
@@ -288,6 +343,32 @@ void kslice_delete(int slice, int stm, const char *name, int n)
   char str[128];
   create_name(str, slice, stm, name, n);
   remove(str);
+}
+
+void kslice_sub_write_addr(void *p, int slice, int stm, const char *name)
+{
+  char str[128];
+  create_name(str, slice, stm, name, 0);
+  FILE *F = fopen(str, "wb");
+  if (!F) {
+    fprintf(stderr, "Could not open %s for writing.\n", str);
+    exit(EXIT_FAILURE);
+  }
+  write_data(F, p, sub_size[stm]);
+  fclose(F);
+}
+
+void kslice_sub_read(int s, int slice, int stm, const char *name)
+{
+  char str[128];
+  create_name(str, slice, stm, name, 0);
+  FILE *F = fopen(str, "rb");
+  if (!F) {
+    fprintf(stderr, "Could not open %s for reading.\n", str);
+    exit(EXIT_FAILURE);
+  }
+  read_data(F, kslice_sub_get_base(s), sub_size[stm]);
+  fclose(F);
 }
 
 static void count_worker(struct ThreadData *thread)
