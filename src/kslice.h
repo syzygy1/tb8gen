@@ -63,7 +63,8 @@ INLINE uint8_t *kslice_get_address(int s)
 INLINE uint8_t *kslice_sub_get_base(int s)
 {
   assert(kslice_slot[s + 1] >= 0);
-  return kslice_sub_buf[kslice_slot[s + 1]];
+//  return kslice_sub_buf[kslice_slot[s + 1]];
+  return s == -1 ? kslice_buf[19] : kslice_sub_buf[kslice_slot[s + 1]];
 }
 
 INLINE uint8_t *kslice_sub_get_address(int s, int set)
@@ -92,6 +93,7 @@ void kslice_read(int s, int slice, int stm, const char *name, int n);
 void kslice_delete(int slice, int stm, const char *name, int n);
 void kslice_sub_write_addr(void *p, int slice, int stm, const char *name);
 void kslice_sub_read(int s, int slice, int stm, const char *name);
+void kslice_sub_and_not(int s1, int s2, int stm);
 uint64_t kslice_count(int s);
 uint64_t kslice_count_addr(void *p);
 

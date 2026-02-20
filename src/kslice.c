@@ -29,6 +29,7 @@ int8_t kslice_slot[463];
 uint64_t kslice_cache_lines;
 size_t sub_size[2];
 static uint64_t *work_cl, *work_clc;
+static uint64_t *work_sub_cl[2];
 
 static int flip(int s)
 {
@@ -121,6 +122,8 @@ void kslice_setup(void)
     if (!kslice_sub_buf[i])
       out_of_mem();
   }
+  work_sub_cl[WHITE] = create_work(g_total_work, sub_size[WHITE] >> 6, 0);
+  work_sub_cl[BLACK] = create_work(g_total_work, sub_size[BLACK] >> 6, 0);
 }
 
 void kslice_cleanup(void)
@@ -369,6 +372,14 @@ void kslice_sub_read(int s, int slice, int stm, const char *name)
   }
   read_data(F, kslice_sub_get_base(s), sub_size[stm]);
   fclose(F);
+}
+
+void kslice_sub_and_not(int s1, int s2, int stm)
+{
+  work_p = kslice_sub_get_base(s1);
+  work_q = kslice_sub_get_base(s2);
+
+  run_threaded(and_not_worker, work_sub_cl[stm], 0);
 }
 
 static void count_worker(struct ThreadData *thread)
