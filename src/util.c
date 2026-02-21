@@ -17,6 +17,7 @@
 #include <sys/mman.h>
 #include <sys/stat.h>
 #include <sys/types.h>
+#include <errno.h>
 #include <fcntl.h>
 #endif
 
@@ -150,6 +151,29 @@ void *alloc_huge(uint64_t size)
 #endif
 
   return ptr;
+}
+
+void make_dir(const char *pathname)
+{
+  if (mkdir(pathname, 0755) == 0)
+    return;
+
+  if (errno == EEXIST) {
+    struct stat st;
+    if (stat(pathname, &st) == 0 && S_ISDIR(st.st_mode))
+      return;
+  }
+
+  fprintf(stderr, "Could not create directory %s.\n", pathname);
+  exit(EXIT_FAILURE);
+}
+
+void change_dir(const char *pathname)
+{
+  if (chdir(pathname) < 0) {
+    fprintf(stderr, "Could not enter directory %s.\n", pathname);
+    exit(EXIT_FAILURE);
+  }
 }
 
 //static constexpr size_t COPYSIZE = 20*1024*1024ULL;

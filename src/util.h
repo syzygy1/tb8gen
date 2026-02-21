@@ -154,6 +154,9 @@ size_t file_size(FD fd);
 void *map_file(int fd, bool shared, map_t *map);
 void unmap_file(const void *data, map_t map);
 
+void make_dir(const char *pathname);
+void change_dir(const char *pathname);
+
 void *alloc_aligned(uint64_t size, uintptr_t alignment);
 void *alloc_huge(uint64_t size);
 

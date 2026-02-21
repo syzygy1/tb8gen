@@ -306,8 +306,12 @@ void kslice_nor(int s1, int s2)
 static void create_name(char *str, int s, int stm, const char *name, int n)
 {
   int wk = KKSquare[s][0], bk = KKSquare[s][1];
-  sprintf(str, "%s_%s.%c%c%c%c.%c.%d", g_tablename, name, 'a' + (wk & 7),
-      '1' + (wk >> 3), 'a'+ (bk & 7), '1' + (bk >> 3), "wb"[stm], n);
+  if (n >= 0)
+    sprintf(str, "%d/%s/%c/%c%c%c%c", n, name, "wb"[stm], 'a' + (wk & 7),
+        '1' + (wk >> 3), 'a'+ (bk & 7), '1' + (bk >> 3));
+  else
+    sprintf(str, "%s/%c/%c%c%c%c", name, "wb"[stm], 'a' + (wk & 7),
+        '1' + (wk >> 3), 'a'+ (bk & 7), '1' + (bk >> 3));
 }
 
 void kslice_write_addr(void *p, int slice, int stm, const char *name, int n)
@@ -351,7 +355,7 @@ void kslice_delete(int slice, int stm, const char *name, int n)
 void kslice_sub_write_addr(void *p, int slice, int stm, const char *name)
 {
   char str[128];
-  create_name(str, slice, stm, name, 0);
+  create_name(str, slice, stm, name, -1);
   FILE *F = fopen(str, "wb");
   if (!F) {
     fprintf(stderr, "Could not open %s for writing.\n", str);
@@ -364,7 +368,7 @@ void kslice_sub_write_addr(void *p, int slice, int stm, const char *name)
 void kslice_sub_read(int s, int slice, int stm, const char *name)
 {
   char str[128];
-  create_name(str, slice, stm, name, 0);
+  create_name(str, slice, stm, name, -1);
   FILE *F = fopen(str, "rb");
   if (!F) {
     fprintf(stderr, "Could not open %s for reading.\n", str);

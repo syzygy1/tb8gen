@@ -6,6 +6,7 @@
 
 #include <getopt.h>
 #include <inttypes.h>
+#include <stdarg.h>
 #include <stdatomic.h>
 #include <stdint.h>
 #include <stdio.h>
@@ -48,6 +49,22 @@ char *g_tablename;
 static uint64_t *work_g, *work_capt[MAX_SETS];
 
 static int pc_to_set[MAX_PIECES];
+
+void create_dir(int n, int stm, const char *name)
+{
+  char pathname[128];
+
+  if (n >= 0)
+    sprintf(pathname, "%d/%s/%c/", n, name, "wb"[stm]);
+  else
+    sprintf(pathname, "%s/%c/", name, "wb"[stm]);
+  for (char *p = pathname + 1; *p; p++)
+    if (*p == '/') {
+      *p = 0;
+      make_dir(pathname);
+      *p = '/';
+    }
+}
 
 void init_tables(void)
 {
@@ -301,6 +318,12 @@ static void calc_sub_kslices(int stm)
 {
   g_pos.stm = stm;
 
+  create_dir(-1, stm, "sub/loss");
+  create_dir(-1, stm, "sub/bloss");
+//  create_dir(-1, stm, "sub/draw");
+  create_dir(-1, stm, "sub/cwin");
+  create_dir(-1, stm, "sub/win");
+
   for (int s = 0; s < 462; s++) {
     g_pos.sq[0] = KKSquare[s][0];
     g_pos.sq[1] = KKSquare[s][1];
@@ -310,11 +333,11 @@ static void calc_sub_kslices(int stm)
       work_set = k;
       run_threaded(calc_sub_worker, work_capt[k], 0);
     }
-    kslice_sub_write_addr(kslice_sub_buf[0], s, stm, "sub_loss");
-    kslice_sub_write_addr(kslice_sub_buf[1], s, stm, "sub_bloss");
-    kslice_sub_write_addr(kslice_sub_buf[2], s, stm, "sub_draw");
-    kslice_sub_write_addr(kslice_sub_buf[3], s, stm, "sub_cwin");
-    kslice_sub_write_addr(kslice_sub_buf[4], s, stm, "sub_win");
+    kslice_sub_write_addr(kslice_sub_buf[0], s, stm, "sub/loss");
+    kslice_sub_write_addr(kslice_sub_buf[1], s, stm, "sub/bloss");
+//    kslice_sub_write_addr(kslice_sub_buf[2], s, stm, "sub/draw");
+    kslice_sub_write_addr(kslice_sub_buf[3], s, stm, "sub/cwin");
+    kslice_sub_write_addr(kslice_sub_buf[4], s, stm, "sub/win");
   }
 }
 
@@ -881,7 +904,7 @@ static void calc_capt_win_bloss(int stm)
     }
 
     int s = mgr->kslice;
-    kslice_sub_read(s, s, stm ^ 1, "sub_loss");
+    kslice_sub_read(s, s, stm ^ 1, "sub/loss");
     predecessors_sub(stm, s, false);
 
     for (int j = 0; mgr->out[j] >= 0; j++) {
@@ -921,6 +944,9 @@ static bool calc_L_n(int stm, int n, bool more_l)
 {
   uint64_t cnt = 0;
 
+  create_dir(n, stm, "L");
+  create_dir(n, stm, "X");
+
   // Calculate potential losses in n = predecessors(W(n-1))
   for (int i = 0; i < 462; i++) {
     struct KSliceManager *mgr = kslice_get_manager(stm, i);
@@ -933,12 +959,12 @@ static bool calc_L_n(int stm, int n, bool more_l)
     // uncapturing from stm^1 (c)winning positions.
     int s = mgr->kslice;
     if (n == 1) {
-      kslice_sub_read(s, s, stm ^ 1, "sub_win");
+      kslice_sub_read(s, s, stm ^ 1, "sub/win");
       predecessors_sub(stm, s, true);
     } else if (n == DRAW_RULE + 1) {
       // We must subtract sub_win from sub_cwin here.
-      kslice_sub_read(-1, s, stm ^ 1, "sub_win");
-      kslice_sub_read(s, s, stm ^ 1, "sub_cwin");
+      kslice_sub_read(-1, s, stm ^ 1, "sub/win");
+      kslice_sub_read(s, s, stm ^ 1, "sub/cwin");
       kslice_sub_and_not(s, -1, stm ^ 1);
       predecessors_sub(stm, s, false); // Illegal positions were removed, too.
     }
@@ -981,7 +1007,7 @@ static bool calc_L_n(int stm, int n, bool more_l)
       kslice_read(s, s, stm ^ 1, "wins", 0);
       // If there are very few predecessors, it might be more efficient to
       // directly probe_wdl() their captures.
-      kslice_sub_read(s, s, stm ^ 1, n <= DRAW_RULE ? "sub_win" : "sub_cwin");
+      kslice_sub_read(s, s, stm ^ 1, n <= DRAW_RULE ? "sub/win" : "sub/cwin");
     }
 
     int s = mgr->kslice;
@@ -1003,6 +1029,8 @@ static bool calc_W_n(int stm, int n, bool more_w)
 {
   uint64_t cnt = 0;
 
+  create_dir(n, stm, "W");
+
   // Calculate wins in n = predecessors(L(n-1))
   for (int i = 0; i < 462; i++) {
     struct KSliceManager *mgr = kslice_get_manager(stm, i);
@@ -1013,10 +1041,10 @@ static bool calc_W_n(int stm, int n, bool more_w)
 
     int s = mgr->kslice;
     if (n == 1) {
-      kslice_sub_read(s, s, stm ^ 1, "sub_loss");
+      kslice_sub_read(s, s, stm ^ 1, "sub/loss");
       predecessors_sub(stm, s, false);
     } else if (n == DRAW_RULE + 1) {
-      kslice_sub_read(s, s, stm ^ 1, "sub_bloss");
+      kslice_sub_read(s, s, stm ^ 1, "sub/bloss");
       predecessors_sub(stm, s, false);
     }
 
@@ -1122,7 +1150,7 @@ static bool calc_L101(int stm, bool more)
       int s = mgr->in[j];
       kslice_reserve(s);
       kslice_read(s, s, stm ^ 1, "wins", 0);
-      kslice_sub_read(s, s, stm ^ 1, "sub_win");
+      kslice_sub_read(s, s, stm ^ 1, "sub/win");
     }
 
     int s = mgr->kslice;
@@ -1356,10 +1384,18 @@ int main(int argc, char **argv)
   for (int i = 0; i < ii.numsets; i++)
     work_capt[i] = create_work(g_total_work, capt_ii[i].size, 0x1ff);
 
+  make_dir(g_tablename);
+  change_dir(g_tablename);
+
   // Calculate kslices for positions reached through a capture.
+  make_dir("sub");
   calc_sub_kslices(WHITE);
   calc_sub_kslices(BLACK);
 
+  create_dir(0, WHITE, "wins");
+  create_dir(0, BLACK, "wins");
+  create_dir(0, WHITE, "L");
+  create_dir(0, BLACK, "L");
   calc_illegal_and_mate();
 
 #if 0
