@@ -5,9 +5,11 @@
 */
 
 #include <assert.h>
+#include <errno.h>
 #include <inttypes.h>
 #include <string.h>
 #include <stdlib.h>
+#include <sys/stat.h>
 
 #include "defs.h"
 #include "movegen.h"
@@ -18,74 +20,97 @@
 #include "types.h"
 #include "util.h"
 
-struct KSliceManager manager[2][462];
-
 uint8_t *kslice_buf[20];
 uint8_t *kslice_sub_buf[19];
 size_t sub_offset[MAX_SETS];
 static bool kslice_in_use[19];
-//static bool kslice_dirty[19];
 int8_t kslice_slot[463];
 uint64_t kslice_cache_lines;
 size_t sub_size[2];
 static uint64_t *work_cl, *work_clc;
 static uint64_t *work_sub_cl[2];
 
-static int flip(int s)
+static constexpr Bitboard LOWER  = 0x80c0e0f0f8fcfeffull;
+
+static Bitboard around_bb(Bitboard b)
 {
-  int wk = KKSquare[s][0];
-  int bk = KKSquare[s][1];
-  return KKMap[bk][wk];
+  static constexpr Bitboard FILE_A = 0x0101010101010101ull;
+  static constexpr Bitboard FILE_H = 0x8080808080808080ull;
+
+  Bitboard east  = (b & ~FILE_H) << 1;
+  Bitboard west  = (b & ~FILE_A) >> 1;
+  Bitboard north = b << 8;
+  Bitboard south = b >> 8;
+
+  Bitboard ne = (b & ~FILE_H) << 9;
+  Bitboard nw = (b & ~FILE_A) << 7;
+  Bitboard se = (b & ~FILE_H) >> 7;
+  Bitboard sw = (b & ~FILE_A) >> 9;
+
+  return b | east | west | north | south | ne | nw | se | sw;
 }
 
-static void init_kslice_manager(void)
+static int kslice(int stm, int k1, int k2)
 {
-  int j, s = 0;
-  Bitboard loaded = 0;
-  for (int i = 0; i < 10; i++) {
-    for (int bk = 0; bk < 64; bk++) {
-      if (KKIdx[i][bk] < 0) continue;
-      manager[BLACK][s].kslice = KKIdx[i][bk];
-      Bitboard b = (bit(bk) | king_attacks(bk)) & ~loaded;
-      j = 0;
-      while (b) {
-        int sq = pop_lsb(&b);
-        if (KKIdx[i][sq] >= 0) {
-          manager[BLACK][s].in[j++] = KKIdx[i][sq];
-          loaded |= bit(sq);
-          assert(j < 11);
-        }
-      }
-      manager[BLACK][s].in[j] = -1;
-      b = bk == 63 ? loaded : bk >= 9 ? (loaded & ((1ULL << (bk - 8)) - 1)) : 0;
-      j = 0;
-      while (b) {
-        int sq = pop_lsb(&b);
-        manager[BLACK][s].out[j++] = KKIdx[i][sq];
-        loaded ^= bit(sq);
-        assert(j < 11);
-      }
-      manager[BLACK][s].out[j] = -1;
-      s++;
-    }
-    assert(!loaded);
-  }
-  assert(s == 462);
-
-  for (int s = 0; s < 462; s++) {
-    manager[WHITE][s].kslice = flip(manager[BLACK][s].kslice);
-    for (j = 0; manager[BLACK][s].in[j] >= 0; j++)
-      manager[WHITE][s].in[j] = flip(manager[BLACK][s].in[j]);
-    manager[WHITE][s].in[j] = -1;
-    for (j = 0; manager[BLACK][s].out[j] >= 0; j++)
-      manager[WHITE][s].out[j] = flip(manager[BLACK][s].out[j]);
-    manager[WHITE][s].out[j] = -1;
-  }
+  return stm == WHITE ? KKMap[k2][InvTriangle[k1]]
+                      : KKMap[InvTriangle[k1]][k2];
 }
 
-struct KSliceManager *kslice_get_manager(int stm, int i)
+void kslice_iter_init(struct KSliceIterator *iter, int stm)
 {
-  return &manager[stm][i];
+  *iter = (struct KSliceIterator){ .todo = 0, .stm = stm, .k1 = -1 };
+}
+
+bool kslice_iter_next(struct KSliceIterator *iter, int *s)
+{
+  if (!iter->todo) {
+    if (++iter->k1 == 10)
+      return false;
+    iter->reserved = 0;
+    iter->todo = ~KingMask[InvTriangle[iter->k1]];
+    if (iter->k1 >= 6)
+      iter->todo &= LOWER;
+  }
+
+  int k2 = pop_lsb(&iter->todo);
+  Bitboard b =  KingMask[k2] & ~KingMask[InvTriangle[iter->k1]]
+              & ~iter->reserved;
+  iter->in_slices = iter->k1 < 6 ? b : b & LOWER;
+  *s = kslice(iter->stm, iter->k1, k2);
+  iter->releasing = false;
+  return true;
+}
+
+bool kslice_iter_in(struct KSliceIterator *iter, int *in)
+{
+  if (!iter->in_slices) {
+    return false;
+  }
+
+  int k2 = pop_lsb(&iter->in_slices);
+  iter->reserved |= bit(k2);
+  int s = kslice(iter->stm, iter->k1, k2);
+  kslice_reserve(s);
+  *in = s;
+  return true;
+}
+
+bool kslice_iter_out(struct KSliceIterator *iter, int *out)
+{
+  if (!iter->releasing) {
+    iter->out_slices = iter->reserved & ~around_bb(iter->todo);
+    iter->releasing = true;
+  } else {
+    kslice_release(iter->release_slice);
+  }
+
+  if (!iter->out_slices)
+    return false;
+
+  int k2 = pop_lsb(&iter->out_slices);
+  iter->reserved ^= bit(k2);
+  *out = iter->release_slice = kslice(iter->stm, iter->k1, k2);
+  return true;
 }
 
 // Convert number of bits to number of bytes rounded up to cache lines.
@@ -97,7 +122,6 @@ INLINE size_t bits_to_aligned(size_t size)
 
 void kslice_setup(void)
 {
-  init_kslice_manager();
   size_t size = bits_to_aligned(kslice_size);
   for (int i = 0; i < 20; i++) {
     kslice_buf[i] = alloc_huge(size);
@@ -314,7 +338,8 @@ static void create_name(char *str, int s, int stm, const char *name, int n)
         '1' + (wk >> 3), 'a'+ (bk & 7), '1' + (bk >> 3));
 }
 
-void kslice_write_addr(void *p, int slice, int stm, const char *name, int n)
+void kslice_write_addr(void *p, int slice, int stm, const char *name, int n,
+    uint64_t num)
 {
   char str[128];
   create_name(str, slice, stm, name, n);
@@ -323,26 +348,53 @@ void kslice_write_addr(void *p, int slice, int stm, const char *name, int n)
     fprintf(stderr, "Could not open %s for writing.\n", str);
     exit(EXIT_FAILURE);
   }
-  write_data(F, p, kslice_cache_lines << 6);
+  if (num > 0)
+    write_data(F, p, kslice_cache_lines << 6);
   fclose(F);
 }
 
-void kslice_write(int s, int slice, int stm, const char *name, int n)
+void kslice_write(int s, int slice, int stm, const char *name, int n,
+    uint64_t num)
 {
-  kslice_write_addr(kslice_get_address(s), slice, stm, name, n);
+  kslice_write_addr(kslice_get_address(s), slice, stm, name, n, num);
 }
 
-void kslice_read(int s, int slice, int stm, const char *name, int n)
+bool kslice_test(int slice, int stm, const char *name, int n)
 {
   char str[128];
   create_name(str, slice, stm, name, n);
+  struct stat st;
+  if (stat(str, &st) < 0) {
+    if (errno == ENOENT)
+      return false;
+    fprintf(stderr, "Error trying to access %s.\n", str);
+    exit(EXIT_FAILURE);
+  }
+  return st.st_size != 0;
+}
+
+bool kslice_read(int s, int slice, int stm, const char *name, int n)
+{
+  char str[128];
+  create_name(str, slice, stm, name, n);
+
   FILE *F = fopen(str, "rb");
-  if (!F) {
+  if (!F && errno != ENOENT) {
     fprintf(stderr, "Could not open %s for reading.\n", str);
     exit(EXIT_FAILURE);
   }
-  read_data(F, kslice_get_address(s), kslice_cache_lines << 6);
-  fclose(F);
+  bool non_empty = F != 0;
+  if (F) {
+    struct stat st;
+    fstat(fileno(F), &st);
+    non_empty = st.st_size != 0;
+  }
+  if (non_empty)
+    read_data(F, kslice_get_address(s), kslice_cache_lines << 6);
+  else
+    kslice_clear(s);
+  if (F) fclose(F);
+  return non_empty;
 }
 
 void kslice_delete(int slice, int stm, const char *name, int n)
@@ -352,7 +404,16 @@ void kslice_delete(int slice, int stm, const char *name, int n)
   remove(str);
 }
 
-void kslice_sub_write_addr(void *p, int slice, int stm, const char *name)
+void kslice_sub_clear(int s, int stm)
+{
+  if (sub_size[stm] == 0) return;
+
+  work_p = kslice_sub_get_base(s);
+  run_threaded(clear_worker, work_sub_cl[stm], 0);
+}
+
+void kslice_sub_write_addr(void *p, int slice, int stm, const char *name,
+    uint64_t num)
 {
   char str[128];
   create_name(str, slice, stm, name, -1);
@@ -361,7 +422,8 @@ void kslice_sub_write_addr(void *p, int slice, int stm, const char *name)
     fprintf(stderr, "Could not open %s for writing.\n", str);
     exit(EXIT_FAILURE);
   }
-  write_data(F, p, sub_size[stm]);
+  if (num > 0)
+    write_data(F, p, sub_size[stm]);
   fclose(F);
 }
 
@@ -374,7 +436,12 @@ void kslice_sub_read(int s, int slice, int stm, const char *name)
     fprintf(stderr, "Could not open %s for reading.\n", str);
     exit(EXIT_FAILURE);
   }
-  read_data(F, kslice_sub_get_base(s), sub_size[stm]);
+  struct stat st;
+  fstat(fileno(F), &st);
+  if (st.st_size > 0)
+    read_data(F, kslice_sub_get_base(s), sub_size[stm]);
+  else
+    kslice_sub_clear(s, stm);
   fclose(F);
 }
 
@@ -424,4 +491,21 @@ uint64_t kslice_count_addr(void *p)
 uint64_t kslice_count(int s)
 {
   return kslice_count_addr(kslice_get_address(s));
+}
+
+uint64_t kslice_sub_count_addr(void *p, int stm)
+{
+  if (sub_size[stm] == 0)
+    return 0;
+
+  work_p = p;
+
+  uint64_t cnt = 0;
+  for (int t = 0; t < g_num_threads; t++)
+    g_thread_data[t].cnt = 0;
+  run_threaded(count_worker, work_sub_cl[stm], 0);
+  for (int t = 0; t < g_num_threads; t++)
+    cnt += g_thread_data[t].cnt;
+
+  return cnt;
 }

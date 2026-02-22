@@ -14,10 +14,12 @@
 #include "defs.h"
 #include "types.h"
 
-struct KSliceManager {
-  int16_t kslice;
-  int16_t in[11];
-  int16_t out[11];
+struct KSliceIterator {
+  Bitboard reserved, todo, in_slices, out_slices;
+  int stm;
+  int k1;
+  int release_slice;
+  bool releasing;
 };
 
 extern uint8_t *kslice_buf[20];
@@ -26,6 +28,11 @@ extern size_t sub_offset[MAX_SETS];
 extern int8_t kslice_slot[463];
 
 extern uint64_t kslice_cache_lines;
+
+void kslice_iter_init(struct KSliceIterator *iter, int stm);
+bool kslice_iter_next(struct KSliceIterator *iter, int *s);
+bool kslice_iter_in(struct KSliceIterator *iter, int *in);
+bool kslice_iter_out(struct KSliceIterator *iter, int *out);
 
 INLINE void kslice_bit_flip(uint8_t *restrict p, uint64_t idx)
 {
@@ -72,7 +79,6 @@ INLINE uint8_t *kslice_sub_get_address(int s, int set)
   return kslice_sub_get_base(s) + sub_offset[set];
 }
 
-struct KSliceManager *kslice_get_manager(int stm, int i);
 void kslice_setup(void);
 void kslice_cleanup(void);
 void kslice_reserve(int s);
@@ -87,14 +93,19 @@ void kslice_and(int s1, int s2);
 void kslice_and_not(int s1, int s2);
 void kslice_not_and(int s1, int s2);
 void kslice_nor(int s1, int s2);
-void kslice_write(int s, int slice, int stm, const char *name, int n);
-void kslice_write_addr(void *p, int slice, int stm, const char *name, int n);
-void kslice_read(int s, int slice, int stm, const char *name, int n);
+void kslice_write(int s, int slice, int stm, const char *name, int n,
+    uint64_t num);
+void kslice_write_addr(void *p, int slice, int stm, const char *name, int n,
+    uint64_t num);
+bool kslice_test(int slice, int stm, const char *name, int n);
+bool kslice_read(int s, int slice, int stm, const char *name, int n);
 void kslice_delete(int slice, int stm, const char *name, int n);
-void kslice_sub_write_addr(void *p, int slice, int stm, const char *name);
+void kslice_sub_write_addr(void *p, int slice, int stm, const char *name,
+    uint64_t cnt);
 void kslice_sub_read(int s, int slice, int stm, const char *name);
 void kslice_sub_and_not(int s1, int s2, int stm);
 uint64_t kslice_count(int s);
 uint64_t kslice_count_addr(void *p);
+uint64_t kslice_sub_count_addr(void *p, int stm);
 
 #endif

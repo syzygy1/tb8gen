@@ -226,12 +226,15 @@ static void init(void)
   }
 }
 
+static uint64_t total_read = 0, total_written = 0;
+
 void file_read(void *ptr, size_t size, FILE *F)
 {
   if (fread(ptr, 1, size, F) != size) {
     fprintf(stderr, "Error reading data from disk.\n");
     exit(EXIT_FAILURE);
   }
+  total_read += size;
 }
 
 void file_write(void *ptr, size_t size, FILE *F)
@@ -240,6 +243,13 @@ void file_write(void *ptr, size_t size, FILE *F)
     fprintf(stderr, "Error writing data to disk.\n");
     exit(EXIT_FAILURE);
   }
+  total_written += size;
+}
+
+void report_io(void)
+{
+  printf("total bytes written = %lu\n", total_written);
+  printf("total bytes read = %lu\n", total_read);
 }
 
 static size_t compress(struct CompressState *state, void *dst, void *src,

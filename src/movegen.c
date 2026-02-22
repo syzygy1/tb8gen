@@ -9,7 +9,7 @@
 Bitboard Bit[64];
 Bitboard KnightAttacks[64], KingAttacks[64];
 Bitboard PawnAttacks[2][64];
-Bitboard SidesMask[64];
+Bitboard KingMask[64];
 
 static signed char PawnDelta[2][2][2] = {
   { {  7,  15 }, {  9,  17 } },
@@ -67,6 +67,7 @@ void init_movegen(void)
     PawnAttacks[BLACK][sq] = calc_attacks(sq, PawnDelta[BLACK], 2);
     KnightAttacks[sq]      = calc_attacks(sq, KnightDelta,      8);
     KingAttacks[sq]        = calc_attacks(sq, KingDelta,        8);
+    KingMask[sq]           = KingAttacks[sq] | bit(sq);
   }
 
   init_sliding_attacks();

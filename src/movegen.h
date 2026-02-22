@@ -29,10 +29,7 @@ typedef struct Position Position;
 
 extern Bitboard Bit[64], KnightAttacks[64], KingAttacks[64];
 extern Bitboard PawnAttacks[2][64], SidesMask[64];
-
-#ifdef ATOMIC
-extern Bitboard AtomMask[64];
-#endif
+extern Bitboard KingMask[64];
 
 INLINE Bitboard bit(int sq)
 {

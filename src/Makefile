@@ -6,7 +6,7 @@ FLAGS += -DUSE_ZSTD -DZSTD_LEVEL=6
 LDFLAGS += -lzstd -lm
 
 # Specify number of threads used for (de)compression of temporary files.
-FLAGS += -DCOMPRESSION_THREADS=12
+FLAGS += -DCOMPRESSION_THREADS=16
 
 debug = no
 

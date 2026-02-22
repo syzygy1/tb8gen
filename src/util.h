@@ -166,6 +166,7 @@ void write_u8(FILE *F, uint8_t v);
 
 void file_read(void *ptr, size_t size, FILE *F);
 void file_write(void *ptr, size_t size, FILE *F);
+void report_io(void);
 
 //void write_bits(FILE *F, uint32_t bits, int n);
 
