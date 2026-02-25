@@ -351,3 +351,30 @@ void read_data(FILE *F, uint8_t *dst, uint64_t size)
   cmprs_size = size;
   run_compression(read_data_worker);
 }
+
+void create_dir(int n, int stm, const char *name)
+{
+  char pathname[128];
+
+  if (n >= 0)
+    sprintf(pathname, "%d/%s/%c/", n, name, "wb"[stm]);
+  else
+    sprintf(pathname, "%s/%c/", name, "wb"[stm]);
+  for (char *p = pathname + 1; *p; p++)
+    if (*p == '/') {
+      *p = 0;
+      make_dir(pathname);
+      *p = '/';
+    }
+}
+
+void create_name(char *str, int s, int stm, const char *name, int n)
+{
+  int wk = KKSquare[s][0], bk = KKSquare[s][1];
+  if (n >= 0)
+    sprintf(str, "%d/%s/%c/%c%c%c%c", n, name, "wb"[stm], 'a' + (wk & 7),
+        '1' + (wk >> 3), 'a'+ (bk & 7), '1' + (bk >> 3));
+  else
+    sprintf(str, "%s/%c/%c%c%c%c", name, "wb"[stm], 'a' + (wk & 7),
+        '1' + (wk >> 3), 'a'+ (bk & 7), '1' + (bk >> 3));
+}

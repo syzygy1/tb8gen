@@ -189,7 +189,7 @@ int worker(void *arg)
 
     int total = queue.total;
 
-    while (1) {
+    while (true) {
       int w = atomic_fetch_add_explicit(&queue.counter, 1,
             memory_order_relaxed);
       if (w >= total) break;
@@ -221,7 +221,7 @@ int group_worker(void *arg)
 
     int total = g->queue.total;
 
-    while (1) {
+    while (true) {
       int w = atomic_fetch_add_explicit(&(g->queue.counter), 1,
             memory_order_relaxed);
       if (w >= total) break;

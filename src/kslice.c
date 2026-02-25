@@ -12,6 +12,7 @@
 #include <sys/stat.h>
 
 #include "defs.h"
+#include "index.h"
 #include "movegen.h"
 #include "kslice.h"
 #include "probe.h"
@@ -22,13 +23,15 @@
 
 uint8_t *kslice_buf[20];
 uint8_t *kslice_sub_buf[19];
+size_t kslice_size, kslice_sub_size[MAX_SETS];
 size_t sub_offset[MAX_SETS];
-static bool kslice_in_use[19];
+size_t sub_size[2];
 int8_t kslice_slot[463];
 uint64_t kslice_cache_lines;
-size_t sub_size[2];
+
 static uint64_t *work_cl, *work_clc;
 static uint64_t *work_sub_cl[2];
+static bool kslice_in_use[19];
 
 static constexpr Bitboard LOWER  = 0x80c0e0f0f8fcfeffull;
 
@@ -120,18 +123,23 @@ INLINE size_t bits_to_aligned(size_t size)
   return (size + 0x3f) & ~0x3f;
 }
 
-void kslice_setup(void)
+uint8_t *alloc_kslice(void)
 {
   size_t size = bits_to_aligned(kslice_size);
-  for (int i = 0; i < 20; i++) {
-    kslice_buf[i] = alloc_huge(size);
-    if (!kslice_buf[i])
-      out_of_mem();
-  }
+  uint8_t *p = alloc_huge(size);
+  if (!p)
+    out_of_mem();
+  return p;
+}
+
+void kslice_setup(void)
+{
+  for (int i = 0; i < 20; i++)
+    kslice_buf[i] = alloc_kslice();
   kslice_slot[0] = 19;
   for (int i = 0; i < 462; i++)
     kslice_slot[i + 1] = -1;
-  kslice_cache_lines = size >> 6;
+  kslice_cache_lines = bits_to_aligned(kslice_size) >> 6;
   work_cl = create_work(g_total_work, kslice_cache_lines, 0);
   work_clc = create_work(g_total_work, kslice_cache_lines - 1, 0);
   sub_size[0] = sub_size[1] = 0;
@@ -140,7 +148,7 @@ void kslice_setup(void)
     sub_offset[i] = sub_size[stm];
     sub_size[stm] += bits_to_aligned(kslice_sub_size[i]);
   }
-  size = max(sub_size[WHITE], sub_size[BLACK]);
+  uint64_t size = max(sub_size[WHITE], sub_size[BLACK]);
   for (int i = 0; i < 19; i++) {
     kslice_sub_buf[i] = alloc_huge(size);
     if (!kslice_sub_buf[i])
@@ -148,6 +156,20 @@ void kslice_setup(void)
   }
   work_sub_cl[WHITE] = create_work(g_total_work, sub_size[WHITE] >> 6, 0);
   work_sub_cl[BLACK] = create_work(g_total_work, sub_size[BLACK] >> 6, 0);
+}
+
+void kslice_free_buffers(void)
+{
+  for (int i = 0; i < 19; i++) {
+    if (kslice_buf[i]) {
+      free(kslice_buf[i]);
+      kslice_buf[i] = nullptr;
+    }
+    if (kslice_sub_buf[i]) {
+      free(kslice_sub_buf[i]);
+      kslice_sub_buf[i] = nullptr;
+    }
+  }
 }
 
 void kslice_cleanup(void)
@@ -325,17 +347,6 @@ void kslice_nor(int s1, int s2)
   work_q = kslice_get_address(s2);
 
   run_threaded(nor_worker, work_cl, 0);
-}
-
-static void create_name(char *str, int s, int stm, const char *name, int n)
-{
-  int wk = KKSquare[s][0], bk = KKSquare[s][1];
-  if (n >= 0)
-    sprintf(str, "%d/%s/%c/%c%c%c%c", n, name, "wb"[stm], 'a' + (wk & 7),
-        '1' + (wk >> 3), 'a'+ (bk & 7), '1' + (bk >> 3));
-  else
-    sprintf(str, "%s/%c/%c%c%c%c", name, "wb"[stm], 'a' + (wk & 7),
-        '1' + (wk >> 3), 'a'+ (bk & 7), '1' + (bk >> 3));
 }
 
 void kslice_write_addr(void *p, int slice, int stm, const char *name, int n,
