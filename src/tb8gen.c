@@ -193,14 +193,32 @@ int main(int argc, char **argv)
 
   generate();
 
+  printf("max_iteration = %d\n", max_iteration);
+
   kslice_free_buffers(); // Free memory but keep slice "-1".
 
-  merge();
+  merge(MERGE_SAVE);
 
   printf("\n########## %s ##########\n", g_tablename);
   collect_stats(WHITE);
   collect_stats(BLACK);
   printf("\n");
+
+  // NOTE: We are now calculating the (zero-order) entropy of different
+  // DTZ encodings on the basis of the cleaned-up statistics extracted from
+  // the merged table. The problem with this is that this requires merging
+  // the bitmaps for ALL K-slices first, so we would have to save the merged
+  // slices to disk or remerge them a second time.
+  // To avoid this, we should calculate the entropy values from the win/loss
+  // counts collected during generation to decide on the DTZ encoding to be
+  // used. We then only need to save the relevant information from the merged
+  // slice (or compress it directly).
+  printf("entropy wtm  = %lf\n", entropy_one_sided(WHITE));
+  printf("entropy btm  = %lf\n", entropy_one_sided(BLACK));
+  printf("entropy loss = %lf\n",
+      entropy_loss_only(WHITE) + (symmetric? 0.0 : entropy_loss_only(BLACK)));
+  printf("entropy win  = %lf\n",
+      entropy_win_only(WHITE) + (symmetric ? 0.0 : entropy_win_only(BLACK)));
 
   kslice_cleanup();
 

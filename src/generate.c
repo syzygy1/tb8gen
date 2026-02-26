@@ -98,6 +98,11 @@ static void calc_sub_kslices(int stm)
 {
   g_pos.stm = stm;
 
+  create_dir(-1, stm, "sub/loss");
+  create_dir(-1, stm, "sub/bloss");
+  create_dir(-1, stm, "sub/draw");
+  create_dir(-1, stm, "sub/cwin");
+  create_dir(-1, stm, "sub/win");
 
   for (int s = 0; s < 462; s++) {
     for (int t = 0; t < g_num_threads; t++)
@@ -119,31 +124,18 @@ static void calc_sub_kslices(int stm)
       cnt_ilgl += g_thread_data[t].cnt;
 
     cnt_l = kslice_sub_count_addr(kslice_sub_buf[0], stm);
-    if (cnt_l) {
-      create_dir(-1, stm, "sub/loss");
-      kslice_sub_write_addr(kslice_sub_buf[0], s, stm, "sub/loss", cnt_l);
-    }
+    kslice_sub_write_addr(kslice_sub_buf[0], s, stm, "sub/loss", cnt_l);
 
     cnt_bl = kslice_sub_count_addr(kslice_sub_buf[1], stm);
-    if (cnt_bl) {
-      create_dir(-1, stm, "sub/bloss");
-      kslice_sub_write_addr(kslice_sub_buf[1], s, stm, "sub/bloss", cnt_bl);
-    }
+    kslice_sub_write_addr(kslice_sub_buf[1], s, stm, "sub/bloss", cnt_bl);
 
     cnt_d = kslice_sub_count_addr(kslice_sub_buf[2], stm);
-    if (cnt_d) {
-      create_dir(-1, stm, "sub/draw");
-      kslice_sub_write_addr(kslice_sub_buf[2], s, stm, "sub/draw", cnt_d);
-    }
+    kslice_sub_write_addr(kslice_sub_buf[2], s, stm, "sub/draw", cnt_d);
 
     cnt_cw = kslice_sub_count_addr(kslice_sub_buf[3], stm);
-    if (cnt_cw) {
-      create_dir(-1, stm, "sub/cwin");
-      kslice_sub_write_addr(kslice_sub_buf[3], s, stm, "sub/cwin", cnt_cw);
-    }
+    kslice_sub_write_addr(kslice_sub_buf[3], s, stm, "sub/cwin", cnt_cw);
 
     cnt_w = kslice_sub_count_addr(kslice_sub_buf[4], stm);
-    create_dir(-1, stm, "sub/win");
     kslice_sub_write_addr(kslice_sub_buf[4], s, stm, "sub/win", cnt_w);
 
     sub_cnt[stm][0] += cnt_l;
@@ -236,11 +228,13 @@ static void calc_capt(int stm)
     int s, s1;
     while (kslice_iter_next(&iter, &s)) {
 
-      while (kslice_iter_in(&iter, &s1))
-        kslice_clear(s1);
+      if (kslice_test(s, stm ^ 1, "sub/loss", -1)) {
+        while (kslice_iter_in(&iter, &s1))
+          kslice_clear(s1);
 
-      kslice_sub_read(s, s, stm ^ 1, "sub/loss");
-      predecessors_sub(stm, s, false);
+        kslice_sub_read(s, s, stm ^ 1, "sub/loss");
+        predecessors_sub(stm, s, false);
+      }
 
       while (kslice_iter_out(&iter, &s))
         kslice_write(s, s, stm, "capt/win", -1, UINT64_MAX);
@@ -254,11 +248,13 @@ static void calc_capt(int stm)
     int s, s1;
     while (kslice_iter_next(&iter, &s)) {
 
-      while (kslice_iter_in(&iter, &s1))
-        kslice_clear(s1);
+      if (kslice_test(s, stm ^ 1, "sub/bloss", -1)) {
+        while (kslice_iter_in(&iter, &s1))
+          kslice_clear(s1);
 
-      kslice_sub_read(s, s, stm ^ 1, "sub/bloss");
-      predecessors_sub(stm, s, false);
+        kslice_sub_read(s, s, stm ^ 1, "sub/bloss");
+        predecessors_sub(stm, s, false);
+      }
 
       while (kslice_iter_out(&iter, &s))
         kslice_write(s, s, stm, "capt/cwin", -1, UINT64_MAX);
@@ -272,11 +268,13 @@ static void calc_capt(int stm)
     int s, s1;
     while (kslice_iter_next(&iter, &s)) {
 
-      while (kslice_iter_in(&iter, &s1))
-        kslice_clear(s1);
+      if (kslice_test(s, stm ^ 1, "sub/draw", -1)) {
+        while (kslice_iter_in(&iter, &s1))
+          kslice_clear(s1);
 
-      kslice_sub_read(s, s, stm ^ 1, "sub/draw");
-      predecessors_sub(stm, s, false);
+        kslice_sub_read(s, s, stm ^ 1, "sub/draw");
+        predecessors_sub(stm, s, false);
+      }
 
       while (kslice_iter_out(&iter, &s))
         kslice_write(s, s, stm, "capt/draw", -1, UINT64_MAX);
@@ -674,7 +672,7 @@ static bool calc_L(int stm, int n, bool more_l)
         // If there are very few predecessors, it might be more efficient to
         // directly probe_wdl() their captures.
         kslice_sub_read(s1, s1, stm ^ 1,
-            n <= DRAW_RULE || !sub_cnt[stm ^ 1][cnt] ? "sub/win" : "sub/cwin");
+            n <= DRAW_RULE || !sub_cnt[stm ^ 1][3] ? "sub/win" : "sub/cwin");
       }
 
       kslice_read(-1, s, stm, "X", n);

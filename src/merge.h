@@ -7,6 +7,11 @@
 #ifndef MERGE_H
 #define MERGE_H
 
-void merge(void);
+enum { MERGE_SAVE, MERGE_COMPRESS };
+
+void merge(int merge_type);
 void collect_stats(int stm);
+double entropy_one_sided(int stm), entropy_loss_only(int stm),
+       entropy_win_only(int stm);
+
 #endif
