@@ -23,7 +23,6 @@ static void *merge_table;
 static int merge_n;
 static int work_set, work_slice;
 
-static uint64_t g_stats[2][MAX_STATS];
 alignas(64) static uint64_t thread_stats[32][MAX_STATS];
 
 #define T u8
@@ -42,7 +41,6 @@ void collect_stats(int stm)
 {
   char str[128];
   uint64_t tmp[MAX_STATS];
-  int i;
 
   int mx = max_iteration > 126 ? MAX_STATS : 256;
   uint64_t *stats = g_stats[stm];
@@ -63,6 +61,12 @@ void collect_stats(int stm)
   }
   for (int i = 0; i < MAX_STATS; i++)
     stats[i] >>= 1;
+}
+
+void print_stats(int stm)
+{
+  uint64_t *stats = g_stats[stm];
+  int i;
 
   printf("\n%s to move:\n\n", stm == WHITE ? "White" : "Black");
 

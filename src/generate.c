@@ -217,69 +217,48 @@ static void predecessors_sub(int stm, int s, bool legality)
   }
 }
 
-static void calc_capt(int stm)
+const char *wdl_name[5] = { "loss", "bloss", "draw", "cwin", "win" };
+
+static void calc_capt(int stm, int wdl, int n)
 {
   struct KSliceIterator iter;
+  uint64_t num, cnt = 0;
 
-  if (sub_cnt[stm ^ 1][0]) {
-    create_dir(-1, stm, "capt/win");
+  char capt_name[64], sub_name[64];
+  strcat(strcpy(capt_name, "capt/"), wdl_name[2 + wdl]);
+  strcat(strcpy(sub_name, "sub/"), wdl_name[2 - wdl]);
 
-    kslice_iter_init(&iter, stm);
-    int s, s1;
-    while (kslice_iter_next(&iter, &s)) {
-
-      if (kslice_test(s, stm ^ 1, "sub/loss", -1)) {
-        while (kslice_iter_in(&iter, &s1))
-          kslice_clear(s1);
-
-        kslice_sub_read(s, s, stm ^ 1, "sub/loss");
-        predecessors_sub(stm, s, false);
-      }
-
-      while (kslice_iter_out(&iter, &s))
-        kslice_write(s, s, stm, "capt/win", -1, UINT64_MAX);
-    }
-  }
-
-  if (sub_cnt[stm ^ 1][1]) {
-    create_dir(-1, stm, "capt/cwin");
+  if (sub_cnt[stm ^ 1][2 - wdl]) {
+    create_dir(-1, stm, capt_name);
 
     kslice_iter_init(&iter, stm);
     int s, s1;
     while (kslice_iter_next(&iter, &s)) {
 
-      if (kslice_test(s, stm ^ 1, "sub/bloss", -1)) {
+      if (kslice_test(s, stm ^ 1, sub_name, -1)) {
         while (kslice_iter_in(&iter, &s1))
           kslice_clear(s1);
 
-        kslice_sub_read(s, s, stm ^ 1, "sub/bloss");
+        kslice_sub_read(s, s, stm ^ 1, sub_name);
         predecessors_sub(stm, s, false);
       }
 
-      while (kslice_iter_out(&iter, &s))
-        kslice_write(s, s, stm, "capt/cwin", -1, UINT64_MAX);
-    }
-  }
-
-  if (sub_cnt[stm ^ 1][2]) {
-    create_dir(-1, stm, "capt/draw");
-
-    kslice_iter_init(&iter, stm);
-    int s, s1;
-    while (kslice_iter_next(&iter, &s)) {
-
-      if (kslice_test(s, stm ^ 1, "sub/draw", -1)) {
-        while (kslice_iter_in(&iter, &s1))
-          kslice_clear(s1);
-
-        kslice_sub_read(s, s, stm ^ 1, "sub/draw");
-        predecessors_sub(stm, s, false);
+      while (kslice_iter_out(&iter, &s)) {
+        kslice_read(-1, s, stm, "wins", 0); // Illegal positions.
+        kslice_and_not(s, -1); // Remove illegal positions from capt/win.
+        cnt += num = kslice_count(s);
+        kslice_write(s, s, stm, capt_name, -1, num);
       }
-
-      while (kslice_iter_out(&iter, &s))
-        kslice_write(s, s, stm, "capt/draw", -1, UINT64_MAX);
     }
   }
+
+  g_stats[stm][n] = cnt;
+  printf("capt_%s_%c = %lu\n", wdl_name[2 + wdl], "wb"[stm], cnt);
+}
+
+static void calc_capt_bloss(int stm)
+{
+  struct KSliceIterator iter;
 
   if (sub_cnt[stm ^ 1][3]) {
     create_dir(-1, stm, "capt/bloss");
@@ -594,6 +573,11 @@ static void calc_illegal_and_mate(void)
     kslice_write_addr(kslice_buf[3], s, BLACK, "L", 0, num);
   }
 
+  g_stats[WHITE][0] = broken_w;
+  g_stats[BLACK][0] = broken_b;
+  g_stats[WHITE][MAX_STATS - 1] = loss0_w;
+  g_stats[BLACK][MAX_STATS - 1] = loss0_b;
+
   printf("broken_w = %lu\n", broken_w);
   printf("broken_b = %lu\n", broken_b);
   printf("l0_w = %lu\n", loss0_w);
@@ -684,6 +668,7 @@ static bool calc_L(int stm, int n, bool more_l)
     while (kslice_iter_out(&iter, &s));
   }
 
+  g_stats[stm][MAX_STATS - 1 - n] = cnt;
   printf("l%d_%c = %lu\n", n, "wb"[stm], cnt);
   return cnt != 0;
 }
@@ -747,6 +732,7 @@ static bool calc_W(int stm, int n, bool more_w)
     }
   }
 
+  g_stats[stm][1 + n + (n > DRAW_RULE)] = cnt;
   printf("w%d_%c = %lu\n", n, "wb"[stm], cnt);
   return cnt != 0;
 }
@@ -758,14 +744,18 @@ void generate(void)
   calc_sub_kslices(WHITE);
   calc_sub_kslices(BLACK);
 
-  calc_capt(WHITE);
-  calc_capt(BLACK);
+  calc_capt_bloss(WHITE);
+  calc_capt_bloss(BLACK);
 
   create_dir(0, WHITE, "wins");
   create_dir(0, BLACK, "wins");
   create_dir(0, WHITE, "L");
   create_dir(0, BLACK, "L");
   calc_illegal_and_mate();
+
+  // CAPT_WIN
+  calc_capt(WHITE, 2, 1);
+  calc_capt(BLACK, 2, 1);
 
   bool more_ww = true, more_wb = true, more_lw = true, more_lb = true;
   bool more_wb_next, more_ww_next;
@@ -781,6 +771,10 @@ void generate(void)
     more_wb = more_wb_next;
     more_ww = more_ww_next;
   }
+
+  // CAPT_CWIN
+  calc_capt(WHITE, 1, 2 + DRAW_RULE);
+  calc_capt(BLACK, 1, 2 + DRAW_RULE);
 
   more_wb_next = calc_L(WHITE, n, more_lw);
   more_ww_next = calc_L(BLACK, n, more_lb);
@@ -801,6 +795,10 @@ void generate(void)
     more_wb = more_wb_next;
     more_ww = more_ww_next;
   }
+
+  // CAPT_DRAW
+  calc_capt(WHITE, 0, MAX_STATS / 2);
+  calc_capt(BLACK, 0, MAX_STATS / 2);
 
   max_iteration = n;
 }

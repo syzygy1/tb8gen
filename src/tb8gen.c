@@ -38,6 +38,8 @@ bool g_only_generate, g_use_rans, symmetric;
 char *g_tablename;
 uint64_t *work_g, *work_capt[MAX_SETS];
 
+uint64_t g_stats[2][MAX_STATS];
+
 static struct option options[] = {
   { "threads", 1, nullptr, 't' },
   { "stats", 0, nullptr, 's' },
@@ -192,16 +194,40 @@ int main(int argc, char **argv)
   change_dir(g_tablename);
 
   generate();
-
   printf("max_iteration = %d\n", max_iteration);
+
+  for (int stm = 0; stm < 2; stm++) {
+    // Remove some double counting.
+    g_stats[stm][2] -= g_stats[stm][1];
+    g_stats[stm][3 + DRAW_RULE] -= g_stats[stm][2 + DRAW_RULE];
+    uint64_t tot = 0;
+    for (int i = 0; i < MAX_STATS; i++)
+      tot += g_stats[stm][i];
+    g_stats[stm][MAX_STATS / 2 + 1] = 462 * kslice_size - tot;
+  }
+
+  printf("\n########## %s ##########\n", g_tablename);
+  print_stats(WHITE);
+  print_stats(BLACK);
+  printf("\n");
+
+  printf("entropy wtm  = %lf\n", entropy_one_sided(WHITE));
+  printf("entropy btm  = %lf\n", entropy_one_sided(BLACK));
+  printf("entropy loss = %lf\n",
+      entropy_loss_only(WHITE) + (symmetric? 0.0 : entropy_loss_only(BLACK)));
+  printf("entropy win  = %lf\n\n",
+      entropy_win_only(WHITE) + (symmetric ? 0.0 : entropy_win_only(BLACK)));
 
   kslice_free_buffers(); // Free memory but keep slice "-1".
 
   merge(MERGE_SAVE);
 
-  printf("\n########## %s ##########\n", g_tablename);
   collect_stats(WHITE);
   collect_stats(BLACK);
+
+  printf("########## %s ##########\n", g_tablename);
+  print_stats(WHITE);
+  print_stats(BLACK);
   printf("\n");
 
   // NOTE: We are now calculating the (zero-order) entropy of different
@@ -217,7 +243,7 @@ int main(int argc, char **argv)
   printf("entropy btm  = %lf\n", entropy_one_sided(BLACK));
   printf("entropy loss = %lf\n",
       entropy_loss_only(WHITE) + (symmetric? 0.0 : entropy_loss_only(BLACK)));
-  printf("entropy win  = %lf\n",
+  printf("entropy win  = %lf\n\n",
       entropy_win_only(WHITE) + (symmetric ? 0.0 : entropy_win_only(BLACK)));
 
   kslice_cleanup();

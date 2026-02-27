@@ -359,8 +359,10 @@ void kslice_write_addr(void *p, int slice, int stm, const char *name, int n,
     fprintf(stderr, "Could not open %s for writing.\n", str);
     exit(EXIT_FAILURE);
   }
-  if (num > 0)
+  if (num > 0) {
+    file_write(&num, sizeof(num), F);
     write_data(F, p, kslice_cache_lines << 6);
+  }
   fclose(F);
 }
 
@@ -400,9 +402,11 @@ bool kslice_read(int s, int slice, int stm, const char *name, int n)
     fstat(fileno(F), &st);
     non_empty = st.st_size != 0;
   }
-  if (non_empty)
+  if (non_empty) {
+    uint64_t num;
+    file_read(&num, sizeof(num), F);
     read_data(F, kslice_get_address(s), kslice_cache_lines << 6);
-  else
+  } else
     kslice_clear(s);
   if (F) fclose(F);
   return non_empty;
