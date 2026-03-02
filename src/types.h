@@ -41,6 +41,7 @@ MAX(uint8_t)
 MAX(uint16_t)
 MAX(uint32_t)
 MAX(uint64_t)
+MAX(double)
 #undef MAX
 
 #define MIN(T) INLINE T min_##T(T a, T b) { return a < b ? a : b; }
@@ -50,6 +51,7 @@ MIN(uint8_t)
 MIN(uint16_t)
 MIN(uint32_t)
 MIN(uint64_t)
+MIN(double)
 #undef MIN
 
 #define TEMPLATE(F,a,b) _Generic((a), \
@@ -58,7 +60,8 @@ MIN(uint64_t)
      uint8_t: F##_uint8_t,         \
     uint16_t: F##_uint16_t,        \
     uint32_t: F##_uint32_t,        \
-    uint64_t: F##_uint64_t         \
+    uint64_t: F##_uint64_t,        \
+      double: F##_double           \
 ) (a,b)
 
 #define max(a,b) TEMPLATE(max,a,b)

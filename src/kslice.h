@@ -29,6 +29,8 @@ extern int8_t kslice_slot[463];
 
 extern uint64_t kslice_cache_lines;
 
+extern uint64_t kslice_read_count;
+
 void kslice_iter_init(struct KSliceIterator *iter, int stm);
 bool kslice_iter_next(struct KSliceIterator *iter, int *s);
 bool kslice_iter_in(struct KSliceIterator *iter, int *in);

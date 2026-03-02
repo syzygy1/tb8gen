@@ -21,6 +21,7 @@
 #include "merge.h"
 #include "movegen.h"
 #include "probe.h"
+#include "stats.h"
 #include "tb8gen.h"
 #include "threads.h"
 #include "types.h"
@@ -35,10 +36,10 @@
 
 Position g_pos;
 bool g_only_generate, g_use_rans, symmetric;
+bool one_sided, wins_only;
+int one_sided_stm;
 char *g_tablename;
 uint64_t *work_g, *work_capt[MAX_SETS];
-
-uint64_t g_stats[2][MAX_STATS];
 
 static struct option options[] = {
   { "threads", 1, nullptr, 't' },
@@ -194,7 +195,8 @@ int main(int argc, char **argv)
   change_dir(g_tablename);
 
   generate();
-  printf("max_iteration = %d\n", max_iteration);
+
+  kslice_free_buffers(); // Free memory but keep slice "-1".
 
   for (int stm = 0; stm < 2; stm++) {
     // Remove some double counting.
@@ -211,17 +213,38 @@ int main(int argc, char **argv)
   print_stats(BLACK);
   printf("\n");
 
-  printf("entropy wtm  = %lf\n", entropy_one_sided(WHITE));
-  printf("entropy btm  = %lf\n", entropy_one_sided(BLACK));
-  printf("entropy loss = %lf\n",
-      entropy_loss_only(WHITE) + (symmetric? 0.0 : entropy_loss_only(BLACK)));
-  printf("entropy win  = %lf\n\n",
-      entropy_win_only(WHITE) + (symmetric ? 0.0 : entropy_win_only(BLACK)));
+  // Estimate sizes of different DTZ formats.
+  double ewh, ebl, elo, ewi;
+  ewh = entropy_one_sided(WHITE);
+  ebl = entropy_one_sided(BLACK);
+  elo = entropy_loss_only(WHITE) + (symmetric? 0.0 : entropy_loss_only(BLACK));
+  ewi = entropy_win_only(WHITE) + (symmetric ? 0.0 : entropy_win_only(BLACK));
 
-  kslice_free_buffers(); // Free memory but keep slice "-1".
+  printf("entropy wtm  = %lf\n", ewh);
+  printf("entropy btm  = %lf\n", ebl);
+  printf("entropy loss = %lf\n", elo);
+  printf("entropy win  = %lf\n\n", ewi);
 
-  merge(MERGE_SAVE);
+  // Add 1% of overhead for having a table for each side.
+  // Perhaps this should be higher.
+  if (!symmetric) {
+    elo *= 1.01;
+    ewi *= 1.01;
+  }
 
+  // Determine the DTZ format to use.
+  one_sided = !symmetric && min(ewh, ebl) < min(elo, ewi);
+  wins_only = ewi < elo;
+  one_sided_stm = ewh < ebl ? WHITE : BLACK;
+
+  printf("DTZ format: %s only.\n\n",
+        one_sided ? one_sided_stm == WHITE ? "white" : "black"
+      : wins_only ? "wins" : "losses");
+
+  merge(WHITE);
+  merge(BLACK);
+
+  // Read out the files in "stats".
   collect_stats(WHITE);
   collect_stats(BLACK);
 
@@ -230,15 +253,6 @@ int main(int argc, char **argv)
   print_stats(BLACK);
   printf("\n");
 
-  // NOTE: We are now calculating the (zero-order) entropy of different
-  // DTZ encodings on the basis of the cleaned-up statistics extracted from
-  // the merged table. The problem with this is that this requires merging
-  // the bitmaps for ALL K-slices first, so we would have to save the merged
-  // slices to disk or remerge them a second time.
-  // To avoid this, we should calculate the entropy values from the win/loss
-  // counts collected during generation to decide on the DTZ encoding to be
-  // used. We then only need to save the relevant information from the merged
-  // slice (or compress it directly).
   printf("entropy wtm  = %lf\n", entropy_one_sided(WHITE));
   printf("entropy btm  = %lf\n", entropy_one_sided(BLACK));
   printf("entropy loss = %lf\n",

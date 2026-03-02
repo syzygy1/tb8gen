@@ -4,7 +4,6 @@
   This file is distributed under the terms of the GNU GPL, version 2.
 */
 
-#include <math.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -22,8 +21,56 @@
 static void *merge_table;
 static int merge_n;
 static int work_set, work_slice;
+static bool include_wins, include_losses;
 
 alignas(64) static uint64_t thread_stats[32][MAX_STATS];
+
+static void stat_count_worker(struct ThreadData *thread)
+{
+  uint32_t sub[MAX_SETS];
+  Position pos = g_pos;
+
+  uint64_t *restrict p = (uint64_t *)kslice_get_address(-1);
+
+  uint64_t cnt = 0;
+  p += thread->begin >> 6;
+  uint64_t last = thread->begin;
+  idx_to_sq_init(last, sub, &ii);
+  for (uint64_t idx = thread->begin, end = thread->end; idx < end; idx += 64) {
+    uint64_t w = *p++;
+    while (w) {
+      unsigned bt = pop_lsb(&w);
+      if (idx + bt >= end) break;
+      idx_to_sq_add(idx + bt - last, sub, &ii);
+      last = idx + bt;
+      idx_to_sq(sub, pos.sq);
+      mirror_diagonal(pos.sq);
+      uint64_t idx2 = sq_to_idx(pos.sq);
+      cnt += (idx + bt == idx2) ? 2 : 1;
+    }
+  }
+
+  thread->cnt += cnt;
+}
+
+static uint64_t stat_count(int stm, int s)
+{
+  if (s < 441)
+    return kslice_read_count << 1;
+
+  work_slice = s;
+
+  for (int t = 0; t < g_num_threads; t++)
+    g_thread_data[t].cnt = 0;
+
+  run_threaded(stat_count_worker, work_g, 0);
+
+  uint64_t cnt = 0;
+  for (int t = 0; t < g_num_threads; t++)
+    cnt += g_thread_data[t].cnt;
+
+  return cnt;
+}
 
 #define T u8
 #define MAX 256
@@ -37,182 +84,137 @@ alignas(64) static uint64_t thread_stats[32][MAX_STATS];
 #undef MAX
 #undef T
 
-void collect_stats(int stm)
-{
-  char str[128];
-  uint64_t tmp[MAX_STATS];
-
-  int mx = max_iteration > 126 ? MAX_STATS : 256;
-  uint64_t *stats = g_stats[stm];
-
-  memset(stats, 0, sizeof(g_stats[stm]));
-
-  for (int s = 0; s < 462; s++) {
-    create_name(str, s, stm, "stats", -1);
-    FILE *F = fopen(str, "rb");
-    read_data(F, (void *)tmp, mx * sizeof(uint64_t));
-    fclose(F);
-    for (int i = 0; i < mx / 2; i++)
-      stats[i] += tmp[i];
-    stats[MAX_STATS / 2] += tmp[mx / 2];
-    stats[MAX_STATS / 2 + 1] += tmp[mx / 2 + 1];
-    for (int i = 0; i < mx / 2 - 2; i++)
-      stats[MAX_STATS - 1 - i] += tmp[mx - 1 - i];
-  }
-  for (int i = 0; i < MAX_STATS; i++)
-    stats[i] >>= 1;
-}
-
-void print_stats(int stm)
+void merge(int stm)
 {
   uint64_t *stats = g_stats[stm];
-  int i;
 
-  printf("\n%s to move:\n\n", stm == WHITE ? "White" : "Black");
+  create_dir(-1, stm, "stats");
+  if (    (one_sided && one_sided_stm == stm)
+      || (!one_sided && (!symmetric || stm == WHITE)))
+    create_dir(-1, stm, "merged/dtz");
+  if (!symmetric || stm == WHITE)
+    create_dir(-1, stm, "merged/wdl");
 
-  if (stats[1] + stats[2])
-    printf("%lu (%lu) positions win in %d ply.\n", stats[1] + stats[2],
-        stats[1], 1);
-  for (i = 2; i <= DRAW_RULE; i++)
-    if (stats[1 + i])
-      printf("%lu positions win in %d ply.\n", stats[1 + i], i);
-  if (stats[1 + i] + stats[2 + i])
-    printf("%lu (%lu) positions win in %d ply.\n", stats[1 + i] + stats[2 + i],
-        stats[1 + i], i);
-  for (i += 2; i < MAX_STATS / 2 - 2; i++)
-    if (stats[2 + i])
-      printf("%lu positions win in %d ply.\n", stats[2 + i], i);
-  printf("\n");
-
-  uint64_t tot = 0;
-  for (i = 1; i <= 1 + DRAW_RULE; i++)
-    tot += stats[i];
-  printf("%lu positions are wins.\n", tot);
-  tot = 0;
-  for (; i < MAX_STATS / 2; i++)
-    tot += stats[i];
-  if (tot)
-    printf("%lu positions are cursed wins.\n", tot);
-  if (stats[MAX_STATS / 2] + stats[MAX_STATS / 2 + 1])
-    printf("%lu (%lu) positions are draws.\n",
-        stats[MAX_STATS / 2] + stats[MAX_STATS / 2 + 1], stats[MAX_STATS / 2]);
-  tot = 0;
-  for (i = DRAW_RULE + 1; i < MAX_STATS / 2 - 2; i++)
-    tot += stats[MAX_STATS - 1 - i];
-  if (tot)
-    printf("%lu positions are blessed losses.\n", tot);
-  tot = 0;
-  for (i = 0; i <= DRAW_RULE; i++)
-    tot += stats[MAX_STATS - 1 - i];
-  printf("%lu positions are losses.\n\n", tot);
-
-  for (i = 0; i < MAX_STATS / 2 - 2; i++)
-    if (stats[MAX_STATS - 1 - i])
-      printf("%lu positions lose in %d ply.\n", stats[MAX_STATS - 1 - i], i);
-
-  tot = 0;
-  for (int i = 0; i < MAX_STATS; i++)
-    tot += stats[i];
-  printf("\n%lu positions out of %lu are illegal.\n", stats[0], tot);
-}
-
-// calculate DTZ entropy
-static double entropy_helper(uint64_t *stats, uint64_t removed)
-{
-  for (int i = 0; i < MAX_STATS / 2; i++)
-    for (int j = i + 1; j < MAX_STATS / 2; j++)
-      if (stats[i] < stats[j])
-        Swap(stats[i], stats[j]);
-  for (int i = MAX_STATS / 2; i < MAX_STATS; i++)
-    for (int j = i + 1; j < MAX_STATS; j++)
-      if (stats[i] < stats[j])
-        Swap(stats[i], stats[j]);
-  for (int i = 0; i < MAX_STATS / 2; i++)
-    stats[i] += stats[MAX_STATS / 2 + i];
-  stats[0] += removed;
-
-  uint64_t tot = 0;
-  for (int i = 0; i < MAX_STATS / 2; i++)
-    tot += stats[i];
-  double entropy = 0;
-  for (int i = 0; i < MAX_STATS / 2 && stats[i]; i++) {
-    double p = (double)stats[i] / tot;
-    entropy += -p * log(p);
-  }
-  entropy /= log(2.0);
-  entropy = entropy * (double)tot / 8.0;
-
-  return entropy;
-}
-
-double entropy_one_sided(int stm)
-{
-  uint64_t stats[MAX_STATS];
-  memcpy(stats, g_stats[stm], sizeof(stats));
-
-  uint64_t tot = stats[0] + stats[1] + stats[DRAW_RULE + 2]
-    + stats[MAX_STATS / 2] + stats[MAX_STATS / 2 + 1];
-  stats[0] = stats[1] = stats[DRAW_RULE + 2] = stats[MAX_STATS / 2]
-    = stats[MAX_STATS / 2 + 1] = 0;
-
-  return entropy_helper(stats, tot);
-}
-
-double entropy_loss_only(int stm)
-{
-  uint64_t stats[MAX_STATS];
-  memcpy(stats, g_stats[stm], sizeof(stats));
-
-  uint64_t tot = 0;
-  for (int i = 0; i < MAX_STATS / 2 + 2; i++) {
-    tot += stats[i];
-    stats[i] = 0;
+  // Determine whether we need to store wins, losses or both in the merged
+  // in-RAM table.
+  bool wins, losses;
+  if (one_sided)
+    wins = losses = stm == one_sided_stm;
+  else {
+    wins = wins_only;
+    losses = !wins_only;
   }
 
-  return entropy_helper(stats, tot);
-}
+  // Count the number of distinct values to see if we can fit them all
+  // in one byte.
+  int win_vals = 0, cwin_vals = 0, bloss_vals = 0, loss_vals = 0;
+  for (int i = 2; i <= DRAW_RULE + 1; i++)
+    win_vals += (stats[i] != 0);
+  for (int i = DRAW_RULE + 3; i < MAX_STATS / 2; i++)
+    cwin_vals += (stats[i] != 0);
+  for (int i = 0; i <= DRAW_RULE; i++)
+    loss_vals += (stats[MAX_STATS - 1 - i] != 0);
+  for (int i = DRAW_RULE + 1; i < MAX_STATS / 2 - 2; i++)
+    bloss_vals += (stats[MAX_STATS - 1 - i] != 0);
 
-double entropy_win_only(int stm)
-{
-  uint64_t stats[MAX_STATS];
-  memcpy(stats, g_stats[stm], sizeof(stats));
+  int special = 1 + (stats[1] != 0)
+                  + (stats[DRAW_RULE + 2] != 0)
+                  + (stats[MAX_STATS / 2] != 0)
+                  + (stats[MAX_STATS / 2 + 1] != 0);
 
-  uint64_t tot = stats[0] + stats[1] + stats[DRAW_RULE + 2]
-    + stats[MAX_STATS / 2] + stats[MAX_STATS / 2 + 1];
-  stats[0] = stats[1] = stats[DRAW_RULE + 2] = stats[MAX_STATS / 2]
-    = stats[MAX_STATS / 2 + 1] = 0;
-  for (int i = MAX_STATS / 2 + 2; i < MAX_STATS; i++) {
-    tot += stats[i];
-    stats[i] = 0;
-  }
+  int wins_red = (win_vals != 0) + (cwin_vals != 0);
+  int losses_red = (loss_vals != 0) + (bloss_vals != 0);
 
-  return entropy_helper(stats, tot);
-}
+  int tot_vals =  special + (wins ? win_vals + cwin_vals : wins_red)
+                + (losses ? loss_vals + bloss_vals : losses_red);
 
-void merge(int merge_type)
-{
-  bool wide = max_iteration > 126;
+  printf("tot_vals = %d\n", tot_vals);
 
-  merge_table = alloc_huge((1 + wide) * kslice_size);
-  if (!merge_table)
-    out_of_mem();
+  if (tot_vals <= 256) {
+    // One byte suffices.
 
-  if (merge_type == MERGE_SAVE) {
-    create_dir(-1, WHITE, "merged");
-    create_dir(-1, BLACK, "merged");
-  }
+    // Include more if it fits. This slightly speeds up counting statistics.
+    include_wins = wins;
+    include_losses = losses;
+#if 1
+    if (special + win_vals + loss_vals <= 256)
+      include_wins = include_losses = true;
+    else if (!wins && !losses && special + win_vals <= 256)
+      include_wins = true;
+    else if (!wins && !losses && special + loss_vals <= 256)
+      include_losses = true;
+#endif
 
-  create_dir(-1, WHITE, "stats");
-  create_dir(-1, BLACK, "stats");
-
-  if (!wide)
-    for (int s = 0; s < 462; s++) {
-      merge_bitmaps_u8(WHITE, s);
-      merge_bitmaps_u8(BLACK, s);
+    // Create the corresponding mapping from u16 to u8.
+    int n = 0;
+    v_u8[0] = n;
+    n += (stats[1] != 0);
+    v_u8[1] = n;
+    if (include_wins) {
+      for (int i = 2; i <= DRAW_RULE + 1; i++) {
+        n += (stats[i] != 0);
+        v_u8[i] = n;
+      }
+      n += (stats[DRAW_RULE + 2] != 0);
+      v_u8[DRAW_RULE + 2] = n;
+      for (int i = DRAW_RULE + 3; i < MAX_STATS / 2; i++) {
+        n += (stats[i] != 0);
+        v_u8[i] = n;
+      }
+    } else {
+      n += (win_vals != 0);
+      for (int i = 2; i <= DRAW_RULE + 1; i++)
+        v_u8[i] = n;
+      n += (stats[DRAW_RULE + 2] != 0);
+      v_u8[DRAW_RULE + 2] = n;
+      n += (cwin_vals != 0);
+      for (int i = DRAW_RULE + 3; i < MAX_STATS / 2; i++)
+        v_u8[i] = n;
     }
-  else
-    for (int s = 0; s < 462; s++) {
-      merge_bitmaps_u16(WHITE, s);
-      merge_bitmaps_u16(BLACK, s);
+    n += (stats[MAX_STATS / 2] != 0);
+    v_u8[MAX_STATS / 2] = n;
+    n += (stats[MAX_STATS / 2 + 1] != 0);
+    v_u8[MAX_STATS / 2 + 1] = n;
+    if (include_losses) {
+      for (int i = MAX_STATS / 2 - 3; i >= 0; i--) {
+        n += (stats[MAX_STATS -1 - i] != 0);
+        v_u8[MAX_STATS - 1 - i] = n;
+      }
+    } else {
+      n += (bloss_vals != 0);
+      for (int i = MAX_STATS / 2 - 3; i >= DRAW_RULE + 1; i--)
+        v_u8[MAX_STATS - 1 - i] = n;
+      n += (loss_vals != 0);
+      for (int i = DRAW_RULE; i >= 0; i--)
+        v_u8[MAX_STATS - 1 - i] = n;
     }
+    assert(n <= 255);
+
+    for (int i = 0, j = -1; i < MAX_STATS; i++)
+      if (v_u8[i] != j)
+        v_inv_u8[j = v_u8[i]] = i;
+
+    merge_table = alloc_huge(sizeof(u8) * kslice_size);
+    if (!merge_table)
+      out_of_mem();
+
+    for (int s = 0; s < 462; s++)
+      merge_bitmaps_u8(stm, s);
+
+    free(merge_table);
+  } else {
+    // We need to use u16. This makes the mapping part straightfoward.
+    include_wins = include_losses = true;
+    for (int i = 0; i < MAX_STATS; i++)
+      v_u16[i] = v_inv_u16[i] = i;
+
+    merge_table = alloc_huge(sizeof(u16) * kslice_size);
+    if (!merge_table)
+      out_of_mem();
+
+    for (int s = 0; s < 462; s++)
+      merge_bitmaps_u16(stm, s);
+
+    free(merge_table);
+  }
 }

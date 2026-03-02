@@ -718,11 +718,8 @@ static bool calc_W(int stm, int n, bool more_w)
         kslice_or(s, -1);
       }
 #endif
-      // We are currently removing illegal positions and known faster wins.
-      // We could check easily for illegal positions.
-      // But we MUST remove W_in_<=(N-1) and thus load "wins".
-      // Again, we could work with deltas to avoid having to write "wins"
-      // each time.
+      // Remove illegal positions and known faster wins.
+      // TODO: do not update "wins" each time but work with small deltas.
       kslice_read(-1, s, stm, "wins", 0);
       kslice_and_not(s, -1);
       cnt += num = kslice_count(s);

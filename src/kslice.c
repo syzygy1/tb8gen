@@ -28,6 +28,7 @@ size_t sub_offset[MAX_SETS];
 size_t sub_size[2];
 int8_t kslice_slot[463];
 uint64_t kslice_cache_lines;
+uint64_t kslice_read_count;
 
 static uint64_t *work_cl, *work_clc;
 static uint64_t *work_sub_cl[2];
@@ -403,8 +404,7 @@ bool kslice_read(int s, int slice, int stm, const char *name, int n)
     non_empty = st.st_size != 0;
   }
   if (non_empty) {
-    uint64_t num;
-    file_read(&num, sizeof(num), F);
+    file_read(&kslice_read_count, sizeof(uint64_t), F);
     read_data(F, kslice_get_address(s), kslice_cache_lines << 6);
   } else
     kslice_clear(s);
