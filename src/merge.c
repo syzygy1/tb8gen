@@ -18,12 +18,14 @@
 #include "threads.h"
 #include "types.h"
 
+struct MergeInfo mi;
+
 static void *merge_table;
 static int merge_n;
 static int work_set, work_slice;
 static bool include_wins, include_losses;
 
-alignas(64) static uint64_t thread_stats[32][MAX_STATS];
+alignas(64) static uint64_t thread_stats[MAX_THREADS][MAX_STATS];
 
 static void stat_count_worker(struct ThreadData *thread)
 {
@@ -117,6 +119,24 @@ void merge(int stm)
   for (int i = DRAW_RULE + 1; i < MAX_STATS / 2 - 2; i++)
     bloss_vals += (stats[MAX_STATS - 1 - i] != 0);
 
+  mi.v_wdl[0] = loss_vals;
+  mi.v_wdl[1] = bloss_vals;
+  mi.v_wdl[2] = stats[MAX_STATS / 2 + 1];
+  mi.v_wdl[3] = cwin_vals;
+  mi.v_wdl[4] = win_vals;
+
+  bool dc[4] = {
+    sub_cnt[stm ^ 1][3], stats[MAX_STATS / 2], stats[DRAW_RULE + 2], true
+  };
+
+  int i, j;
+  for (i = 0; i < 4; i++)
+    if (dc[i]) break;
+  for (j = 0; j < 5; j++)
+    if (mi.v_wdl[j]) break;
+  if (j > i + 1)
+    mi.v_wdl[0] = true;
+
   int special = 1 + (stats[1] != 0)
                   + (stats[DRAW_RULE + 2] != 0)
                   + (stats[MAX_STATS / 2] != 0)
@@ -130,7 +150,9 @@ void merge(int stm)
 
   printf("tot_vals = %d\n", tot_vals);
 
-  if (tot_vals <= 256) {
+  mi.wide = tot_vals > 256;
+
+  if (!mi.wide) {
     // One byte suffices.
 
     // Include more if it fits. This slightly speeds up counting statistics.
@@ -147,52 +169,52 @@ void merge(int stm)
 
     // Create the corresponding mapping from u16 to u8.
     int n = 0;
-    v_u8[0] = n;
+    mi.v_u8[0] = n;
     n += (stats[1] != 0);
-    v_u8[1] = n;
+    mi.v_u8[1] = n;
     if (include_wins) {
       for (int i = 2; i <= DRAW_RULE + 1; i++) {
         n += (stats[i] != 0);
-        v_u8[i] = n;
+        mi.v_u8[i] = n;
       }
       n += (stats[DRAW_RULE + 2] != 0);
-      v_u8[DRAW_RULE + 2] = n;
+      mi.v_u8[DRAW_RULE + 2] = n;
       for (int i = DRAW_RULE + 3; i < MAX_STATS / 2; i++) {
         n += (stats[i] != 0);
-        v_u8[i] = n;
+        mi.v_u8[i] = n;
       }
     } else {
       n += (win_vals != 0);
       for (int i = 2; i <= DRAW_RULE + 1; i++)
-        v_u8[i] = n;
+        mi.v_u8[i] = n;
       n += (stats[DRAW_RULE + 2] != 0);
-      v_u8[DRAW_RULE + 2] = n;
+      mi.v_u8[DRAW_RULE + 2] = n;
       n += (cwin_vals != 0);
       for (int i = DRAW_RULE + 3; i < MAX_STATS / 2; i++)
-        v_u8[i] = n;
+        mi.v_u8[i] = n;
     }
     n += (stats[MAX_STATS / 2] != 0);
-    v_u8[MAX_STATS / 2] = n;
+    mi.v_u8[MAX_STATS / 2] = n;
     n += (stats[MAX_STATS / 2 + 1] != 0);
-    v_u8[MAX_STATS / 2 + 1] = n;
+    mi.v_u8[MAX_STATS / 2 + 1] = n;
     if (include_losses) {
       for (int i = MAX_STATS / 2 - 3; i >= 0; i--) {
         n += (stats[MAX_STATS -1 - i] != 0);
-        v_u8[MAX_STATS - 1 - i] = n;
+        mi.v_u8[MAX_STATS - 1 - i] = n;
       }
     } else {
       n += (bloss_vals != 0);
       for (int i = MAX_STATS / 2 - 3; i >= DRAW_RULE + 1; i--)
-        v_u8[MAX_STATS - 1 - i] = n;
+        mi.v_u8[MAX_STATS - 1 - i] = n;
       n += (loss_vals != 0);
       for (int i = DRAW_RULE; i >= 0; i--)
-        v_u8[MAX_STATS - 1 - i] = n;
+        mi.v_u8[MAX_STATS - 1 - i] = n;
     }
     assert(n <= 255);
 
     for (int i = 0, j = -1; i < MAX_STATS; i++)
-      if (v_u8[i] != j)
-        v_inv_u8[j = v_u8[i]] = i;
+      if (mi.v_u8[i] != j)
+        mi.v_inv_u8[j = mi.v_u8[i]] = i;
 
     merge_table = alloc_huge(sizeof(u8) * kslice_size);
     if (!merge_table)
@@ -202,11 +224,13 @@ void merge(int stm)
       merge_bitmaps_u8(stm, s);
 
     free(merge_table);
+
   } else {
+
     // We need to use u16. This makes the mapping part straightfoward.
     include_wins = include_losses = true;
     for (int i = 0; i < MAX_STATS; i++)
-      v_u16[i] = v_inv_u16[i] = i;
+      mi.v_u16[i] = mi.v_inv_u16[i] = i;
 
     merge_table = alloc_huge(sizeof(u16) * kslice_size);
     if (!merge_table)
@@ -216,5 +240,16 @@ void merge(int stm)
       merge_bitmaps_u16(stm, s);
 
     free(merge_table);
+
   }
+
+  char str[128];
+  sprintf(str, "merge_info.%c", "wb"[stm]);
+  FILE *F = fopen(str, "wb");
+  if (!F) {
+    fprintf(stderr, "Could not open %s.\n", str);
+    exit(EXIT_FAILURE);
+  }
+  file_write(&mi, sizeof(mi), F);
+  fclose(F);
 }

@@ -978,7 +978,7 @@ assert(i >= di->norm[0]);
 INLINE void decode(uint64_t idx, uint8_t *restrict p, struct DecInfo *di,
     struct BaseEntry *be, const int fr, const int enc)
 {
-  uint32_t sub[TB_PIECES];
+  uint32_t sub[MAX_PIECES];
   int i;
 
   // TODO: convert into multiplications, e.g. using libdivide.

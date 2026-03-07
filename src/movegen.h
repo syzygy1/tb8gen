@@ -13,7 +13,12 @@
 #include "defs.h"
 #include "types.h"
 
-extern const char PieceChar[];
+enum { PAWN = 1, KNIGHT, BISHOP, ROOK, QUEEN, KING };
+
+enum {
+  WPAWN = 1, WKNIGHT, WBISHOP, WROOK, WQUEEN, WKING,
+  BPAWN = 9, BKNIGHT, BBISHOP, BROOK, BQUEEN, BKING
+};
 
 struct Position {
   Bitboard occ;
@@ -27,6 +32,7 @@ struct Position {
 
 typedef struct Position Position;
 
+extern const char PieceChar[];
 extern Bitboard Bit[64], KnightAttacks[64], KingAttacks[64];
 extern Bitboard PawnAttacks[2][64], SidesMask[64];
 extern Bitboard KingMask[64];

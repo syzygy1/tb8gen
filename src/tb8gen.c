@@ -17,6 +17,7 @@
 #include "defs.h"
 #include "generate.h"
 #include "index.h"
+#include "join.h"
 #include "kslice.h"
 #include "merge.h"
 #include "movegen.h"
@@ -45,7 +46,7 @@ static struct option options[] = {
   { "threads", 1, nullptr, 't' },
   { "stats", 0, nullptr, 's' },
   { "path", 1, nullptr, 'p' },
-//  { "rans", 0, nullptr, 'r' },
+  { "rans", 0, nullptr, 'r' },
   { 0 }
 };
 
@@ -127,7 +128,7 @@ int main(int argc, char **argv)
   for (int i = PAWN; i <= KING; i++)
     symmetric = symmetric && pcs[i] == pcs[i + 8];
 
-  g_num_threads = max(g_num_threads, 1);
+  g_num_threads = min(max(g_num_threads, 1), MAX_THREADS);
   printf("number of threads = %d\n", g_num_threads);
 
   // TODO: increase work units per thread as number of pieces increases.
@@ -244,23 +245,23 @@ int main(int argc, char **argv)
   merge(WHITE);
   merge(BLACK);
 
+  // We could now delete all files except those in stats/ and merged/,
+  // or let merge() delete those.
+
   // Read out the files in "stats".
   collect_stats(WHITE);
   collect_stats(BLACK);
 
-  printf("########## %s ##########\n", g_tablename);
+  printf("\n########## %s ##########\n", g_tablename);
   print_stats(WHITE);
   print_stats(BLACK);
   printf("\n");
 
-  printf("entropy wtm  = %lf\n", entropy_one_sided(WHITE));
-  printf("entropy btm  = %lf\n", entropy_one_sided(BLACK));
-  printf("entropy loss = %lf\n",
-      entropy_loss_only(WHITE) + (symmetric? 0.0 : entropy_loss_only(BLACK)));
-  printf("entropy win  = %lf\n\n",
-      entropy_win_only(WHITE) + (symmetric ? 0.0 : entropy_win_only(BLACK)));
-
   kslice_cleanup();
 
+  join_slices(pcs, pt);
+
   report_io();
+
+  return 0;
 }

@@ -7,7 +7,20 @@
 #ifndef MERGE_H
 #define MERGE_H
 
-enum { MERGE_SAVE, MERGE_COMPRESS };
+struct MergeInfo {
+  bool v_wdl[5];
+  bool wide;
+  union {
+    uint8_t v_u8[MAX_STATS];
+    uint16_t v_u16[MAX_STATS];
+  };
+  union {
+    uint16_t v_inv_u8[256];
+    uint16_t v_inv_u16[MAX_STATS];
+  };
+};
+
+extern struct MergeInfo mi;
 
 void merge(int merge_type);
 void collect_stats(int stm);

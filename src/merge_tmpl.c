@@ -6,22 +6,19 @@
 
 #define NAME(f) EVALUATOR(f,T)
 
-static T NAME(v)[MAX_STATS];
-static uint16_t NAME(v_inv)[MAX];
-
 static void NAME(merge_draw_worker)(struct ThreadData *thread)
 {
   T *restrict const q = merge_table;
-  T n = NAME(v)[MAX_STATS / 2 + 1];
+  T n = NAME(mi.v)[MAX_STATS / 2 + 1];
   for (uint64_t idx = thread->begin, end = thread->end; idx < end; idx++)
     q[idx] = n;
 }
 
 static void NAME(merge_worker)(struct ThreadData *thread)
 {
-  T n = NAME(v)[merge_n];
+  T n = NAME(mi.v)[merge_n];
 
-  uint64_t *restrict p = (uint64_t *)kslice_get_address(-1);
+  const uint64_t *restrict p = (uint64_t *)kslice_get_address(-1);
   T *restrict const q = merge_table;
   p += thread->begin >> 6;
   for (uint64_t idx = thread->begin, end = thread->end; idx < end; idx += 64) {
@@ -31,10 +28,9 @@ static void NAME(merge_worker)(struct ThreadData *thread)
   }
 }
 
-#if 1
 static void NAME(merge_capt_bloss_worker)(struct ThreadData *thread)
 {
-  uint64_t *restrict p = (uint64_t *)kslice_get_address(-1);
+  const uint64_t *restrict p = (uint64_t *)kslice_get_address(-1);
   T *restrict const q = merge_table;
   p += thread->begin >> 6;
   for (uint64_t idx = thread->begin, end = thread->end; idx < end; idx += 64) {
@@ -46,7 +42,6 @@ static void NAME(merge_capt_bloss_worker)(struct ThreadData *thread)
     }
   }
 }
-#endif
 
 INLINE void NAME(merge_mark_unmoves)(int k, T *restrict const p, Bitboard occ,
     uint8_t *restrict sq)
@@ -93,7 +88,7 @@ static void NAME(merge_statistics_worker)(struct ThreadData *thread)
 
   if (s < 441) {
     for (uint64_t idx = thread->begin, end = thread->end; idx < end; idx++)
-      thread_stats[t][NAME(v_inv)[p[idx]]] += 2;
+      thread_stats[t][NAME(mi.v_inv)[p[idx]]] += 2;
   } else {
     // Both kings on the diagonal, so count carefully.
     uint32_t sub[MAX_SETS];
@@ -106,7 +101,7 @@ static void NAME(merge_statistics_worker)(struct ThreadData *thread)
       idx_to_sq(sub, pos.sq);
       mirror_diagonal(pos.sq);
       uint64_t idx2 = sq_to_idx(pos.sq);
-      thread_stats[t][NAME(v_inv)[p[idx]]] += idx == idx2 ? 2 : 1;
+      thread_stats[t][NAME(mi.v_inv)[p[idx]]] += idx == idx2 ? 2 : 1;
     }
   }
 }
@@ -228,28 +223,20 @@ static void NAME(merge_bitmaps)(int stm, int s)
   if (one_sided && stm != one_sided_stm)
     goto start_wdl;
 
-  // now decide what to do for DTZ.
-  // for 6-piece tables: save to disk and merge later.
-  // we can choose to lose precision > DRAW_RULE.
-  // we should still distinguish between wdl/dtz.
-  // probably easiest to just save win and/or loss as is,
-  // for u8 save mapping?
-  // set rest to 0.
-
   T z[MAX];
   for (int i = 0; i < MAX; i++)
     z[i] = 0;
 
   if (one_sided || wins_only) {
     for (int i = 2; i <= DRAW_RULE + 1; i++)
-      z[NAME(v)[i]] = NAME(v)[i];
+      z[NAME(mi.v)[i]] = NAME(mi.v)[i];
     for (int i = DRAW_RULE + 3; i < MAX_STATS / 2; i++)
-      z[NAME(v)[i]] = NAME(v)[i];
+      z[NAME(mi.v)[i]] = NAME(mi.v)[i];
   }
 
   if (one_sided || !wins_only)
     for (int i = 0; i < MAX_STATS / 2 - 2; i++)
-      z[NAME(v)[MAX_STATS - 1 - i]] = NAME(v)[MAX_STATS - 1 - i];
+      z[NAME(mi.v)[MAX_STATS - 1 - i]] = NAME(mi.v)[MAX_STATS - 1 - i];
 
   create_name(str, s, stm, "merged/dtz", -1);
   F = fopen(str, "wb");
@@ -257,26 +244,26 @@ static void NAME(merge_bitmaps)(int stm, int s)
     fprintf(stderr, "Could not open %s.\n", str);
     exit(EXIT_FAILURE);
   }
-  NAME(write_data_transform)(F, merge_table, kslice_size, z);
+  NAME(write_data_transform)(F, merge_table, kslice_size * sizeof(T), z);
   fclose(F);
 
 start_wdl:
   // 0/1/2/3/4 -> loss/bloss/draw/cwin/win
   // 5/6/7/8 -> capt_bloss/_draw/_cwin/_win+illegal
   uint8_t w[MAX];
-  for (int i = 0; i < MAX; i++)
-    w[i] = 8;
-  for (int i = 2; i <= DRAW_RULE + 1; i++)
-    w[NAME(v)[i]] = 4;
-  for (int i = DRAW_RULE + 3; i < MAX_STATS / 2; i++)
-    w[NAME(v)[i]] = 3;
-  w[NAME(v)[MAX_STATS / 2 + 1]] = 2;
-  for (int i = DRAW_RULE + 1; i < MAX_STATS / 2 - 2; i++)
-    w[NAME(v)[MAX_STATS - 1 - i]] = 1;
   for (int i = 0; i <= DRAW_RULE; i++)
-    w[NAME(v)[MAX_STATS - 1 - i]] = 0;
-  w[NAME(v)[MAX_STATS / 2]] = 6;
-  w[NAME(v)[DRAW_RULE + 2]] = 7;
+    w[NAME(mi.v)[MAX_STATS - 1 - i]] = 0;
+  for (int i = DRAW_RULE + 1; i < MAX_STATS / 2 - 2; i++)
+    w[NAME(mi.v)[MAX_STATS - 1 - i]] = 1;
+  w[NAME(mi.v)[MAX_STATS / 2 + 1]] = 2;
+  w[NAME(mi.v)[MAX_STATS / 2]] = 6;
+  for (int i = MAX_STATS / 2 - 1; i >= DRAW_RULE + 3; i--)
+    w[NAME(mi.v)[i]] = 3;
+  w[NAME(mi.v)[DRAW_RULE + 2]] = 7;
+  for (int i = DRAW_RULE + 1; i >= 2; i--)
+    w[NAME(mi.v)[i]] = 4;
+  w[NAME(mi.v)[1]] = 8;
+  w[NAME(mi.v)[0]] = 8;
 
   // Replace bloss (1) with capt_bloss (5) where appropriate.
   if (sub_cnt[stm ^ 1][3]) {

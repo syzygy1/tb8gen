@@ -6,20 +6,12 @@
 
 #include "defs.h"
 
+enum { WHITE = 0, BLACK };
+
 typedef uint64_t Bitboard;
-typedef uint16_t Move;
 
 typedef uint8_t u8;
 typedef uint16_t u16;
-
-enum { WHITE = 0, BLACK };
-
-enum { PAWN = 1, KNIGHT, BISHOP, ROOK, QUEEN, KING };
-
-enum {
-  WPAWN = 1, WKNIGHT, WBISHOP, WROOK, WQUEEN, WKING,
-  BPAWN = 9, BKNIGHT, BBISHOP, BROOK, BQUEEN, BKING
-};
 
 #define INLINE [[gnu::always_inline]] static inline
 #define NOINLINE [[gnu::noinline]]

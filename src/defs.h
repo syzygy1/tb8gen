@@ -7,10 +7,10 @@
 #ifndef DEFS_H
 #define DEFS_H
 
-static constexpr int TB_PIECES = 8;
 static constexpr int MAX_PIECES = 8;
 static constexpr int MAX_SETS = MAX_PIECES - 2;
 static constexpr int MAX_STATS = 1536;
 static constexpr int DRAW_RULE = 2 * 50;
+static constexpr int MAX_THREADS = 32;
 
 #endif

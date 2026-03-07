@@ -7,6 +7,7 @@
 #include <math.h>
 #include <stdint.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 
 #include "defs.h"
@@ -21,7 +22,6 @@ void collect_stats(int stm)
   char str[128];
   uint64_t tmp[MAX_STATS];
 
-//  int mx = max_iteration > 126 ? MAX_STATS : 256;
   uint64_t *stats = g_stats[stm];
 
   memset(stats, 0, sizeof(g_stats[stm]));
@@ -29,16 +29,12 @@ void collect_stats(int stm)
   for (int s = 0; s < 462; s++) {
     create_name(str, s, stm, "stats", -1);
     FILE *F = fopen(str, "rb");
+    if (!F) {
+      fprintf(stderr, "Could not open %s.\n", str);
+      exit(EXIT_FAILURE);
+    }
     read_data(F, (void *)tmp, MAX_STATS * sizeof(uint64_t));
     fclose(F);
-#if 0
-    for (int i = 0; i < mx / 2; i++)
-      stats[i] += tmp[i];
-    stats[MAX_STATS / 2] += tmp[mx / 2];
-    stats[MAX_STATS / 2 + 1] += tmp[mx / 2 + 1];
-    for (int i = 0; i < mx / 2 - 2; i++)
-      stats[MAX_STATS - 1 - i] += tmp[mx - 1 - i];
-#endif
     for (int i = 0; i < MAX_STATS; i++)
       stats[i] += tmp[i];
   }

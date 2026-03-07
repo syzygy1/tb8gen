@@ -47,12 +47,14 @@ static int barrier_init(barrier_t *b, int needed)
   return 0;
 }
 
+#if 0
 static int barrier_destroy(barrier_t *b)
 {
   mtx_destroy(&b->mutex);
   cnd_destroy(&b->cond);
   return 0;
 }
+#endif
 
 static int barrier_wait(barrier_t *b)
 {

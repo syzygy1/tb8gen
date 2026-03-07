@@ -70,17 +70,17 @@ struct PairsData {
 
 struct EncInfo {
   struct PairsData *precomp;
-  size_t factor[TB_PIECES];
-  uint8_t pieces[TB_PIECES];
-  uint8_t norm[TB_PIECES];
+  size_t factor[MAX_PIECES];
+  uint8_t pieces[MAX_PIECES];
+  uint8_t norm[MAX_PIECES];
 };
 
 struct DecInfo {
-  size_t factor[TB_PIECES];
-  uint32_t fac_iter[TB_PIECES];
-  uint8_t ord_iter[TB_PIECES];
-  uint8_t norm[TB_PIECES];
-  uint8_t order[TB_PIECES];
+  size_t factor[MAX_PIECES];
+  uint32_t fac_iter[MAX_PIECES];
+  uint8_t ord_iter[MAX_PIECES];
+  uint8_t norm[MAX_PIECES];
+  uint8_t order[MAX_PIECES];
 };
 
 struct BaseEntry {
