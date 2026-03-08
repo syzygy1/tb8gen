@@ -1,3 +1,9 @@
+/*
+  Copyright (c) 2026 Ronald de Man
+
+  This file is distributed under the terms of the GNU GPL, version 2.
+*/
+
 #ifndef PERMUTE_H
 #define PERMUTE_H
 
@@ -14,7 +20,7 @@ void permute_piece_dtz(void *tb_table, uint8_t *pcs, uint8_t *pt, void *table,
 void init_permute_pawn(uint8_t *pcs, uint8_t *pt);
 void *init_permute_rank(uint8_t *pcs, int rank, void *tb_table,
     bool wide);
-void permute_pawn_dtm(void *tb_table, uint8_t *pcs, uint8_t *pt, void *table,
+void permute_pawn_dtz(void *tb_table, uint8_t *pcs, uint8_t *pt, void *table,
     uint8_t *best, int rank, void *v, bool wide);
 
 #endif

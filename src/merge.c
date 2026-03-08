@@ -148,7 +148,8 @@ void merge(int stm)
   int tot_vals =  special + (wins ? win_vals + cwin_vals : wins_red)
                 + (losses ? loss_vals + bloss_vals : losses_red);
 
-  printf("tot_vals = %d\n", tot_vals);
+  printf("tot_vals = %d (%d)\n", tot_vals,
+      special + win_vals + cwin_vals + loss_vals + bloss_vals);
 
   mi.wide = tot_vals > 256;
 
@@ -159,11 +160,11 @@ void merge(int stm)
     include_wins = wins;
     include_losses = losses;
 #if 1
-    if (special + win_vals + loss_vals <= 256)
+    if (special + win_vals + cwin_vals + bloss_vals + loss_vals <= 256)
       include_wins = include_losses = true;
-    else if (!wins && !losses && special + win_vals <= 256)
+    else if (!wins && !losses && special + win_vals + cwin_vals <= 256)
       include_wins = true;
-    else if (!wins && !losses && special + loss_vals <= 256)
+    else if (!wins && !losses && special + loss_vals + bloss_vals <= 256)
       include_losses = true;
 #endif
 
