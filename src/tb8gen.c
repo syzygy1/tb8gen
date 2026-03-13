@@ -27,11 +27,6 @@
 #include "threads.h"
 #include "types.h"
 
-#if 0
-#include "compress.h"
-#include "permute.h"
-#endif
-
 #define TBPATH "RTBPATH"
 #define STATSDIR "RTBSTATSDIR"
 
@@ -55,11 +50,12 @@ int main(int argc, char **argv)
   int val, lindex;
   uint8_t pcs[16];
   uint8_t pt[8];
+  bool kk_format = false;
 
   const char *path = getenv(TBPATH);
   g_num_threads = 1;
 
-  while ((val = getopt_long(argc, argv, "at:gp:r", options, &lindex)) != -1)
+  while ((val = getopt_long(argc, argv, "at:gp:rk", options, &lindex)) != -1)
     switch (val) {
     case 'a':
       g_thread_affinity = true;
@@ -75,6 +71,9 @@ int main(int argc, char **argv)
       break;
     case 'r':
       g_use_rans = true;
+      break;
+    case 'k':
+      kk_format = true;
       break;
     }
 
@@ -229,8 +228,8 @@ int main(int argc, char **argv)
   // Add 1% of overhead for having a table for each side.
   // Perhaps this should be higher.
   if (!symmetric) {
-    elo *= 1.01;
-    ewi *= 1.01;
+    elo *= 1.00;
+    ewi *= 1.00;
   }
 
   // Determine the DTZ format to use.
@@ -259,7 +258,10 @@ int main(int argc, char **argv)
 
   kslice_cleanup();
 
-  join_slices(pcs, pt);
+  if (!kk_format)
+    join_slices(pcs, pt);
+  else
+    join_slices_462();
 
   report_io();
 

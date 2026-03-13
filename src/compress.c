@@ -5,6 +5,7 @@
 */
 
 #include <inttypes.h>
+#include <stdbit.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -15,6 +16,7 @@
 #include "compress.h"
 #include "defs.h"
 #include "huffman.h"
+#include "index.h"
 #include "permute.h"
 #include "probe.h"
 #include "rans.h"
@@ -22,6 +24,8 @@
 #include "threads.h"
 #include "types.h"
 #include "util.h"
+
+static_assert(__STDC_ENDIAN_NATIVE__ == __STDC_ENDIAN_LITTLE__);
 
 int g_compress_type;
 
@@ -1060,7 +1064,7 @@ void write_final(struct tb_handle *F, FILE *G)
 
         // Up to 4095 Re-Pair symbols. Each symbol is either the concatenation
         // of two other symbols (encoded as 2 x 12 bits = 3 bytes) or a single
-        // (DTM) value (encoded as a combination of 0xfff and 12 bits).
+        // WDL/DTZ value (encoded as a combination of 0xfff and 12 bits).
         struct Symbol *stable = F->symtable[i];
         write_u16(G, F->num_syms[i]);
         for (int j = 0; j < F->num_syms[i]; j++) {
@@ -1087,7 +1091,7 @@ void write_final(struct tb_handle *F, FILE *G)
 
         // Up to 4095 Re-Pair symbols. Each symbol is either the concatenation
         // of two other symbols (encoded as 2 x 12 bits = 3 bytes) or a single
-        // (DTM) value (encoded as a combination of 0xfff and 12 bits).
+        // WDL/DTZ value (encoded as a combination of 0xfff and 12 bits).
         struct Symbol *stable = F->symtable[i];
         for (int j = 0; j < F->num_syms[i]; j++) {
           int k = c->map[j];
@@ -1255,17 +1259,8 @@ static void compress_data(struct tb_handle *F, int num, FILE *G,
     }
   }
 
-  for (int i = 0; i < num_indices; i++) {
-    uint32_t block;
-    uint16_t offset;
-    memcpy(&block, indextable + 6 * i, sizeof(block));
-    write_u32(G, block);
-    memcpy(&offset, indextable + 6 * i + 4, sizeof(offset));
-    write_u16(G, offset);
-  }
-
-  for (int i = 0; i < num_blocks; i++)
-    write_u16(G, sizetable[i]);
+  file_write(indextable, 6 * num_indices, G);
+  file_write(sizetable, 2 * num_blocks, G);
 
   free(indextable);
   free(sizetable);
@@ -1406,4 +1401,229 @@ void merge_tb(struct tb_handle *F)
   }
 
   free(F);
+}
+
+static const char *name[] = { "wdl", "dtm", "dtz" };
+static constexpr int default_blocksize[3] = { 6, 6, 10 };
+
+void compress_data_462(int s, int stm, int type, void *data, uint64_t tb_size,
+    uint8_t *perm, int minfreq, bool wide)
+{
+  char str[128];
+
+  create_name(str, s, stm, name[type], -1);
+  FILE *F = fopen(str, "wb");
+  if (!F) {
+    fprintf(stderr, "Could not open %s.\n", str);
+    exit(EXIT_FAILURE);
+  }
+
+  if (g_compress_type == 1) {
+    write_u8(F, 0);
+    if (type == WDL) {
+      for (int i = 0; i < 5; i++)
+        if (wdl_vals[i]) {
+          write_u8(F, i);
+          break;
+        }
+    } else
+      write_u8(F, current_map->map[0][0]);
+    goto finished;
+  }
+
+  void *code;
+  int num_syms;
+  int64_t *freq = construct_pairs(data, tb_size, minfreq, 0, &num_syms, wide,
+      type == WDL);
+  bool rans = g_use_rans && type == DTZ;
+  if (!rans) {
+    code = create_code(freq, num_syms);
+    if (!wide)
+      calc_block_sizes_u8(data, tb_size, code, default_blocksize[type]);
+    else
+      calc_block_sizes_u16(data, tb_size, code, default_blocksize[type]);
+  } else {
+    code = create_code_rans(freq, num_syms);
+    if (!wide)
+      calc_block_sizes_rans_u8(data, tb_size, code, default_blocksize[type]);
+    else
+      calc_block_sizes_rans_u16(data, tb_size, code, default_blocksize[type]);
+  }
+
+  bool mapped = false;
+  if (type == DTZ) {
+    int i, j, k;
+    for (i = 0; i < 4; i++)
+      if (current_map->num[i] == num_vals)
+        break;
+    for (j = 0; j < 4; j++)
+      if (j != i) {
+        for (k = 0; k < current_map->num[j]; k++)
+          if (current_map->map[j][k] != current_map->map[i][k])
+            break;
+        if (k < current_map->num[j])
+          break;
+      }
+    if (j == 4) {
+      for (k = 0; k < num_vals; k++)
+        symtable[k].pattern[0] = current_map->map[i][k];
+    } else {
+      mapped = true;
+    }
+  }
+
+  // Piece permutation.
+  for (int i = 0; i < ii.numsets; i++)
+    write_u8(F, perm[i]);
+
+  // Entropy coding method.
+  write_u8(F, !rans ? 0 : 1);
+
+  // Mapped or not.
+  write_u8(F, !mapped ? 0 : !wide ? 1 : 2);
+
+  // Each compressed block is 1 << blocksize bytes.
+  write_u8(F, blocksize);
+
+  // The index of a position is divided by 1 << idxbits to find a "main entry" in
+  // the table's index.
+  write_u8(F, idxbits);
+
+  // A small number of non-existing blocks at the end of the index to prevent
+  // an out-of-bounds error when accessing the index.
+  write_u8(F, num_blocks - real_num_blocks);
+
+  // Align on an even position in the file.
+  if (ftell(F) & 0x01)
+    write_u8(F, 0);
+
+  // The number of existing compressed blocks in the table.
+  write_u32(F, real_num_blocks);
+
+  if (!rans) {
+    // A representation of a canonical Huffman code.
+    // For background, see: Alistair Moffat and Andrew Turpin,
+    // "On the Implementation of Minimum Redundancy Prefix Codes",
+    // IEEE Transactions on Communications, Vol. 45, No. 10, October 1997.
+    // https://tinyurl.com/w5r92fw8
+    struct HuffCode *c = code;
+    write_u8(F, c->max_len);
+    write_u8(F, c->min_len);
+    for (int i = c->min_len; i <= c->max_len; i++)
+      write_u16(F, c->offset[i]);
+
+    // Up to 4095 Re-Pair symbols. Each symbol is either the concatenation
+    // of two other symbols (encoded as 2 x 12 bits = 3 bytes) or a single
+    // WDL/DTZ value (encoded as a combination of 0xfff and 12 bits).
+    write_u16(F, num_syms);
+    for (int i = 0; i < num_syms; i++) {
+      int k = c->map[i];
+      if (symtable[k].len == 1) {
+        int s1 = symtable[k].pattern[0];
+        write_u8(F, s1 & 0xff);
+        write_u8(F, (s1 >> 8) | 0xf0);
+        write_u8(F, 0xff);
+      } else {
+        int s1 = c->inv[symtable[k].pattern[0]];
+        int s2 = c->inv[symtable[k].pattern[1]];
+        write_u8(F, s1 & 0xff);
+        write_u8(F, (s1 >> 8) | ((s2 << 4) & 0xff));
+        write_u8(F, s2 >> 4);
+      }
+    }
+  } else {
+    // rANS. Write out the frequency table.
+    struct RansCode *c = code;
+    size_t ft_size = write_freq_table(F, c, num_syms);
+    printf("num_syms = %d, freq_table size = %lu\n", num_syms, ft_size);
+
+    // Up to 4095 Re-Pair symbols. Each symbol is either the concatenation
+    // of two other symbols (encoded as 2 x 12 bits = 3 bytes) or a single
+    // WDL/DTZ value (encoded as a combination of 0xfff and 12 bits).
+    for (int i = 0; i < num_syms; i++) {
+      int k = c->map[i];
+      if (symtable[k].len == 1) {
+        int s1 = symtable[k].pattern[0];
+        write_u8(F, s1 & 0xff);
+        write_u8(F, (s1 >> 8) | 0xf0);
+        write_u8(F, 0xff);
+      } else {
+        int s1 = c->inv[symtable[k].pattern[0]];
+        int s2 = c->inv[symtable[k].pattern[1]];
+        write_u8(F, s1 & 0xff);
+        write_u8(F, (s1 >> 8) | ((s2 << 4) & 0xff));
+        write_u8(F, s2 >> 4);
+      }
+    }
+  }
+
+  if (mapped) {
+    struct DtzMap *map = current_map;
+    if (!wide) {
+      for (int i = 0; i < 4; i++) {
+        write_u8(F, map->num[i]);
+        for (int j = 0; j < map->num[i]; j++)
+          write_u8(F, map->map[i][j]);
+      }
+    } else {
+      if (ftell(F) & 0x01)
+        write_u8(F, 0);
+      for (int i = 0; i < 4; i++) {
+        write_u16(F, map->num[i]);
+        for (int j = 0; j < map->num[i]; j++)
+          write_u16(F, map->map[i][j]);
+      }
+    }
+  }
+
+  if (ftell(F) & 0x01)
+    write_u8(F, 0);
+
+  // Write the "main" entries of the index. Each entry consists of a 32-bit
+  // value and a 16 bit value packed into 6 bytes. The 32-bit value of the
+  // kth entry is the number of the block which contains the value of the
+  // position with index I_k = k * (1 << indexbits) + (1 << (indexbits - 1)).
+  // The 16-bit value is the offset within that compressed block at which
+  // the value with this index is found. Note that each compressed block
+  // contains at most 65536 values.
+  file_write(indextable, 6 * num_indices, F);
+  free(indextable);
+
+  // For each table, write out a list of 16-bit values representing the
+  // number of values stored in the compressed blocks. This is the 2nd level
+  // index. To find the value of a position:
+  // - Encode the position into an index I.
+  // - Calculate k for which abs(I - I_k) is minimal.
+  // - Use the main index to find the block and offset of the value of the
+  //   position with index I_k.
+  // - Use the 16-bit values in the 2nd level index, starting from the
+  //   16-bit value corresponding to block which contains I_k, to find
+  //   the block that contains I and the offset of I within that block.
+  //
+  //  The "indexbits" value is chosen such that about 8 16-bit values have
+  //  to be added or subtracted on average.
+  file_write(sizetable, 2 * num_blocks, F);
+  free(sizetable);
+
+  while (ftell(F) & 0x3f)
+    write_u8(F, 0);
+
+  if (!rans) {
+    struct HuffCode *c = code;
+    if (!wide)
+      write_ctb_data_u8(F, data, c, tb_size, blocksize);
+    else
+      write_ctb_data_u16(F, data, c, tb_size, blocksize);
+    free_code(c);
+  } else {
+    struct RansCode *c = code;
+    if (!wide)
+      write_ctb_data_rans_u8(F, data, c, tb_size, blocksize);
+    else
+      write_ctb_data_rans_u16(F, data, c, tb_size, blocksize);
+    free_code_rans(c);
+  }
+
+finished:
+  fclose(F);
 }

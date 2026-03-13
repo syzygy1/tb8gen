@@ -108,6 +108,11 @@ Bitboard idx_to_sq(uint32_t *sub, uint8_t *restrict sq)
   return idx_to_sq_unpack(sub, sq, &ii);
 }
 
+void idx_to_sq_ii(uint32_t *sub, uint8_t *restrict sq, struct IdxInfo *ii)
+{
+  idx_to_sq_unpack(sub, sq, ii);
+}
+
 Bitboard capt_idx_to_sq(uint32_t *sub, uint8_t *restrict sq, const int k)
 {
   return idx_to_sq_unpack(sub, sq, &capt_ii[k]);

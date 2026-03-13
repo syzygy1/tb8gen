@@ -25,63 +25,51 @@
 #include "threads.h"
 #include "util.h"
 
-uint64_t tb_size;
-
-//extern uint64_t sq_mask[64];
-
 static constexpr int MAX_PERMS = 1*2*3*4*5*6*7;
 static constexpr int MAX_CANDS = 6*7;
 
 static uint64_t *restrict work_convert = NULL;
 static uint64_t *restrict work_est = NULL;
 
-static struct BaseEntry base_entry;
-static struct DecInfo dec_info;
+//static uint8_t order_list[MAX_PERMS];
+//static uint8_t order2_list[MAX_PERMS];
 
-static uint8_t order_list[MAX_PERMS];
-static uint8_t order2_list[MAX_PERMS];
+static int num_sets, num_set_perms;
+static uint8_t set_perm_list[MAX_PERMS][MAX_SETS];
 
-static uint8_t piece_perm_list[MAX_PERMS][MAX_PIECES];
-static uint8_t pidx_list[MAX_PERMS][MAX_PIECES];
+uint64_t compest[MAX_PERMS];
 
-static int num_types, num_type_perms;
-static uint8_t type[MAX_PIECES];
-static uint8_t type_perm_list[MAX_PERMS][MAX_PIECES];
-
-static uint64_t compest[MAX_PERMS];
+static uint8_t set_pt[MAX_SETS];
 
 static int trylist[MAX_CANDS];
+static struct IdxInfo try_ii[MAX_CANDS];
+static struct IdxInfo best_ii;
 
-#if 0
-static int pw[MAX_PIECES];
-static int cmp[16];
-#endif
+static uint8_t perm_tmp[MAX_SETS];
 
-static uint8_t perm_tmp[MAX_PIECES];
-
-static void generate_type_perms2(int n, int k)
+static void generate_set_perms_helper(int n, int k)
 {
   if (k == n) {
     for (int i = 0; i < n; i++)
-      type_perm_list[num_type_perms][i] = perm_tmp[i];
-    num_type_perms++;
+      set_perm_list[num_set_perms][i] = perm_tmp[i];
+    num_set_perms++;
     return;
   }
 
   for (int i = 0; i < n; i++)
     if (perm_tmp[i] == 0xff) {
-      perm_tmp[i] = type[k];
-      generate_type_perms2(n, k + 1);
+      perm_tmp[i] = k;
+      generate_set_perms_helper(n, k + 1);
       perm_tmp[i] = 0xff;
     }
 }
 
-static void generate_type_perms(int n)
+static void generate_set_perms(int n)
 {
-  num_type_perms = 0;
+  num_set_perms = 0;
   for (int i = 0; i < n; i++)
     perm_tmp[i] = 0xff;
-  generate_type_perms2(n, 0);
+  generate_set_perms_helper(n, 0);
 }
 
 static int num_segs, seg_size;
@@ -123,9 +111,12 @@ static void generate_test_list(uint64_t size, int n)
     segs[i] += i * seg_size;
 }
 
+// sq_to_idx()
 INLINE uint64_t calc_idx_piece(uint8_t *restrict sq, uint8_t *restrict pidx,
     int n)
 {
+  // need to think about this
+  //
   uint8_t sq2[MAX_PIECES];
   for (int i = 0; i < n; i++)
     sq2[i] = sq[pidx[i]];
@@ -152,133 +143,20 @@ INLINE uint64_t calc_idx_pawn(uint8_t *pos, uint8_t *pidx, int n)
 }
 #endif
 
-void init_permute_piece(uint8_t *pcs, uint8_t *pt)
+void init_permute_piece_462(void)
 {
-  int i, j, k, m, l;
-  int tidx[16];
+  num_sets = ii.numsets;
 
-  k = 0;
-  for (int i = 0; i < 16; i++)
-    if (pcs[i]) type[k++] = i;
-  num_types = k;
+  generate_set_perms(num_sets);
 
-  k = 0;
-  for (int i = 0; i < 16; i++)
-    if (pcs[i] == 1) k++;
-  if (k >= 3) base_entry.kk_enc = 0;
-  else if (k == 2) base_entry.kk_enc = 2;
-  else { /* only possible for suicide chess */
-    k = 16;
-    for (int i = 0; i < 16; i++)
-      if (pcs[i] < k && pcs[i] > 1)
-        k = pcs[i];
-    base_entry.kk_enc = 1 + k;
-  }
+  for (int i = 0; i < num_sets; i++)
+    set_pt[i] = g_pos.pt[ii.first[i]];
 
-  base_entry.num = 0;
-  for (int i = 0; i < 16; i++)
-    base_entry.num += pcs[i];
+  tb_size = kslice_size;
 
-  generate_type_perms(num_types);
-
-  for (i = 0; i < num_types; i++) {
-    for (j = 0; j < base_entry.num; j++)
-      if (pt[j] == type[i]) break;
-    tidx[type[i]] = j;
-  }
-
-  if (base_entry.kk_enc == 0) { /* 111 */
-    for (i = 0; i < num_type_perms;) {
-      for (j = num_types - 3; j >= 0; j--)
-        if (   pcs[type_perm_list[i][j    ]] == 1
-            && pcs[type_perm_list[i][j + 1]] == 1
-            && pcs[type_perm_list[i][j + 2]] == 1) break;
-      if (j < 0) {
-        num_type_perms--;
-        for (k = 0; k < num_types; k++)
-          type_perm_list[i][k] = type_perm_list[num_type_perms][k];
-      } else {
-        piece_perm_list[i][2] = tidx[type_perm_list[i][j]];
-        piece_perm_list[i][1] = tidx[type_perm_list[i][j + 1]];
-        piece_perm_list[i][0] = tidx[type_perm_list[i][j + 2]];
-        for (k = 0, m = 3; k < num_types;)
-          if (k != j) {
-            for (l = 0; l < pcs[type_perm_list[i][k]]; l++)
-              piece_perm_list[i][m++] = tidx[type_perm_list[i][k]] + l;
-            k++;
-          } else
-            k += 3;
-        order_list[i] = j;
-        i++;
-      }
-    }
-  } else if (base_entry.kk_enc == 2) { /* KK or 11 */
-    for (i = 0; i < num_type_perms;) {
-      for (j = num_types - 2; j >= 0; j--)
-        if (   pcs[type_perm_list[i][j    ]] == 1
-            && pcs[type_perm_list[i][j + 1]] == 1) break;
-      if (j < 0) {
-        num_type_perms--;
-        for (k = 0; k < num_types; k++)
-          type_perm_list[i][k] = type_perm_list[num_type_perms][k];
-      } else {
-        piece_perm_list[i][1] = tidx[type_perm_list[i][j]];
-        piece_perm_list[i][0] = tidx[type_perm_list[i][j + 1]];
-        for (k = 0, m = 2; k < num_types;)
-          if (k != j) {
-            for (l = 0; l < pcs[type_perm_list[i][k]]; l++)
-              piece_perm_list[i][m++] = tidx[type_perm_list[i][k]] + l;
-            k++;
-          } else
-            k += 2;
-        order_list[i] = j;
-        i++;
-      }
-    }
-  } else { /* 2, or 3, or 4, or higher; only possible for suicide chess */
-    int p = base_entry.kk_enc - 1;
-    for (i = 0; i < num_type_perms;) {
-      for (j = num_types - 1; j >= 0; j--)
-        if (pcs[type_perm_list[i][j]] == p) break;
-      for (k = 0; k < p; k++)
-        piece_perm_list[i][k] = tidx[type_perm_list[i][j]] + k;
-      for (k = 0, m = p; k < num_types; k++)
-        if (k != j) {
-          for (l = 0; l < pcs[type_perm_list[i][k]]; l++)
-            piece_perm_list[i][m++] = tidx[type_perm_list[i][k]] + l;
-        }
-      order_list[i] = j;
-      i++;
-    }
-  }
-
-  for (i = 0; i < num_type_perms; i++)
-    for (j = i + 1; j < num_type_perms; j++) {
-      for (k = 0; k < num_types; k++)
-        if (pcs[type_perm_list[i][k]] != pcs[type_perm_list[j][k]]) break;
-      if (   k < num_types
-          && pcs[type_perm_list[i][k]] > pcs[type_perm_list[j][k]])
-      {
-        for (k = 0; k < num_types; k++)
-          Swap(type_perm_list[i][k], type_perm_list[j][k]);
-        for (k = 0; k < base_entry.num; k++)
-          Swap(piece_perm_list[i][k], piece_perm_list[j][k]);
-        Swap(order_list[i], order_list[j]);
-      }
-    }
-
-  for (i = 0; i < num_type_perms; i++)
-    order2_list[i] = 0xf;
-
-  for (i = 0; i < num_type_perms; i++)
-    for (j = 0; j < base_entry.num; j++)
-      pidx_list[i][piece_perm_list[i][j]] = j;
-
-  tb_size = set_dec_info(&dec_info, &base_entry, pcs, type_perm_list[0],
-      order_list[0], 0xf, -1, PIECE_ENC);
   printf("tb_size = %"PRIu64"\n", tb_size);
 
-  generate_test_list(tb_size, base_entry.num);
+  generate_test_list(tb_size, g_pos.num - 2);
 
   work_convert = create_work(g_total_work, tb_size, 0);
 }
@@ -394,14 +272,12 @@ void *init_permute_rank(uint8_t *pcs, int rank, void *tb_table, bool wide)
 static struct {
   void *src;
   void *dst;
-  uint8_t *pcs;
-  int p;
+  struct IdxInfo *perm_ii;
   int rank;
 } convert_data;
 
 static struct {
   void *table;
-  uint8_t *pcs;
   void *dst;
   int num_cands;
   uint32_t dsize;
@@ -409,20 +285,19 @@ static struct {
 } est_data;
 
 #define T u8
-#include "permute_tmpl.c"
+#include "permute462_tmpl.c"
 #undef T
 
 #define T u16
-#include "permute_tmpl.c"
+#include "permute462_tmpl.c"
 #undef T
 
-static void estimate_compression_piece(void *table, uint8_t *pcs, int num_cands,
-    bool wide, bool wdl)
+static void estimate_compression_piece(void *table, int num_cands, bool wide,
+    bool wdl)
 {
   uint32_t dsize = num_segs * seg_size;
-  void *dst = malloc((num_cands * dsize + 1) * (wide ? 2 : 1));
+  void *dst = malloc((num_cands * dsize + 1) * (1 + wide));
   est_data.table = table;
-  est_data.pcs = pcs;
   est_data.dst = dst;
   est_data.num_cands = num_cands;
   est_data.dsize = dsize;
@@ -449,10 +324,10 @@ static void estimate_compression_piece(void *table, uint8_t *pcs, int num_cands,
     struct HuffCode *c = create_code(freq, num_syms);
     csize = calc_size(c);
     free_code(c);
-    printf("[%2d] order: %d", p, order_list[trylist[p]]);
+    printf("[%2d]", p);
     printf("; perm:");
-    for (int i = 0; i < num_types; i++)
-      printf(" %2d", type_perm_list[trylist[p]][i]);
+    for (int i = 0; i < num_sets; i++)
+      printf(" %2d", set_perm_list[trylist[p]][i]);
     printf("; %"PRIu64"\n", csize);
     compest[trylist[p]] = csize;
     dst0 += (wide ? 2 : 1) * dsize;
@@ -462,7 +337,7 @@ static void estimate_compression_piece(void *table, uint8_t *pcs, int num_cands,
 }
 
 #if 0
-static void estimate_compression_pawn(void *table, uint8_t *pcs, int rank,
+void estimate_compression_pawn(void *table, uint8_t *pcs, int rank,
     int num_cands, bool wide)
 {
   uint32_t dsize = num_segs * seg_size;
@@ -509,13 +384,13 @@ static void estimate_compression_pawn(void *table, uint8_t *pcs, int rank,
 }
 #endif
 
-static uint64_t estimate_compression(void *table, int *bestp, uint8_t *pcs,
-    int rank, bool wide, bool wdl)
+static int64_t estimate_compression(void *table, int *bestp, int rank,
+    bool wide, bool wdl)
 {
   int i, j, k, p, q;
   int num_cands, bp = 0;
   uint64_t best = 0;
-  uint8_t bestperm[MAX_PIECES];
+  uint8_t bestperm[MAX_SETS];
 
   if (g_compress_type == 1) {
     *bestp = 0;
@@ -526,30 +401,30 @@ static uint64_t estimate_compression(void *table, int *bestp, uint8_t *pcs,
     work_est = alloc_work(g_total_work);
   fill_work(g_total_work, num_segs, 0, work_est);
 
-  for (i = 0; i < num_type_perms; i++)
+  for (i = 0; i < num_set_perms; i++)
     compest[i] = 0;
 
-  for (k = 0; k < num_types - 1; k++) {
+  for (k = 0; k < num_sets - 1; k++) {
     best = UINT64_MAX;
     num_cands = 0;
-    for (p = 0; p < num_types; p++) {
+    for (p = 0; p < num_sets; p++) {
       for (i = 0; i < k; i++)
-	if (type[p] == bestperm[i]) break;
+	if (p == bestperm[i]) break;
       if (i < k) continue;
-      for (q = 0; q < num_types; q++) {
+      for (q = 0; q < num_sets; q++) {
 	if (q == p) continue;
 	for (i = 0; i < k; i++)
-	  if (type[q] == bestperm[i]) break;
+	  if (q == bestperm[i]) break;
 	if (i < k) continue;
 	// look for permutation starting with bestperm[0..k-1],p,q
-	for (i = 0; i < num_type_perms; i++) {
+	for (i = 0; i < num_set_perms; i++) {
 	  for (j = 0; j < k; j++)
-	    if (type_perm_list[i][j] != bestperm[j]) break;
+	    if (set_perm_list[i][j] != bestperm[j]) break;
 	  if (j < k) continue;
-	  if (   type_perm_list[i][k]   == type[p]
-              && type_perm_list[i][k+1] == type[q]) break;
+	  if (   set_perm_list[i][k]   == p
+              && set_perm_list[i][k+1] == q) break;
 	}
-	if (i < num_type_perms) {
+	if (i < num_set_perms) {
 	  if (compest[i]) {
 	    if (compest[i] < best) {
 	      best = compest[i];
@@ -562,13 +437,20 @@ static uint64_t estimate_compression(void *table, int *bestp, uint8_t *pcs,
     }
     for (i = 0; i < num_cands; i++)
       for (j = i + 1; j < num_cands; j++)
-	if (trylist[i] > trylist[j]) {
-	  int tmp = trylist[i];
-	  trylist[i] = trylist[j];
-	  trylist[j] = tmp;
-	}
+	if (trylist[i] > trylist[j])
+          Swap(trylist[i], trylist[j]);
+    for (i = 0; i < num_cands; i++) {
+      try_ii[i].numsets = num_sets;
+      for (j = 0; j < num_sets; j++) {
+        p = set_perm_list[trylist[i]][j];
+        try_ii[i].mult[j] = ii.mult[p];
+        try_ii[i].first[j] = ii.first[p];
+        try_ii[i].last[j] = ii.last[p];
+      }
+      calc_factors(&try_ii[i]);
+    }
     if (rank < 0)
-      estimate_compression_piece(table, pcs, num_cands, wide, wdl);
+      estimate_compression_piece(table, num_cands, wide, wdl);
 //    else
 //      estimate_compression_pawn(table, pcs, rank, num_cands, wide);
     for (i = 0; i < num_cands; i++) {
@@ -577,61 +459,42 @@ static uint64_t estimate_compression(void *table, int *bestp, uint8_t *pcs,
 	bp = trylist[i];
       }
     }
-    bestperm[k] = type_perm_list[bp][k];
+    bestperm[k] = set_perm_list[bp][k];
   }
   *bestp = bp;
 
   return best;
 }
 
-void permute_piece_wdl(void *tb_table, uint8_t *pcs, uint8_t *pt,
-    void *table, uint8_t *best)
+void permute_piece_462(void *tb_table, void *table, uint8_t *best, int type, 
+    bool wide)
 {
   int bestp;
 
-  estimate_compression(table, &bestp, pcs, -1, false, true);
+  estimate_compression(table, &bestp, -1, wide, type == WDL);
 
-  for (int i = 0; i < base_entry.num; i++)
-    best[i] = pt[piece_perm_list[bestp][i]];
-  best[0] |= order_list[bestp] << 4;
+  for (int i = 0; i < num_sets; i++)
+    best[i] = set_perm_list[bestp][i];
 
-  printf("best order: %d", best[0] >> 4);
-  printf("\nbest permutation:");
-  for (int i = 0 ;i < base_entry.num; i++)
-    printf(" %d", best[i] & 0x0f);
+  best_ii.numsets = num_sets;
+  for (int i = 0; i < num_sets; i++) {
+    int k = best[i];
+    best_ii.mult[i] = ii.mult[k];
+    best_ii.first[i] = ii.first[k];
+    best_ii.last[i] = ii.last[k];
+  }
+  calc_factors(&best_ii);
+
+  printf("\nbest permutation: ");
+  for (int i = 0; i < num_sets; i++) {
+    for (int j = 0; j < best_ii.mult[i]; j++)
+      printf("%c", PieceChar[set_pt[best[i]]]);
+  }
   printf("\n");
 
   convert_data.src = table;
   convert_data.dst = tb_table;
-  convert_data.pcs = pcs;
-  convert_data.p = bestp;
-
-  if (g_compress_type == 1)
-    return;
-
-  run_threaded(convert_data_piece_u8, work_convert, 1);
-}
-
-void permute_piece_dtz(void *tb_table, uint8_t *pcs, uint8_t *pt, void *table,
-    uint8_t *best, bool wide)
-{
-  int bestp;
-  estimate_compression(table, &bestp, pcs, -1, wide, false);
-
-  for (int i = 0; i < base_entry.num; i++)
-    best[i] = pt[piece_perm_list[bestp][i]];
-  best[0] |= order_list[bestp] << 4;
-
-  printf("best order: %d", best[0] >> 4);
-  printf("\nbest permutation:");
-  for (int i = 0; i < base_entry.num; i++)
-    printf(" %d", best[i] & 0x0f);
-  printf("\n");
-
-  convert_data.src = table;
-  convert_data.dst = tb_table;
-  convert_data.pcs = pcs;
-  convert_data.p = bestp;
+  convert_data.perm_ii = &best_ii;
 
   if (g_compress_type == 1)
     return;
@@ -643,8 +506,8 @@ void permute_piece_dtz(void *tb_table, uint8_t *pcs, uint8_t *pt, void *table,
 }
 
 #if 0
-void permute_pawn_dtm(void *tb_table, uint8_t *pcs, uint8_t *pt, void *table,
-    uint8_t *best, int rank, void *v, bool wide)
+void permute_pawn_dtm(void *tb_table, void *table, uint8_t *best, int rank,
+    void *v, bool wide)
 {
   int i;
 

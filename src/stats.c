@@ -10,6 +10,7 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include "compress.h"
 #include "defs.h"
 #include "stats.h"
 #include "types.h"
@@ -33,7 +34,7 @@ void collect_stats(int stm)
       fprintf(stderr, "Could not open %s.\n", str);
       exit(EXIT_FAILURE);
     }
-    read_data(F, (void *)tmp, MAX_STATS * sizeof(uint64_t));
+    read_data(F, tmp, sizeof(tmp));
     fclose(F);
     for (int i = 0; i < MAX_STATS; i++)
       stats[i] += tmp[i];
@@ -98,24 +99,34 @@ void print_stats(int stm)
 // calculate DTZ entropy
 static double entropy_helper(uint64_t *stats, uint64_t removed)
 {
-  for (int i = 0; i < MAX_STATS / 2; i++)
-    for (int j = i + 1; j < MAX_STATS / 2; j++)
-      if (stats[i] < stats[j])
-        Swap(stats[i], stats[j]);
-  for (int i = MAX_STATS / 2; i < MAX_STATS; i++)
-    for (int j = i + 1; j < MAX_STATS; j++)
-      if (stats[i] < stats[j])
-        Swap(stats[i], stats[j]);
-  for (int i = 0; i < MAX_STATS / 2; i++)
-    stats[i] += stats[MAX_STATS / 2 + i];
-  stats[0] += removed;
+  uint64_t stats2[4][MAX_VAL] = { 0 };
+  for (int i = 0; i <= DRAW_RULE; i++) {
+    stats2[0][i] = stats[1 + i];
+    stats2[1][i] = stats[MAX_STATS - 1 - i];
+  }
+  for (int i = 0; i < MAX_VAL; i++) {
+    stats2[2][i] = stats[DRAW_RULE + 3 + 2 * i] + stats[DRAW_RULE + 4 + 2 * i];
+    stats2[3][i] =  stats[MAX_STATS - DRAW_RULE - 2 - 2 * i]
+                  + stats[MAX_STATS - DRAW_RULE - 3 - 2 * i];
+  }
+  for (int k = 0; k < 4; k++)
+    for (int i = 0; i < MAX_VAL; i++)
+      for (int j = i + 1; j < MAX_VAL; j++)
+        if (stats2[k][i] < stats2[k][j])
+          Swap(stats2[k][i], stats2[k][j]);
+
+  for (int i = 0; i < MAX_VAL; i++)
+    for (int k = 1; k < 4; k++)
+      stats2[0][i] += stats2[k][i];
+
+  stats2[0][0] += removed;
 
   uint64_t tot = 0;
-  for (int i = 0; i < MAX_STATS / 2; i++)
-    tot += stats[i];
+  for (int i = 0; i < MAX_VAL; i++)
+    tot += stats2[0][i];
   double entropy = 0;
-  for (int i = 0; i < MAX_STATS / 2 && stats[i]; i++) {
-    double p = (double)stats[i] / tot;
+  for (int i = 0; i < MAX_VAL && stats2[0][i]; i++) {
+    double p = (double)stats2[0][i] / tot;
     entropy += -p * log(p);
   }
   entropy /= log(2.0);

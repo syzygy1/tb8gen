@@ -2,8 +2,8 @@
 .SUFFIXES: .c .o .P
 
 GENOBJS = tb8gen.o movegen.o index.o generate.o merge.o kslice.o probe.o \
-	  stats.o join.o permute.o compress.o rans.o huffman.o util.o \
-	  threads.o checksum.o city-c.o
+	  stats.o join.o permute.o permute462.o compress.o rans.o huffman.o \
+	  util.o threads.o checksum.o city-c.o
 
 OBJS = $(sort $(GENOBJS) $(GEN2OBJS) $(VEROBJS))
 

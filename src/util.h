@@ -157,12 +157,10 @@ void unmap_file(const void *data, map_t map);
 void make_dir(const char *pathname);
 void change_dir(const char *pathname);
 
+uint64_t llrand(void);
+
 void *alloc_aligned(uint64_t size, uintptr_t alignment);
 void *alloc_huge(uint64_t size);
-
-void write_u32(FILE *F, uint32_t v);
-void write_u16(FILE *F, uint16_t v);
-void write_u8(FILE *F, uint8_t v);
 
 void file_read(void *ptr, size_t size, FILE *F);
 void file_write(void *ptr, size_t size, FILE *F);

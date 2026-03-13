@@ -15,7 +15,6 @@
 
 struct IdxInfo {
   int numsets;   // number of sets of like pieces, excluding kings.
-//  int norm[MAX_PIECES];
   uint64_t size;
   uint64_t factor[MAX_SETS];
   uint32_t subfactor[MAX_SETS]; // total number of placements for a set
@@ -78,6 +77,7 @@ uint64_t sq_to_idx(uint8_t *sq);
 uint64_t capt_sq_to_idx(uint8_t *sq, int k);
 void idx_to_sq_init(uint64_t idx, uint32_t *sub, struct IdxInfo *ii);
 Bitboard idx_to_sq(uint32_t *sub, uint8_t *sq);
+void idx_to_sq_ii(uint32_t *sub, uint8_t *sq, struct IdxInfo *ii);
 Bitboard capt_idx_to_sq(uint32_t *sub, uint8_t *sq, int k);
 
 #endif

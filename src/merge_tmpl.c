@@ -214,7 +214,7 @@ static void NAME(merge_bitmaps)(int stm, int s)
     fprintf(stderr, "Could not open %s.\n", str);
     exit(EXIT_FAILURE);
   }
-  write_data(F, (void *)stats, sizeof(stats));
+  write_data(F, stats, sizeof(stats));
   fclose(F);
 
   if (symmetric && stm == BLACK)
