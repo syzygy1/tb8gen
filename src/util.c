@@ -1,10 +1,10 @@
 /*
-  Copyright (c) 2011-2013, 2018, 2024, 2025 Ronald de Man
+  Copyright (c) 2011-2013, 2018, 2024, 2025, 2026 Ronald de Man
 
   This file is distributed under the terms of the GNU GPL, version 2.
 */
 
-#define _POSIX_C_SOURCE 200112L
+#define _GNU_SOURCE
 #include <stdlib.h>
 
 #include <assert.h>
@@ -12,6 +12,7 @@
 #include <stddef.h>
 #include <stdio.h>
 #include <stdint.h>
+#include <unistd.h>
 #ifndef _WIN32
 #include <unistd.h>
 #include <sys/mman.h>
@@ -106,6 +107,30 @@ void unmap_file(const void *data, map_t map)
   CloseHandle(map);
 
 #endif
+}
+
+void write_data_fd(int fd, const void *data, ssize_t count)
+{
+  while (count > 0) {
+    ssize_t n = write(fd, data, count);
+    if (n < 0) {
+      fprintf(stderr, "Error writing data.\n");
+      exit(EXIT_FAILURE);
+    }
+    count -= n;
+  }
+}
+
+void copy_data_fd(int fd_in, int fd_out, ssize_t count)
+{
+  while (count > 0) {
+    ssize_t n = copy_file_range(fd_in, nullptr, fd_out, nullptr, count, 0);
+    if (n < 0) {
+      fprintf(stderr, "Error copying data.\n");
+      exit(EXIT_FAILURE);
+    }
+    count -= n;
+  }
 }
 
 [[noreturn]] void out_of_mem(void)
@@ -270,7 +295,7 @@ static uint64_t total_read = 0, total_written = 0;
 void file_read(void *ptr, size_t size, FILE *F)
 {
   if (fread(ptr, 1, size, F) != size) {
-    fprintf(stderr, "Error reading data from disk.\n");
+    fprintf(stderr, "Error reading data.\n");
     exit(EXIT_FAILURE);
   }
   total_read += size;
@@ -279,7 +304,7 @@ void file_read(void *ptr, size_t size, FILE *F)
 void file_write(void *ptr, size_t size, FILE *F)
 {
   if (fwrite(ptr, 1, size, F) != size) {
-    fprintf(stderr, "Error writing data to disk.\n");
+    fprintf(stderr, "Error writing data.\n");
     exit(EXIT_FAILURE);
   }
   total_written += size;

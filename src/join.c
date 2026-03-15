@@ -4,9 +4,11 @@
   This file is distributed under the terms of the GNU GPL, version 2.
 */
 
+#include <fcntl.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <sys/stat.h>
 
 #include "compress.h"
 #include "defs.h"
@@ -49,7 +51,8 @@ static int sort_list(uint64_t *freq, uint16_t *map, uint16_t *inv_map)
   return num;
 }
 
-static void sort_values(int stm, uint64_t *stats, struct DtzMap *dtzmap)
+static void sort_values(int stm, uint64_t *stats, struct DtzMap *dtzmap,
+    uint64_t tot_pos)
 {
   uint64_t freq[4][MAX_VAL];
   uint16_t (*map)[MAX_VAL] = dtzmap->map;
@@ -91,6 +94,8 @@ static void sort_values(int stm, uint64_t *stats, struct DtzMap *dtzmap)
   dtzmap->max_num = num;
   dtzmap->wide = num >= 240;
 
+#if 0
+  // FIXME
   static uint64_t tot_pos[] = {
     518,
     31332,
@@ -100,6 +105,8 @@ static void sort_values(int stm, uint64_t *stats, struct DtzMap *dtzmap)
     392418260640
   };
   uint64_t tot = tot_pos[g_pos.num - 2] / 7000ULL;
+#endif
+  uint64_t tot = tot_pos / 7000ULL;
 
   int i;
   for (i = 0; i < num; i++) {
@@ -174,7 +181,7 @@ static void join_wdl(int stm, struct tb_handle *G)
   compress_init_wdl(mi.v_wdl);
 
   uint8_t best[MAX_PIECES];
-  printf("Find optimal premutation for %ctm/wdl.\n", "wb"[stm]);
+  printf("Find optimal permutation for %ctm/wdl.\n", "wb"[stm]);
   permute_piece_wdl(tb_table, join_pcs, join_pt, table, best);
   printf("Compressing date for %ctm/wdl.\n", "wb"[stm]);
   compress_tb(G, -1, tb_table, tb_size, best, minfreq, false);
@@ -187,7 +194,7 @@ static void join_dtz(int stm, struct tb_handle *G)
 
   read_merge_info(stm);
 
-  sort_values(stm, g_stats[stm], &dtzmap);
+  sort_values(stm, g_stats[stm], &dtzmap, 462 * kslice_size);
 
   if (dtzmap.wide != join_wide) {
     join_wide = dtzmap.wide;
@@ -217,7 +224,7 @@ static void join_dtz(int stm, struct tb_handle *G)
     }
 
     uint8_t w[256];
-    for (int i = 255; i >= 0; i--)
+    for (int i = 0; i < 256; i++)
       w[i] = v[mi.v_inv_u8[i]];
 
     uint8_t *table = join_table;
@@ -276,7 +283,7 @@ static void join_dtz(int stm, struct tb_handle *G)
   compress_init_dtz(&dtzmap, tb_wide);
 
   uint8_t best[MAX_PIECES];
-  printf("Find optimal premutation for %ctm/dtz.\n", "wb"[stm]);
+  printf("Find optimal permutation for %ctm/dtz.\n", "wb"[stm]);
   permute_piece_dtz(tb_table, join_pcs, join_pt, join_table, best, tb_wide);
   printf("Compressing date for %ctm/dtz.\n", "wb"[stm]);
   compress_tb(G, -1, tb_table, tb_size, best, minfreq, tb_wide);
@@ -380,7 +387,7 @@ static void join_wdl_462(int stm)
     compress_init_wdl(v_wdl);
 
     uint8_t best[MAX_SETS];
-    printf("Find optimal premutation for %ctm/wdl, slice = %d.\n", "wb"[stm],
+    printf("Find optimal permutation for %ctm/wdl, slice = %d.\n", "wb"[stm],
         s);
     permute_piece_462(tb_table, table, best, WDL, false);
     printf("Compressing date for %ctm/wdl, slice = %d.\n", "wb"[stm], s);
@@ -390,12 +397,15 @@ static void join_wdl_462(int stm)
 
 static void join_dtz_462(int stm)
 {
+  uint64_t stats[MAX_STATS];
   uint16_t v[MAX_STATS];
   char str[128];
 
+  create_dir(-1, stm, "dtz");
+
   read_merge_info(stm);
 
-  sort_values(stm, g_stats[stm], &dtzmap);
+  sort_values(stm, g_stats[stm], &dtzmap, 462 * kslice_size);
 
   if (dtzmap.wide != join_wide) {
     join_wide = dtzmap.wide;
@@ -413,24 +423,39 @@ static void join_dtz_462(int stm)
       out_of_mem();
   }
 
-  prepare_dtz_map(v, &dtzmap);
+  if (!mi.wide && tb_wide) {
+    fprintf(stderr, "Internal error.\n");
+    exit(EXIT_FAILURE);
+  }
 
   compress_alloc_dtz(tb_wide);
 
-  if (!mi.wide) {
+  for (int s = 0; s < 462; s++) {
+    g_pos.sq[0] = KKSquare[s][0];
+    g_pos.sq[1] = KKSquare[s][1];
+    g_pos.stm = stm;
 
-    if (tb_wide) {
-      fprintf(stderr, "Internal error.\n");
+    create_name(str, s, stm, "stats", -1);
+    FILE *F = fopen(str, "rb");
+    if (!F) {
+      fprintf(stderr, "Could not open %s.\n", str);
       exit(EXIT_FAILURE);
     }
+    read_data(F, stats, sizeof(stats));
+    fclose(F);
 
-    uint8_t w[256];
-    for (int i = 255; i >= 0; i--)
-      w[i] = v[mi.v_inv_u8[i]];
+    sort_values(stm, stats, &dtzmap, kslice_size);
+//    sort_values(stm, g_stats[stm], &dtzmap, 462 * kslice_size);
+    prepare_dtz_map(v, &dtzmap);
 
-    uint8_t *table = join_table;
+    if (!mi.wide) {
 
-    for (int s = 0; s < 462; s++) {
+      uint8_t w[256];
+      for (int i = 0; i < 256; i++)
+        w[i] = v[mi.v_inv_u8[i]];
+
+      uint8_t *table = join_table;
+
       create_name(str, s, stm, "merged/dtz", -1);
       FILE *F = fopen(str, "rb");
       if (!F) {
@@ -439,55 +464,170 @@ static void join_dtz_462(int stm)
       }
       read_data_transform_u8(F, table, kslice_size, w);
       fclose(F);
-    }
 
-  } else if (!tb_wide) {
+    } else if (!tb_wide) {
 
-    uint8_t w[MAX_STATS];
-    for (int i = 0; i < MAX_STATS; i++)
-      w[i] = v[i];
+      uint8_t w[MAX_STATS];
+      for (int i = 0; i < MAX_STATS; i++)
+        w[i] = v[i];
 
-    uint8_t *table = join_table;
-    table[kslice_size] = dtzmap.max_num;
+      uint8_t *table = join_table;
 
-    for (int s = 0; s < 462; s++) {
-      create_name(str, s, stm, "merged/dtz", -1);
-      FILE *F = fopen(str, "rb");
-      if (!F) {
-        fprintf(stderr, "Could not open %s.\n", str);
-        exit(EXIT_FAILURE);
+      for (int s = 0; s < 462; s++) {
+        create_name(str, s, stm, "merged/dtz", -1);
+        FILE *F = fopen(str, "rb");
+        if (!F) {
+          fprintf(stderr, "Could not open %s.\n", str);
+          exit(EXIT_FAILURE);
+        }
+        read_data_transform_to_u8_u16(F, table, kslice_size * 2, w);
+        fclose(F);
       }
-      read_data_transform_to_u8_u16(F, table, kslice_size * 2, w);
-      fclose(F);
-    }
 
-  } else {
+    } else {
 
-    uint16_t *table = join_table;
-    table[kslice_size] = dtzmap.max_num;
+      uint16_t *table = join_table;
 
-    for (int s = 0; s < 462; s++) {
-      create_name(str, s, stm, "merged/dtz", -1);
-      FILE *F = fopen(str, "rb");
-      if (!F) {
-        fprintf(stderr, "could not open %s.\n", str);
-        exit(EXIT_FAILURE);
+      for (int s = 0; s < 462; s++) {
+        create_name(str, s, stm, "merged/dtz", -1);
+        FILE *F = fopen(str, "rb");
+        if (!F) {
+          fprintf(stderr, "could not open %s.\n", str);
+          exit(EXIT_FAILURE);
+        }
+        read_data_transform_u16(F, table, kslice_size * 2, v);
+        fclose(F);
       }
-      read_data_transform_u16(F, table, kslice_size * 2, v);
-      fclose(F);
+
     }
 
+    compress_init_dtz(&dtzmap, tb_wide); // we must somehow relay dtzmap!
+
+    uint8_t best[MAX_SETS];
+    printf("Find optimal permutation for %ctm/dtz, slice = %d.\n", "wb"[stm],
+        s);
+    permute_piece_462(tb_table, join_table, best, DTZ, tb_wide);
+    printf("Compressing date for %ctm/dtz, slice = %d.\n", "wb"[stm], s);
+    compress_data_462(s, stm, DTZ, tb_table, kslice_size, best, minfreq,
+        tb_wide);
   }
 
-  compress_init_dtz(&dtzmap, tb_wide); // we must somehow relay dtzmap!
-
-  uint8_t best[MAX_PIECES];
-  printf("Find optimal premutation for %ctm/dtz.\n", "wb"[stm]);
-  permute_piece_462(tb_table, join_table, best, DTZ, tb_wide);
-  printf("Compressing date for %ctm/dtz.\n", "wb"[stm]);
-//  compress_tb_462(G, -1, tb_table, tb_size, best, minfreq, tb_wide);
-
   compress_free_dtz();
+}
+
+void join_final_462(int type)
+{
+  char str[128];
+  struct stat st;
+  uint64_t slice_size[924], size_small = 0;
+  bool has_stm[2] = {
+    type == WDL || !one_sided || one_sided_stm == WHITE,
+    !symmetric && (type == WDL || !one_sided || one_sided_stm == BLACK)
+  };
+
+  uint8_t *buf = calloc(1, 2 * 462 * sizeof(uint64_t) + 1000);
+  if (!buf)
+    out_of_mem();
+
+  uint8_t *p = buf;
+  write_le_u32(p, magic2[type]);
+  p += 4;
+  *p++ = 0; // version number
+  *p++ = g_pos.num;
+  for (int i = 2; i < g_pos.num; i++)
+    *p++ = (g_pos.pt[i] & 7) | ((g_pos.pt[i] & 8) << 4);
+  if (type != WDL)
+    *p++ = one_sided ? one_sided_stm == WHITE ? WL_WTM : WL_BTM
+                     : wins_only ? W_ONLY : L_ONLY;
+  *p++ = LT_PIECE_KK;
+  p = buf + (((p - buf) + 7) & ~7);
+
+  int num = 0, num_small = 0;
+  for (int s = 0; s < 462; s++)
+    for (int stm = 0; stm < 2; stm++) {
+      if (!has_stm[stm]) continue;
+      create_name(str, s, stm, name[type], -1);
+      if (stat(str, &st) < 0) {
+        fprintf(stderr, "Could not access %s.\n", str);
+        exit(EXIT_FAILURE);
+      }
+      slice_size[num++] = st.st_size;
+      if (st.st_size < 64) {
+        num_small++;
+        size_small += st.st_size;
+      }
+    }
+
+  uint64_t offset = (p - buf) + num * sizeof(uint64_t);
+  uint64_t *p64 = (uint64_t *)p;
+  for (int i = 0; i < num; i++)
+    if (slice_size[i] < 64) {
+      p64[i] = offset;
+      offset += slice_size[i];
+    }
+  offset = (offset + 0x3f) & ~0x3fULL;
+  for (int i = 0; i < num; i++)
+    if (slice_size[i] >= 64) {
+      p64[i] = offset;
+      offset += slice_size[i];
+    }
+
+  sprintf(str, "%s%s", g_tablename, suffix[type]);
+  int fd = creat(str, 0666);
+  if (fd < 0) {
+    fprintf(stderr, "Could not open %s for writing.\n", str);
+    exit(EXIT_FAILURE);
+  }
+
+  write_data_fd(fd, buf, (p - buf) + num * sizeof(uint64_t));
+
+  free(buf);
+
+  int n = 0;
+  for (int s = 0; s < 462; s++) {
+    for (int stm = 0; stm < 2; stm++) {
+      if (!has_stm[stm]) continue;
+      if (slice_size[n] < 64) {
+        create_name(str, s, stm, name[type], -1);
+        int slice_fd = open(str, O_RDONLY);
+        if (slice_fd < 0) {
+          fprintf(stderr, "Could not open %s.\n", str);
+          exit(EXIT_FAILURE);
+        }
+        copy_data_fd(slice_fd, fd, slice_size[n]);
+        close(slice_fd);
+      }
+      n++;
+    }
+  }
+  off_t size = lseek(fd, 0, SEEK_CUR);
+  if (size == (off_t)-1) {
+    fprintf(stderr, "Could not lseek().\n");
+    exit(EXIT_FAILURE);
+    size_t pad = (0x40 - (size & 0x3f)) & 0x3f;
+    if (pad) {
+      char zeros[64] = { 0 };
+      write_data_fd(fd, zeros, pad);
+    }
+  }
+  n = 0;
+  for (int s = 0; s < 462; s++) {
+    for (int stm = 0; stm < 2; stm++) {
+      if (!has_stm[stm]) continue;
+      if (slice_size[n] >= 64) {
+        create_name(str, s, stm, name[type], -1);
+        int slice_fd = open(str, O_RDONLY);
+        if (slice_fd < 0) {
+          fprintf(stderr, "Could not open %s.\n", str);
+          exit(EXIT_FAILURE);
+        }
+        copy_data_fd(slice_fd, fd, slice_size[n]);
+        close(slice_fd);
+      }
+      n++;
+    }
+  }
+  close(fd);
 }
 
 void join_slices_462(void)
@@ -506,8 +646,9 @@ void join_slices_462(void)
   if (!symmetric)
     join_wdl_462(BLACK);
 
-//  merge_tb_462(G);
   compress_free_wdl();
+
+  join_final_462(WDL);
 
   if (!one_sided || one_sided_stm == WHITE)
     join_dtz_462(WHITE);
@@ -519,5 +660,5 @@ void join_slices_462(void)
   free(join_table);
   free(tb_table);
 
-//  merge_tb_462(G);
+  join_final_462(DTZ);
 }

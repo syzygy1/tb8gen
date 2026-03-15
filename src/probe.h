@@ -135,7 +135,7 @@ extern const uint8_t InvPawnFlip[2][24];
 extern const uint8_t InvPawnTwist[2][48];
 
 extern const char *suffix[3];
-extern uint32_t magic[3];
+extern uint32_t magic[3], magic2[3];
 
 size_t set_dec_info(struct DecInfo *di, struct BaseEntry *be, uint8_t *pcs,
     uint8_t *perm, int order, int order2, int fr, const int enc);

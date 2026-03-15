@@ -31,6 +31,7 @@
 
 const char *suffix[] = { ".rtbw", ".rtbm", ".rtbz" };
 uint32_t magic[] = { 0x5d23e871, 0x88ac504b, 0xa50c66d7 };
+uint32_t magic2[] = { 0x9ca55208, 0xd895e4a4, 0xeaf9b743 };
 
 struct HashEntry {
   uint64_t key;

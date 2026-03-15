@@ -126,7 +126,7 @@ static void NAME(convert_est_data_piece)(struct ThreadData *thread)
         idx_to_sq_ii(sub, sq, &try_ii[p]);
         uint64_t idx_dec = sq_to_idx(sq);
         __builtin_prefetch(table + idx_dec, 0, 3);
-        idx_dec_buf[head] = idx_dec;
+        idx_dec_buf[fill] = idx_dec;
       }
 
       for (; j < seg_size; j++, idx_to_sq_inc(sub, &try_ii[p])) {

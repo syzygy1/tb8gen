@@ -1403,7 +1403,6 @@ void merge_tb(struct tb_handle *F)
   free(F);
 }
 
-static const char *name[] = { "wdl", "dtm", "dtz" };
 static constexpr int default_blocksize[3] = { 6, 6, 10 };
 
 void compress_data_462(int s, int stm, int type, void *data, uint64_t tb_size,
@@ -1623,6 +1622,8 @@ void compress_data_462(int s, int stm, int type, void *data, uint64_t tb_size,
       write_ctb_data_rans_u16(F, data, c, tb_size, blocksize);
     free_code_rans(c);
   }
+  while (ftell(F) & 0x3f)
+    write_u8(F, 0);
 
 finished:
   fclose(F);

@@ -5,6 +5,7 @@
 #include <stdint.h>
 #include <stdio.h>
 #include <string.h>
+#include <unistd.h>
 
 #ifdef _WIN32
 #define WIN32_LEAN_AND_MEAN
@@ -133,6 +134,12 @@ INLINE void write_u32(FILE *F, uint32_t v)
   fputc((v >> 24) & 0xff, F);
 }
 
+INLINE void write_u64(FILE *F, uint64_t v)
+{
+  write_u32(F, v);
+  write_u32(F, v >> 32);
+}
+
 INLINE void write_u16(FILE *F, uint16_t v)
 {
   fputc(v & 0xff, F);
@@ -153,6 +160,9 @@ size_t file_size(FD fd);
 
 void *map_file(int fd, bool shared, map_t *map);
 void unmap_file(const void *data, map_t map);
+
+void write_data_fd(int fd, const void *data, ssize_t count);
+void copy_data_fd(int fd_in, int fd_out, ssize_t count);
 
 void make_dir(const char *pathname);
 void change_dir(const char *pathname);
