@@ -55,7 +55,7 @@ INLINE Bitboard unrank_binomial(uint64_t idx, int n, uint8_t *restrict sq,
 }
 
 // We expect a normalized position.
-INLINE uint64_t sq_to_idx_helper(uint8_t *restrict sq, struct IdxInfo *ii)
+INLINE uint64_t sq_to_idx_helper(uint8_t *restrict sq, const struct IdxInfo *ii)
 {
   uint64_t idx = 0;
   Bitboard occ = bit(sq[0]) | bit(sq[1]);
@@ -70,7 +70,7 @@ INLINE uint64_t sq_to_idx_helper(uint8_t *restrict sq, struct IdxInfo *ii)
       occ2 |= bit(sq[i]);
       s += Binomial[j + 1][rank];
     }
-    idx += s * ii->factor[k];
+    idx = idx * ii->factor[k] + s;
     occ = occ2;
   }
 
@@ -87,7 +87,8 @@ uint64_t capt_sq_to_idx(uint8_t *restrict sq, int k)
   return sq_to_idx_helper(sq, &capt_ii[k]);
 }
 
-INLINE Bitboard idx_to_sq_unpack(uint32_t *sub, uint8_t *sq, struct IdxInfo *ii)
+INLINE Bitboard idx_to_sq_unpack(uint32_t *sub, uint8_t *sq,
+    const struct IdxInfo *ii)
 {
   Bitboard occ = bit(sq[0]) | bit(sq[1]);
   for (int i = 0; i < ii->numsets; i++)
@@ -95,11 +96,12 @@ INLINE Bitboard idx_to_sq_unpack(uint32_t *sub, uint8_t *sq, struct IdxInfo *ii)
   return occ;
 }
 
-void idx_to_sq_init(uint64_t idx, uint32_t *sub, struct IdxInfo *ii)
+void idx_to_sq_init(uint64_t idx, uint32_t *restrict sub,
+    const struct IdxInfo *ii)
 {
-  for (int k = 0; k < ii->numsets; k++) {
-    sub[k] = idx / ii->factor[k];
-    idx -= sub[k] * ii->factor[k];
+  for (int k = ii->numsets - 1; k >= 0; k--) {
+    sub[k] = idx % ii->factor[k];
+    idx /= ii->factor[k];
   }
 }
 
@@ -108,7 +110,7 @@ Bitboard idx_to_sq(uint32_t *sub, uint8_t *restrict sq)
   return idx_to_sq_unpack(sub, sq, &ii);
 }
 
-void idx_to_sq_ii(uint32_t *sub, uint8_t *restrict sq, struct IdxInfo *ii)
+void idx_to_sq_ii(uint32_t *sub, uint8_t *restrict sq, const struct IdxInfo *ii)
 {
   idx_to_sq_unpack(sub, sq, ii);
 }
@@ -120,23 +122,18 @@ Bitboard capt_idx_to_sq(uint32_t *sub, uint8_t *restrict sq, const int k)
 
 void calc_factors(struct IdxInfo *ii)
 {
-  for (int i = 0; i < MAX_SETS; i++)
-    ii->factor[i] = 0;
-
   for (int i = 0, n = 62; i < ii->numsets; i++) {
-    ii->subfactor[i] = subfactor(ii->mult[i], n);
+    ii->factor[i] = subfactor(ii->mult[i], n);
     n -= ii->mult[i];
   }
 
   uint64_t f = 1;
-  for (int i = ii->numsets - 1; i >= 0; i--) {
-    ii->factor[i] = f;
-    f *= ii->subfactor[i];
-  }
+  for (int i = ii->numsets - 1; i >= 0; i--)
+    f *= ii->factor[i];
   ii->size = f;
-  // Increase subfactor[0] to ensure we can go slightly beyond the end
+  // Increase factor[0] to ensure we can go slightly beyond the end
   // without hanging in sq_to_idx_add().
-  ii->subfactor[0] += 64;
+  ii->factor[0] += 64;
 }
 
 void init_tables(void)

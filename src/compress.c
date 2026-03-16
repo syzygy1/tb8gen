@@ -1418,7 +1418,7 @@ void compress_data_462(int s, int stm, int type, void *data, uint64_t tb_size,
   }
 
   if (g_compress_type == 1) {
-    write_u8(F, 0);
+    write_u8(F, 0xff);
     if (type == WDL) {
       for (int i = 0; i < 5; i++)
         if (wdl_vals[i]) {
@@ -1471,30 +1471,29 @@ void compress_data_462(int s, int stm, int type, void *data, uint64_t tb_size,
     }
   }
 
+  // Mapped or not.
+  write_u8(F, !mapped ? 0 : !wide ? 1 : 2);
+
   // Piece permutation.
   for (int i = 0; i < ii.numsets; i++)
     write_u8(F, perm[i]);
 
-  // Entropy coding method.
-  write_u8(F, !rans ? 0 : 1);
+  if (ftell(F) & 0x01)
+    write_u8(F, 0);
 
-  // Mapped or not.
-  write_u8(F, !mapped ? 0 : !wide ? 1 : 2);
+  // Entropy coding method.
+  write_u8(F, !rans ? 1 : 2);
 
   // Each compressed block is 1 << blocksize bytes.
   write_u8(F, blocksize);
 
-  // The index of a position is divided by 1 << idxbits to find a "main entry" in
-  // the table's index.
+  // The index of a position is divided by 1 << idxbits to find a
+  // "main entry" in the table's index.
   write_u8(F, idxbits);
 
   // A small number of non-existing blocks at the end of the index to prevent
   // an out-of-bounds error when accessing the index.
   write_u8(F, num_blocks - real_num_blocks);
-
-  // Align on an even position in the file.
-  if (ftell(F) & 0x01)
-    write_u8(F, 0);
 
   // The number of existing compressed blocks in the table.
   write_u32(F, real_num_blocks);

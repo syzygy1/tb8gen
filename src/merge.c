@@ -200,7 +200,7 @@ void merge(int stm)
     mi.v_u8[MAX_STATS / 2 + 1] = n;
     if (include_losses) {
       for (int i = MAX_STATS / 2 - 3; i >= 0; i--) {
-        n += (stats[MAX_STATS -1 - i] != 0);
+        n += (stats[MAX_STATS - 1 - i] != 0);
         mi.v_u8[MAX_STATS - 1 - i] = n;
       }
     } else {
