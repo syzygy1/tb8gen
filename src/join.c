@@ -10,6 +10,7 @@
 #include <stdlib.h>
 #include <sys/stat.h>
 
+#include "checksum.h"
 #include "compress.h"
 #include "defs.h"
 #include "merge.h"
@@ -374,12 +375,12 @@ static void join_wdl_462(int stm)
       }
     v_wdl[2] = (bool)stats[MAX_STATS / 2 + 1];
     for (int i = DRAW_RULE + 1; i < MAX_STATS / 2 - 2; i++)
-      if (stats[i]) {
+      if (stats[MAX_STATS - 1 - i]) {
         v_wdl[1] = true;
         break;
       }
     for (int i = 0; i <= DRAW_RULE; i++)
-      if (stats[i]) {
+      if (stats[MAX_STATS -1 - i]) {
         v_wdl[0] = true;
         break;
       }
@@ -532,7 +533,7 @@ void join_final_462(int type)
   uint8_t *p = buf;
   write_le_u32(p, magic2[type]);
   p += 4;
-  *p++ = 0; // version number
+  *p++ = 1; // version number
   *p++ = g_pos.num;
   for (int i = 2; i < g_pos.num; i++)
     *p++ = (g_pos.pt[i] & 7) | ((g_pos.pt[i] & 8) << 4);
@@ -572,7 +573,7 @@ void join_final_462(int type)
       offset += slice_size[i];
     }
 
-  sprintf(str, "%s%s", g_tablename, suffix[type]);
+  sprintf(str, "../%s%s", g_tablename, suffix[type]);
   int fd = creat(str, 0666);
   if (fd < 0) {
     fprintf(stderr, "Could not open %s for writing.\n", str);
@@ -604,11 +605,11 @@ void join_final_462(int type)
   if (size == (off_t)-1) {
     fprintf(stderr, "Could not lseek().\n");
     exit(EXIT_FAILURE);
-    size_t pad = (0x40 - (size & 0x3f)) & 0x3f;
-    if (pad) {
-      char zeros[64] = { 0 };
-      write_data_fd(fd, zeros, pad);
-    }
+  }
+  size_t pad = (0x40 - (size & 0x3f)) & 0x3f;
+  if (pad) {
+    char zeros[64] = { 0 };
+    write_data_fd(fd, zeros, pad);
   }
   n = 0;
   for (int s = 0; s < 462; s++) {
@@ -628,6 +629,8 @@ void join_final_462(int type)
     }
   }
   close(fd);
+  sprintf(str, "../%s%s", g_tablename, suffix[type]);
+  add_checksum(str);
 }
 
 void join_slices_462(void)

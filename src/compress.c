@@ -1347,11 +1347,10 @@ void compress_tb(struct tb_handle *F, int num, void *data, uint64_t tb_size,
 void merge_tb(struct tb_handle *F)
 {
   FILE *G;
-  char name[64];
+  char name[128];
   char ext[16];
 
-  strcpy(name, F->name);
-  strcat(name, suffix[F->type]);
+  sprintf(name, "../%s%s", F->name, suffix[F->type]);
   if (!(G = fopen(name, "wb"))) {
     fprintf(stderr, "Could not open %s for writing.\n", name);
     exit(EXIT_FAILURE);
@@ -1387,8 +1386,7 @@ void merge_tb(struct tb_handle *F)
     unlink(name);
   }
 
-  strcpy(name, F->name);
-  strcat(name, suffix[F->type]);
+  sprintf(name, "../%s%s", F->name, suffix[F->type]);
   add_checksum(name);
 
   for (int i = 0; i < F->num_tables; i++) {

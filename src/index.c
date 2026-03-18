@@ -10,6 +10,7 @@
 #include "defs.h"
 #include "index.h"
 #include "probe.h"
+#include "types.h"
 
 int16_t KKMap[64][64];
 uint8_t MirrorMask[64];
