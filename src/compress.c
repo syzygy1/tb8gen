@@ -1553,6 +1553,9 @@ void compress_data_462(int s, int stm, int type, void *data, uint64_t tb_size,
     }
   }
 
+  if (ftell(F) & 0x01)
+    write_u8(F, 0);
+
   if (mapped) {
     struct DtzMap *map = current_map;
     if (!wide) {
@@ -1561,9 +1564,9 @@ void compress_data_462(int s, int stm, int type, void *data, uint64_t tb_size,
         for (int j = 0; j < map->num[i]; j++)
           write_u8(F, map->map[i][j]);
       }
-    } else {
       if (ftell(F) & 0x01)
         write_u8(F, 0);
+    } else {
       for (int i = 0; i < 4; i++) {
         write_u16(F, map->num[i]);
         for (int j = 0; j < map->num[i]; j++)
@@ -1571,9 +1574,6 @@ void compress_data_462(int s, int stm, int type, void *data, uint64_t tb_size,
       }
     }
   }
-
-  if (ftell(F) & 0x01)
-    write_u8(F, 0);
 
   // Write the "main" entries of the index. Each entry consists of a 32-bit
   // value and a 16 bit value packed into 6 bytes. The 32-bit value of the

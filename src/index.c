@@ -5,7 +5,6 @@
 */
 
 #include <stdint.h>
-#include <x86intrin.h>
 
 #include "defs.h"
 #include "index.h"
@@ -18,42 +17,6 @@ bool FlipTest[64][64];
 
 struct IdxInfo ii, capt_ii[MAX_SETS];
 int pc_to_set[MAX_PIECES];
-
-INLINE void sort_squares(int n, uint8_t *restrict sq)
-{
-  for (int i = 0; i < n; i++)
-    for (int j = i + 1; j < n; j++)
-      if (sq[i] > sq[j])
-        Swap(sq[i], sq[j]);
-}
-
-INLINE int rank_among_free(uint8_t sq, Bitboard occ)
-{
-  return sq - popcnt(occ & ((1ULL << sq) - 1));
-}
-
-INLINE Bitboard unrank_binomial(uint64_t idx, int n, uint8_t *restrict sq,
-    Bitboard occ)
-{
-  if (n == 0)
-    return occ;
-
-  Bitboard b = ~occ;
-  for (int i = n - 1; i > 0; i--) {
-    int r = i;
-    while (idx >= Binomial[i + 1][r + 1])
-      r++;
-    idx -= Binomial[i + 1][r];
-    Bitboard b1 = _pdep_u64(1ULL << r, b);
-    sq[i] = lsb(b1);
-    occ |= b1;
-  }
-  Bitboard b1 = _pdep_u64(1ULL << idx, b);
-  sq[0] = lsb(b1);
-  occ |= b1;
-
-  return occ;
-}
 
 // We expect a normalized position.
 INLINE uint64_t sq_to_idx_helper(uint8_t *restrict sq, const struct IdxInfo *ii)
@@ -124,7 +87,7 @@ Bitboard capt_idx_to_sq(uint32_t *sub, uint8_t *restrict sq, const int k)
 void calc_factors(struct IdxInfo *ii)
 {
   for (int i = 0, n = 62; i < ii->numsets; i++) {
-    ii->factor[i] = subfactor(ii->mult[i], n);
+    ii->factor[i] = Binomial[ii->mult[i]][n];
     n -= ii->mult[i];
   }
 

@@ -9,7 +9,7 @@
 #define NUM 16
 static void NAME(convert_data_piece)(struct ThreadData *thread)
 {
-  int n = base_entry.num;
+  int n = tb_entry.num;
   uint8_t pos[MAX_PIECES];
   T *restrict src = convert_data.src;
   T *restrict dst = convert_data.dst;
@@ -20,14 +20,14 @@ static void NAME(convert_data_piece)(struct ThreadData *thread)
 
   uint64_t idx_dec_buf[NUM];
 
-  set_dec_info(&di, &base_entry, convert_data.pcs,
+  set_dec_info(&di, &tb_entry, convert_data.pcs,
       type_perm_list[convert_data.p], order_list[convert_data.p], 0xf, -1,
-      PIECE_ENC);
+      LT_PIECE);
 
   decode_init(sub, thread->begin, &di);
   int k = 0, l;
   for (idx = thread->begin; k < NUM && idx < end; idx++, k++) {
-    decode_piece_iter(sub, pos, &di, &base_entry);
+    decode_piece_iter(sub, pos, &di, &tb_entry);
     uint64_t idx_dec = calc_idx_piece(pos, pidx, n);
     __builtin_prefetch(&src[idx_dec], 0, 3);
     idx_dec_buf[k] = idx_dec;
@@ -39,7 +39,7 @@ static void NAME(convert_data_piece)(struct ThreadData *thread)
 
   for (; idx < end; idx++, k++) {
     k &= NUM - 1;
-    decode_piece_iter(sub, pos, &di, &base_entry);
+    decode_piece_iter(sub, pos, &di, &tb_entry);
     uint64_t idx_dec = calc_idx_piece(pos, pidx, n);
     __builtin_prefetch(&src[idx_dec], 0, 3);
     dst[idx - NUM] = src[idx_dec_buf[k]];
@@ -57,7 +57,7 @@ finish:
 #if 0
 static void NAME(convert_data_pawn)(struct ThreadData *thread)
 {
-  int n = base_entry.num;
+  int n = tb_entry.num;
   uint8_t pos[MAX_PIECES];
   T *restrict src = convert_data.src;
   T *restrict dst = convert_data.dst;
@@ -69,14 +69,14 @@ static void NAME(convert_data_pawn)(struct ThreadData *thread)
 
   uint64_t idx_dec_buf[NUM];
 
-  set_dec_info(&di, &base_entry, convert_data.pcs,
+  set_dec_info(&di, &tb_entry, convert_data.pcs,
       type_perm_list[convert_data.p], order_list[convert_data.p],
       order2_list[convert_data.p], rank, RANK_ENC);
 
   decode_init(sub, thread->begin, &di);
   int k = 0, l;
   for (idx = thread->begin; k < NUM && idx < end; idx++, k++) {
-    decode_pawn_r_iter(sub, pos, &di, &base_entry, rank);
+    decode_pawn_r_iter(sub, pos, &di, &tb_entry, rank);
     uint64_t idx_dec = calc_idx_pawn(pos, pidx, n);
     __builtin_prefetch(&src[idx_dec], 0, 3);
     idx_dec_buf[k] = idx_dec;
@@ -88,7 +88,7 @@ static void NAME(convert_data_pawn)(struct ThreadData *thread)
 
   for (; idx < end; idx++, k++) {
     k &= NUM - 1;
-    decode_pawn_r_iter(sub, pos, &di, &base_entry, rank);
+    decode_pawn_r_iter(sub, pos, &di, &tb_entry, rank);
     uint64_t idx_dec = calc_idx_pawn(pos, pidx, n);
     __builtin_prefetch(&src[idx_dec], 0, 3);
     dst[idx - NUM] = src[idx_dec_buf[k]];
@@ -113,7 +113,7 @@ static void NAME(convert_est_data_piece)(struct ThreadData *thread)
   uint32_t dsize = est_data.dsize;
   T *restrict dst = est_data.dst;
   uint64_t idx;
-  int n = base_entry.num;
+  int n = tb_entry.num;
   uint8_t pos[MAX_PIECES];
   struct DecInfo di;
   uint32_t sub[MAX_PIECES];
@@ -130,11 +130,11 @@ static void NAME(convert_est_data_piece)(struct ThreadData *thread)
 	if (m < num_types) break;
       }
       int l = trylist[p];
-      set_dec_info(&di, &base_entry, pcs, type_perm_list[l],
-          order_list[l], 0xf, -1, PIECE_ENC);
+      set_dec_info(&di, &tb_entry, pcs, type_perm_list[l],
+          order_list[l], 0xf, -1, LT_PIECE);
       // prefetch for j = 0
       decode_init(sub, segs[i], &di);
-      decode_piece_iter(sub, pos, &di, &base_entry);
+      decode_piece_iter(sub, pos, &di, &tb_entry);
       for (r = p; r < q; r++) {
 	l = trylist[r];
         idx = calc_idx_piece(pos, pidx_list[l], n);
@@ -143,7 +143,7 @@ static void NAME(convert_est_data_piece)(struct ThreadData *thread)
       }
       for (j = 1; j < seg_size; j++) {
 	// prefetch for j, copy for j - 1
-        decode_piece_iter(sub, pos, &di, &base_entry);
+        decode_piece_iter(sub, pos, &di, &tb_entry);
 	for (r = p; r < q; r++) {
 	  l = trylist[r];
           idx = calc_idx_piece(pos, pidx_list[l], n);
@@ -170,7 +170,7 @@ static void NAME(convert_est_data_pawn)(struct ThreadData *thread)
   T *restrict dst = est_data.dst;
   int rank = est_data.rank;
   uint64_t idx;
-  int n = base_entry.num;
+  int n = tb_entry.num;
   uint8_t pos[MAX_PIECES];
   struct DecInfo di;
   uint32_t sub[MAX_PIECES];
@@ -186,11 +186,11 @@ static void NAME(convert_est_data_pawn)(struct ThreadData *thread)
 	if (m < num_types) break;
       }
       int l = trylist[p];
-      set_dec_info(&di, &base_entry, pcs, type_perm_list[l],
+      set_dec_info(&di, &tb_entry, pcs, type_perm_list[l],
           order_list[l], order2_list[l], rank, RANK_ENC);
       // prefetch for j = 0
       decode_init(sub, segs[i], &di);
-      decode_pawn_r_iter(sub, pos, &di, &base_entry, rank);
+      decode_pawn_r_iter(sub, pos, &di, &tb_entry, rank);
       for (r = p; r < q; r++) {
 	l = trylist[r];
         idx = calc_idx_pawn(pos, pidx_list[l], n);
@@ -198,7 +198,7 @@ static void NAME(convert_est_data_pawn)(struct ThreadData *thread)
 	idx_cache[r] = idx;
       }
       for (j = 1; j < seg_size; j++) {
-        decode_pawn_r_iter(sub, pos, &di, &base_entry, rank);
+        decode_pawn_r_iter(sub, pos, &di, &tb_entry, rank);
 	for (r = p; r < q; r++) {
 	  l = trylist[r];
           idx = calc_idx_pawn(pos, pidx_list[l], n);

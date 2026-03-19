@@ -8,6 +8,7 @@
 #define INDEX_H
 
 #include <inttypes.h>
+#include <x86intrin.h>
 
 #include "defs.h"
 #include "probe.h"
@@ -31,6 +32,42 @@ extern bool FlipTest[64][64];
 extern struct IdxInfo ii, capt_ii[MAX_SETS];
 
 extern int pc_to_set[MAX_PIECES];
+
+INLINE void sort_squares(int n, uint8_t *restrict sq)
+{
+  for (int i = 0; i < n; i++)
+    for (int j = i + 1; j < n; j++)
+      if (sq[i] > sq[j])
+        Swap(sq[i], sq[j]);
+}
+
+INLINE int rank_among_free(uint8_t sq, Bitboard occ)
+{
+  return sq - popcnt(occ & ((1ULL << sq) - 1));
+}
+
+INLINE Bitboard unrank_binomial(uint64_t idx, int n, uint8_t *restrict sq,
+    Bitboard occ)
+{
+  if (n == 0)
+    return occ;
+
+  Bitboard b = ~occ;
+  for (int i = n - 1; i > 0; i--) {
+    int r = i;
+    while (idx >= Binomial[i + 1][r + 1])
+      r++;
+    idx -= Binomial[i + 1][r];
+    Bitboard b1 = _pdep_u64(1ULL << r, b);
+    sq[i] = lsb(b1);
+    occ |= b1;
+  }
+  Bitboard b1 = _pdep_u64(1ULL << idx, b);
+  sq[0] = lsb(b1);
+  occ |= b1;
+
+  return occ;
+}
 
 INLINE void idx_to_sq_inc(uint32_t *sub, const struct IdxInfo *ii)
 {

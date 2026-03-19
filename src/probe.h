@@ -17,12 +17,9 @@
 #include "types.h"
 #include "util.h"
 
-#if defined(SUICIDE) || defined(GIVEAWAY) || defined(ATOMIC)
-#define CONNECTED_KINGS
-#endif
-
 enum { WDL = 0, DTM, DTZ };
-enum { PIECE_ENC = 0, FILE_ENC, RANK_ENC };
+//enum { WL_BOTH = 0, WL_WTM, WL_BTM, W_ONLY, L_ONLY };
+//enum { LT_PIECE = 0, LT_PIECE_K, LT_PIECE_KK, LT_PAWN_FILE, LT_PAWN_RANK };
 
 #ifdef LOOKUP
 static constexpr int LUBITS = 12;
@@ -44,7 +41,7 @@ struct PairsData {
   const uint8_t *data;
   uint8_t *symlen;
   const uint8_t *sympat;
-  size_t tb_size; // user for decompressing the whole table
+  size_t tb_size; // used for decompressing the whole table
   uint16_t num_syms;
   uint8_t block_size;
   uint8_t idx_bits;
@@ -83,50 +80,106 @@ struct DecInfo {
   uint8_t order[MAX_PIECES];
 };
 
-struct BaseEntry {
-  uint64_t key;
-  const uint8_t *data[3];
-  map_t mapping[3];
-  atomic_bool ready[3];
-  uint8_t num;
-  bool symmetric, has_pawns, has_dtm, has_dtz;
-  union {
-    uint8_t kk_enc;
-    uint8_t pawns[2];
-  };
-  bool dtm_losses_only;
+struct TbTable {
+  struct PairsData *precomp;
+  struct EncInfo ei;
 };
 
-struct PieceEntry {
-  struct BaseEntry be;
-  struct EncInfo ei[5]; // 2 + 2 + 1
-  uint16_t *map_dtm;
-  uint16_t map_dtm_idx[2][2];
-  const void *map_dtz;
+struct WdlTable {
+  struct PairsData *precomp;
+  struct EncInfo ei;
+};
+
+struct DtmTable {
+  struct PairsData *precomp;
+  struct EncInfo ei;
+  const uint16_t *map_dtm;
+  uint16_t map_dtm_idx[2];
+  uint8_t dtm_flags;
+};
+
+struct DtzTable {
+  struct PairsData *precomp;
+  struct EncInfo ei;
+  union {
+    const uint8_t *map_dtz;
+    const uint16_t *map_dtz16;
+  };
   uint16_t map_dtz_idx[4];
   uint8_t dtz_flags;
 };
 
-struct PawnEntry {
-  struct BaseEntry be;
-  struct EncInfo ei[24]; // 4 * 2 + 6 * 2 + 4
-  uint16_t *map_dtm;
-  uint16_t map_dtm_idx[6][2][2];
-  const void *map_dtz;
-  uint16_t map_dtz_idx[4][4];
-  uint8_t dtz_flags[4];
-  bool dtm_switched;
+struct TbTable2 {
+  struct PairsData *precomp;
+  uint32_t factor[MAX_SETS];
+  uint8_t first[MAX_SETS];
+  uint8_t mult[MAX_SETS];
 };
 
-#ifndef CONNECTED_KINGS
+struct WdlTable2 {
+  struct PairsData *precomp;
+  uint32_t factor[MAX_SETS];
+  uint8_t first[MAX_SETS];
+  uint8_t mult[MAX_SETS];
+};
+
+struct DtmTable2 {
+  struct PairsData *precomp;
+  uint32_t factor[MAX_SETS];
+  uint8_t first[MAX_SETS];
+  uint8_t mult[MAX_SETS];
+  const uint16_t *map_dtm;
+  uint16_t map_dtm_idx[2];
+  uint8_t mapped;
+};
+
+struct DtzTable2 {
+  struct PairsData *precomp;
+  uint32_t factor[MAX_SETS];
+  uint8_t first[MAX_SETS];
+  uint8_t mult[MAX_SETS];
+  union {
+    const uint8_t *map_dtz;
+    const uint16_t *map_dtz16;
+  };
+  uint16_t map_dtz_idx[4];
+  uint8_t mapped;
+};
+
+struct TbTableConst {
+  struct PairsData *precomp;
+  uint16_t const_value;
+};
+
+struct Tbase {
+  const void *data;
+  map_t mapping;
+  uint8_t pt[MAX_PIECES];
+  uint8_t layout;
+  uint8_t dist_format;
+  bool flipped;
+  uint8_t offset;
+  void *_Atomic table[];
+};
+
+struct TbEntry {
+  uint64_t key;
+  bool has_dtm, has_dtz, has_pawns, symmetric; // pack in one byte?
+  union {
+    bool kk_enc;
+    uint8_t pawns[2];
+  };
+  uint8_t num, numsets;
+  struct Tbase *_Atomic tbase[3];
+};
+
 extern const int16_t KKIdx[10][64];
 extern uint8_t KKSquare[462][2];
-#endif
 extern const uint8_t Triangle[64];
 extern const uint8_t InvTriangle[10];
 extern const int8_t OffDiag[64];
 extern const uint8_t FlipDiag[64];
-extern size_t Binomial[8][64];
+extern uint32_t Binomial[8][64];
 extern const uint8_t PawnMap[48];
 extern const uint8_t PawnTwist[2][64];
 extern size_t PawnIdx[2][6][24];
@@ -137,31 +190,29 @@ extern const uint8_t InvPawnTwist[2][48];
 extern const char *suffix[3];
 extern uint32_t magic[3], magic2[3];
 
-size_t set_dec_info(struct DecInfo *di, struct BaseEntry *be, uint8_t *pcs,
+size_t set_dec_info(struct DecInfo *di, struct TbEntry *e, uint8_t *pcs,
     uint8_t *perm, int order, int order2, int fr, const int enc);
-size_t subfactor(size_t k, size_t n);
 
 void decode_piece(uint64_t idx, uint8_t *p, struct DecInfo *di,
-    struct BaseEntry *be);
+    struct TbEntry *e);
 void decode_pawn_r(uint64_t idx, uint8_t *p, struct DecInfo *di,
-    struct BaseEntry *be, int rank);
+    struct TbEntry *e, int rank);
 
 void decode_init(uint32_t *sub, uint64_t idx, struct DecInfo *di);
 void decode_piece_iter(uint32_t *sub, uint8_t *p, struct DecInfo *di,
-    struct BaseEntry *be);
+    struct TbEntry *e);
 void decode_pawn_r_iter(uint32_t *sub, uint8_t *p, struct DecInfo *di,
-    struct BaseEntry *be, int rank);
+    struct TbEntry *e, int rank);
 
-size_t encode_piece(uint8_t *p, struct EncInfo *ei, struct BaseEntry *be);
-size_t encode_pawn_f(uint8_t *p, struct EncInfo *ei, struct BaseEntry *be);
-size_t encode_pawn_r(uint8_t *p, struct EncInfo *ei, struct BaseEntry *be);
+size_t encode_piece(uint8_t *p, struct EncInfo *ei, struct TbEntry *e);
+size_t encode_pawn_f(uint8_t *p, struct EncInfo *ei, struct TbEntry *e);
+size_t encode_pawn_r(uint8_t *p, struct EncInfo *ei, struct TbEntry *e);
 
 const void *map_tb(const char *name, const int type, map_t *mapping,
     bool use_paths);
 
 void init_tablebases(const char *pathList);
-bool init_table(struct BaseEntry *be, const char *str, int type,
-    bool use_paths);
+bool init_table(struct TbEntry *e, const char *str, int type, bool use_paths);
 void free_tablebases(void);
 
 int probe_capts_wdl(Position *pos, int alpha, int beta);
