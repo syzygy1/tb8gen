@@ -31,7 +31,7 @@
 #define STATSDIR "RTBSTATSDIR"
 
 Position g_pos;
-bool g_only_generate, g_use_rans, symmetric;
+bool g_only_generate, g_use_rans, symmetric, used_rans = false;
 bool one_sided, wins_only;
 int one_sided_stm;
 char *g_tablename;
@@ -44,6 +44,7 @@ static struct option options[] = {
   { "stats", 0, nullptr, 's' },
   { "path", 1, nullptr, 'p' },
   { "rans", 0, nullptr, 'r' },
+  { "layout", 1, nullptr, 'l' },
   { 0 }
 };
 
@@ -52,12 +53,12 @@ int main(int argc, char **argv)
   int val, lindex;
   uint8_t pcs[16];
   uint8_t pt[8];
-  bool kk_format = false;
+  int layout = -1;
 
   const char *path = getenv(TBPATH);
   g_num_threads = 1;
 
-  while ((val = getopt_long(argc, argv, "at:gp:rk", options, &lindex)) != -1)
+  while ((val = getopt_long(argc, argv, "at:gp:rl:", options, &lindex)) != -1)
     switch (val) {
     case 'a':
       g_thread_affinity = true;
@@ -74,8 +75,8 @@ int main(int argc, char **argv)
     case 'r':
       g_use_rans = true;
       break;
-    case 'k':
-      kk_format = true;
+    case 'l':
+      layout = atoi(optarg);
       break;
     }
 
@@ -107,6 +108,9 @@ int main(int argc, char **argv)
         }
     }
   int numpcs = k;
+
+  if (layout < 0 || layout > 2)
+    layout = numpcs <= 6 ? 0 : numpcs == 7 ? 1 : 2;
 
   if (!color) exit(EXIT_FAILURE);
 
@@ -227,11 +231,11 @@ int main(int argc, char **argv)
   printf("entropy loss = %lf\n", elo);
   printf("entropy win  = %lf\n\n", ewi);
 
-  // Add 1% of overhead for having a table for each side.
-  // Perhaps this should be higher.
+  // Add 0.1% of overhead for having a table for each side.
+  // Perhaps this should be higher?
   if (!symmetric) {
-    elo *= 1.00;
-    ewi *= 1.00;
+    elo *= 1.001;
+    ewi *= 1.001;
   }
 
   // Determine the DTZ format to use.
@@ -260,10 +264,17 @@ int main(int argc, char **argv)
 
   kslice_cleanup();
 
-  if (!kk_format)
+  switch (layout) {
+  case 0:
     join_slices(pcs, pt);
-  else
+    break;
+  case 1:
+    join_slices_10();
+    break;
+  case 2:
     join_slices_462();
+    break;
+  }
 
   report_io();
 

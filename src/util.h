@@ -193,5 +193,6 @@ void read_data_transform_to_u8_u16(FILE *F, void *dst, size_t size,
 
 void create_dir(int n, int stm, const char *name);
 void create_name(char *str, int s, int stm, const char *name, int n);
+void create_name_10(char *str, int k, int stm, const char *name);
 
 #endif

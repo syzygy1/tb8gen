@@ -7,11 +7,13 @@
 #ifndef INDEX_H
 #define INDEX_H
 
+#include <assert.h>
 #include <inttypes.h>
 #include <x86intrin.h>
 
 #include "defs.h"
 #include "probe.h"
+#include "tb8gen.h"
 #include "types.h"
 
 struct IdxInfo {
@@ -71,7 +73,7 @@ INLINE Bitboard unrank_binomial(uint64_t idx, int n, uint8_t *restrict sq,
 
 INLINE void idx_to_sq_inc(uint32_t *sub, const struct IdxInfo *ii)
 {
-  for (int i = ii->numsets - 1; ++sub[i] >= ii->factor[i]; i--)
+  for (int i = ii->numsets - 1; ++sub[i] >= ii->factor[i] && i > 0; i--)
     sub[i] = 0;
 }
 
@@ -81,7 +83,7 @@ INLINE void idx_to_sq_add(uint32_t v, uint32_t *restrict sub,
     const struct IdxInfo *ii)
 {
   int i = ii->numsets;
-  while (v) {
+  while (v && i > 0) {
     sub[--i] += v;
     v = 0;
     while (sub[i] >= ii->factor[i]) {
@@ -94,17 +96,21 @@ INLINE void idx_to_sq_add(uint32_t v, uint32_t *restrict sub,
 // Mirror wK to A1-D1-D4 and, if wK on A1-D4, then bK to A1-H1-H8.
 INLINE void normalize(const uint8_t *restrict sq, uint8_t *restrict sq2)
 {
-  for (int i = 0; i < MAX_PIECES; i++)
+  assume(g_pos.num <= MAX_PIECES);
+
+  for (int i = 0; i < g_pos.num; i++)
     sq2[i] = sq[i] ^ MirrorMask[sq[0]];
 
   if (FlipTest[sq[0]][sq[1]])
-    for (int i = 0; i < MAX_PIECES; i++)
+    for (int i = 0; i < g_pos.num; i++)
       sq2[i] = FlipDiag[sq2[i]];
 }
 
 INLINE void mirror_diagonal(uint8_t *restrict sq)
 {
-  for (int i = 2; i < MAX_PIECES; i++)
+  assume(g_pos.num <= MAX_PIECES);
+
+  for (int i = 2; i < g_pos.num; i++)
     sq[i] = FlipDiag[sq[i]];
 }
 

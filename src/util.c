@@ -574,3 +574,9 @@ void create_name(char *str, int s, int stm, const char *name, int n)
     sprintf(str, "%s/%c/%c%c%c%c", name, "wb"[stm], 'a' + (wk & 7),
         '1' + (wk >> 3), 'a'+ (bk & 7), '1' + (bk >> 3));
 }
+
+void create_name_10(char *str, int k, int stm, const char *name)
+{
+  int sq = InvTriangle[k];
+  sprintf(str, "%s/%c/%c%c", name, "wb"[stm], 'a' + (sq & 7), '1' + (sq >> 3));
+}

@@ -9,5 +9,6 @@
 
 void join_slices(uint8_t *pcs, uint8_t *pt);
 void join_slices_462(void);
+void join_slices_10(void);
 
 #endif

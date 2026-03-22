@@ -530,6 +530,7 @@ static const uint8_t FileToFile[] = { 0, 1, 2, 3, 3, 2, 1, 0 };
 size_t PawnIdx[2][6][24];
 static size_t PawnFactorFile[6][4];
 static size_t PawnFactorRank[6][6];
+static uint8_t Off10[10][64];
 
 void init_indices(void)
 {
@@ -568,6 +569,14 @@ void init_indices(void)
         PawnFactorRank[i][j / 4] = s;
         s = 0;
       }
+    }
+  }
+
+  for (int i = 0; i < 10; i++) {
+    int n = 0;
+    for (int j = 0; j < 64; j++) {
+      if (KKIdx[i][j] < 0) continue;
+      Off10[i][j] = n++;
     }
   }
 }
@@ -1205,20 +1214,26 @@ static const struct TbTableConst const_table[5] = {
   { NULL, 0 }, { NULL, 1 }, { NULL, 2 }, { NULL, 3 }, { NULL, 4 }
 };
 
-NOINLINE static struct Tbase *init_old(struct TbEntry *entry, struct Tbase *tb,
-    int type, const uint8_t *data)
+NOINLINE static struct Tbase *init_old_layout(struct TbEntry *entry,
+    struct Tbase *tb, int type, const uint8_t *data, bool new)
 {
-  bool split = type != DTZ && (data[0] & 0x01);
+  bool split;
 
-#if 0
-  if (type == DTM)
-    tb->distFormat = (data[0] & 0x04) ? L_ONLY : WL_BOTH;
-  if (type == DTZ)
-    tb->distFormat = WL_WTM; // FIXME
-#endif
-  tb->flipped = false; // FIXME
+  if (!new) {
+    split = type != DTZ && (data[0] & 0x01);
+    tb->flipped = false;
+    tb->dist_format = data[0] & 0x04 ? L_ONLY : WL_BOTH;
+  } else {
+    split = !entry->symmetric;
+    if (type != WDL) {
+      tb->dist_format = *++data;
+      if (tb->dist_format == WL_WTM || tb->dist_format == WL_BTM)
+        split = false;
+    }
+    tb->flipped = false;
+  }
 
-  data += 1;
+  data++;
 
   size_t tb_size[6][2];
   struct TbTable *table[12];
@@ -1260,8 +1275,8 @@ NOINLINE static struct Tbase *init_old(struct TbEntry *entry, struct Tbase *tb,
           &flags, type, false);
   }
 
-  // FIXME
-  if (type == DTM) {
+  // To be revisited later.
+  if (type == DTM && tb->dist_format != L_ONLY && tb->dist_format != W_ONLY) {
     const void *map = data;
     for (int t = 0; t < num; t++) {
       struct DtmTable *dtm = (struct DtmTable *)table[t];
@@ -1272,32 +1287,6 @@ NOINLINE static struct Tbase *init_old(struct TbEntry *entry, struct Tbase *tb,
       }
     }
   }
-
-#if 0
-  if (type == DTZ) {
-    const void *map = data;
-    for (int t = 0; t < num; t++) {
-      struct DtzTable *dtz = (struct DtzTable *)table[t];
-      if (dtz->dtz_flags & 2) {
-        if (!(dtz->dtz_flags & 16)) {
-          dtz->map_dtz = map;
-          for (int i = 0; i < 4; i++) {
-            dtz->map_dtz_idx[i] = data + 1 - dtz->map_dtz;
-            data += 1 + data[0];
-          }
-        } else {
-          dtz->map_dtz16 = map;
-          data += (uintptr_t)data & 0x01;
-          for (int i = 0; i < 4; i++) {
-            dtz->map_dtz_idx[i] = (uint16_t *)data + 1 - dtz->map_dtz16;
-            data += 2 + 2 * read_le_u16(data);
-          }
-        }
-      }
-    }
-    data += (uintptr_t)data & 0x01;
-  }
-#endif
 
   for (int t = 0; t < num; t++) {
     table[t]->precomp->index_table = data;
@@ -1328,7 +1317,7 @@ NOINLINE static struct Tbase *init_old(struct TbEntry *entry, struct Tbase *tb,
     }
   }
 
-  // FIXME
+  // To be revisited later.
 #if 0
   if (type == DTM && entry->has_pawns) {
     int count[16];
@@ -1357,12 +1346,23 @@ NOINLINE struct Tbase *init_tbase(struct TbEntry *entry, const char *str,
     struct Tbase *tb = malloc(sizeof(struct Tbase) + num * sizeof(void *));
     tb->data = data;
     tb->mapping = mapping;
-    tb->layout = !entry->has_pawns ? LT_PIECE : LT_PAWN_RANK;
-    return init_old(entry, tb, type, data + 4);
+    tb->layout = !entry->has_pawns ? LT_PIECE : LT_PAWN_FILE;
+    return init_old_layout(entry, tb, type, data + 4, false);
   }
 
   if (read_le_u32(data) == magic2[type]) {
-    // Skip test for type == DTZ && data[4] == 0, as we don't need it here.
+    if (data[4] == 0) {
+      int num = entry->has_pawns ? type == DTM ? 6 : 4 : 1;
+      if (    !entry->symmetric
+          && (type == WDL || (data[5] != WL_WTM && data[5] != WL_BTM)))
+        num *= 2;
+      struct Tbase *tb = malloc(sizeof(struct Tbase) + num * sizeof(void *));
+      tb->data = data;
+      tb->mapping = mapping;
+      tb->layout =  !entry->has_pawns ? LT_PIECE
+                  : type == DTM ? LT_PAWN_RANK : LT_PAWN_FILE;
+      return init_old_layout(entry, tb, type, data + 5, true);
+    }
 
     if (data[4] != 1)
       return nullptr;
@@ -1386,7 +1386,7 @@ NOINLINE struct Tbase *init_tbase(struct TbEntry *entry, const char *str,
     tbase->layout = layout;
     if (type != WDL)
       tbase->dist_format = dist_format;
-    tbase->flipped = false; // FIXME
+    tbase->flipped = false; // Revisit for pawnful tables.
     tbase->offset = ((p - data) + 7) & ~7;
     tbase->pt[0] = 6;
     tbase->pt[1] = 14;
@@ -1401,16 +1401,16 @@ NOINLINE struct Tbase *init_tbase(struct TbEntry *entry, const char *str,
 }
 
 NOINLINE struct TbTable2 *init_new_table(struct TbEntry *entry,
-    struct Tbase *tb, int type, int t)
+    struct Tbase *tb, int type, int tidx, int tsq)
 {
   const uint64_t *offsets = (uint64_t *)((uint8_t *)tb->data + tb->offset);
-  const uint8_t *data = (uint8_t *)tb->data + offsets[t];
+  const uint8_t *data = (uint8_t *)tb->data + offsets[tidx];
 
   if (data[0] == 0xff) {
     if (data[1] >= 5) {
-      struct TbTableConst *t = malloc(sizeof *t);
-      *t = (struct TbTableConst){ .precomp = NULL, .const_value = data[1] };
-      return (struct TbTable2 *)t;
+      struct TbTableConst *tbl = malloc(sizeof *tbl);
+      *tbl = (struct TbTableConst){ .precomp = NULL, .const_value = data[1] };
+      return (struct TbTable2 *)tbl;
     }
     return (struct TbTable2 *)&const_table[data[1]];
   }
@@ -1431,7 +1431,8 @@ NOINLINE struct TbTable2 *init_new_table(struct TbEntry *entry,
     assume(k >= 1);
     mult[k - 1]++;
   }
-  uint64_t tb_size = 1;
+  static constexpr uint8_t knum[] = { 58, 58, 58, 55, 55, 55, 33, 30, 30, 30 };
+  uint64_t tb_size = tb->layout == LT_PIECE_KK ? 1 : knum[tsq];
   for (int i = 0, n = 62; i < k; i++) {
     table->first[i] = first[data[i]];
     int m = mult[data[i]];
@@ -1703,7 +1704,7 @@ INLINE int probe_table(Position *pos, int s, const int type)
                                 : pos->stm != WHITE;
   int btm_side = (pos->stm == WHITE) == flip;
 
-  if (tb->layout != LT_PIECE_KK) {
+  if (tb->layout != LT_PIECE_K && tb->layout != LT_PIECE_KK) {
 
     uint64_t idx;
     int t = 0;
@@ -1729,7 +1730,7 @@ INLINE int probe_table(Position *pos, int s, const int type)
                         : encode_pawn_r(p, ei, entry);
     }
 
-    const uint8_t *w = decompress_pairs(ei->precomp, idx);
+    const uint8_t *w = decompress_pairs(table->precomp, idx);
 
     if (type == WDL) return (int)w[0] - 2;
 
@@ -1746,16 +1747,18 @@ INLINE int probe_table(Position *pos, int s, const int type)
 
     struct TbTable2 *table;
     list_squares(pos, tb->pt, flip, p);
-    int t = KKMap[p[0]][p[1]];
-    assert(t >= 0);
 
-    if (!entry->symmetric)
-      t = 2 * t + btm_side;
+    if (tb->layout == LT_PIECE_K && btm_side)
+      Swap(p[0], p[1]);
+
+    int tsq = tb->layout == LT_PIECE_KK ? KKMap[p[0]][p[1]] : Triangle[p[0]];
+    int t = !entry->symmetric ? 2 * tsq + btm_side : tsq;
+
     if (!(table = atomic_load_explicit(&tb->table[t], memory_order_acquire))) {
       LOCK(mutex);
       if (!(table = atomic_load_explicit(&tb->table[t], memory_order_relaxed)))
       {
-        table = init_new_table(entry, tb, type, t);
+        table = init_new_table(entry, tb, type, t, tsq);
         atomic_store_explicit(&tb->table[t], table, memory_order_release);
       }
       UNLOCK(mutex);
@@ -1775,7 +1778,7 @@ INLINE int probe_table(Position *pos, int s, const int type)
         p[i] = FlipDiag[p[i]];
 
     // Calculate index.
-    uint64_t idx = 0;
+    uint64_t idx = tb->layout == LT_PIECE_KK ? 0 : Off10[Triangle[p[0]]][p[1]];
     Bitboard occ = bit(p[0]) | bit(p[1]);
     for (int k = 0; k < entry->numsets; k++) {
       int m = table->first[k];

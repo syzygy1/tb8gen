@@ -955,35 +955,38 @@ int64_t *construct_pairs(void *data, uint64_t size, int minfreq,
     : construct_pairs_dtz(data, size, minfreq, maxsymbols, nsyms, wide);
 }
 
-// Write out the final DTM tablebase file.
+// Write out the final DTM tablebase file in the "old format" layout.
 void write_final(struct tb_handle *F, FILE *G)
 {
-  // The first 4 bytes form a magic number.
-  write_u32(G, magic[F->type]);
+  if (    F->type == WDL
+      || (F->type == DTZ && one_sided && !used_rans))
+  {
+    // The first 4 bytes form a magic number.
+    write_u32(G, magic[F->type]);
 
-  // The next byte holds the number of pieces and some flags.
-  // split: separate tables for wtm and btm (always unless symmetric)
-  // num_tables > 2: there are pawns -> 6 tables per side, one per rank 2-7.
-  // losses_only (non-optional): the table stores DTZ values only for losing
-  // positions. The values stored for winning and drawn positions are
-  // "don't care" values and are picked for best compression. (The values
-  // stored for losing positions can be "too low" if the best move is a
-  // capture and storing a lower value improves compression. The stored value
-  // is then corrected by the probing code.)
-  write_u8(G, (g_pos.num << 4) | (F->split ? 0x01: 0x00)
-                               | (F->num_tables > 2 ? 0x02 : 0x00));
-//                               | 0x04);
-  // FIXME: think this a bit through. Keep backwards compatibility but
-  // make it make more sense.
+    // The next byte holds the number of pieces and some flags.
+    // split: separate tables for wtm and btm (always unless symmetric)
+    // num_tables > 2: indicates a pawnful table, but this flag is not used.
+    write_u8(G, (g_pos.num << 4) | (F->split ? 0x01: 0x00)
+        | (F->num_tables > 2 ? 0x02 : 0x00));
 
-  // So a pawnless tablebase file contains 2 tables, or 1 if symmetric.
-  // A pawnful tablebase file contains 12 tables, or 6 if symmetric.
-  // Each table has its own indexing scheme, its own Re-Pair compression
-  // dictionary, its own Huffman code, and its own index table.
+    // A pawnless tablebase file contains 2 tables, or 1 if symmetric.
+    // A pawnful tablebase file contains 8 tables, or 4 if symmetric (one per
+    // file a/b/c/d).
+  } else {
+    // Files incompatible with old probing code get a new magic number.
+    write_u32(G, magic2[F->type]);
 
-  // The 1/2/6/12 indexing schemes are encoded in the header. Each scheme
-  // is determined by a permutation of the piece types and one or two "order"
-  // values.
+    // Version 0 means the same table layout as the old format.
+    write_u8(G, 0);
+
+    // For non-WDL tables, we encode only wtm, btm, wins or losses.
+    // For pawnful DTZ, this can vary per pawn slice/file/rank
+    // -> to be looked into later.
+    if (F->type != WDL)
+      write_u8(G, one_sided ? one_sided_stm == WHITE ? WL_WTM : WL_BTM
+                            : wins_only ? W_ONLY : L_ONLY);
+  }
 
   // One "order" nibble for pawnless tables, two nibbles for pawnful tables.
   // For a non-split pawnful tablebase we pack the two nibbles per table in
@@ -1214,6 +1217,7 @@ static void compress_data(struct tb_handle *F, int num, FILE *G,
 
     F->code.huff[num] = c;
   } else {
+    used_rans = true;
     struct RansCode *c = create_code_rans(freq, num_syms);
 
     if (!wide)
@@ -1403,12 +1407,16 @@ void merge_tb(struct tb_handle *F)
 
 static constexpr int default_blocksize[3] = { 6, 6, 10 };
 
-void compress_data_462(int s, int stm, int type, void *data, uint64_t tb_size,
-    uint8_t *perm, int minfreq, bool wide)
+void compress_data_slice(int s, int stm, int type, void *data, uint64_t tb_size,
+    uint8_t *perm, int minfreq, bool wide, bool big)
 {
   char str[128];
 
-  create_name(str, s, stm, name[type], -1);
+  if (big)
+    create_name_10(str, s, stm, name[type]);
+  else
+    create_name(str, s, stm, name[type], -1);
+
   FILE *F = fopen(str, "wb");
   if (!F) {
     fprintf(stderr, "Could not open %s.\n", str);
@@ -1440,6 +1448,7 @@ void compress_data_462(int s, int stm, int type, void *data, uint64_t tb_size,
     else
       calc_block_sizes_u16(data, tb_size, code, default_blocksize[type]);
   } else {
+    used_rans = true;
     code = create_code_rans(freq, num_syms);
     if (!wide)
       calc_block_sizes_rans_u8(data, tb_size, code, default_blocksize[type]);

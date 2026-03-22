@@ -51,7 +51,7 @@ uint64_t capt_sq_to_idx(uint8_t *restrict sq, int k)
   return sq_to_idx_helper(sq, &capt_ii[k]);
 }
 
-INLINE Bitboard idx_to_sq_unpack(uint32_t *sub, uint8_t *sq,
+INLINE Bitboard idx_to_sq_unpack(uint32_t *sub, uint8_t *restrict sq,
     const struct IdxInfo *ii)
 {
   Bitboard occ = bit(sq[0]) | bit(sq[1]);
@@ -95,9 +95,6 @@ void calc_factors(struct IdxInfo *ii)
   for (int i = ii->numsets - 1; i >= 0; i--)
     f *= ii->factor[i];
   ii->size = f;
-  // Increase factor[0] to ensure we can go slightly beyond the end
-  // without hanging in sq_to_idx_add().
-  ii->factor[0] += 64;
 }
 
 void init_tables(void)

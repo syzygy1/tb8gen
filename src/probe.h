@@ -66,7 +66,6 @@ struct PairsData {
 };
 
 struct EncInfo {
-  struct PairsData *precomp;
   size_t factor[MAX_PIECES];
   uint8_t pieces[MAX_PIECES];
   uint8_t norm[MAX_PIECES];
