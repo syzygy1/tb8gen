@@ -29,54 +29,6 @@ int g_num_threads;
 int g_total_work;
 bool g_thread_affinity;
 
-typedef struct {
-  int needed;
-  int arrived;
-  int generation;
-  mtx_t mutex;
-  cnd_t cond;
-} barrier_t;
-
-static int barrier_init(barrier_t *b, int needed)
-{
-  b->needed = needed;
-  b->arrived = 0;
-  b->generation = 0;
-  mtx_init(&b->mutex, mtx_plain);
-  cnd_init(&b->cond);
-  return 0;
-}
-
-#if 0
-static int barrier_destroy(barrier_t *b)
-{
-  mtx_destroy(&b->mutex);
-  cnd_destroy(&b->cond);
-  return 0;
-}
-#endif
-
-static int barrier_wait(barrier_t *b)
-{
-  mtx_lock(&b->mutex);
-
-  int gen = b->generation;
-
-  if (++b->arrived == b->needed) {
-    b->generation++;
-    b->arrived = 0;
-    cnd_broadcast(&b->cond);
-    mtx_unlock(&b->mutex);
-    return 1;
-  }
-
-  while (gen == b->generation)
-    cnd_wait(&b->cond, &b->mutex);
-
-  mtx_unlock(&b->mutex);
-  return 0;
-}
-
 static void setaffinity(int i)
 {
 #ifdef __linux__
@@ -91,7 +43,6 @@ static void setaffinity(int i)
 }
 
 static thrd_t *threads;
-static barrier_t barrier;
 
 struct Queue {
   void (*func)(struct ThreadData *);
@@ -143,22 +94,33 @@ uint64_t *create_work_offset(int n, uint64_t size, uint64_t mask,
   return w;
 }
 
-int worker(void *arg);
+alignas(64) struct Pool {
+  mtx_t mtx;
+  cnd_t cv_work, cv_done;
+  size_t generation;
+  size_t helpers_done;
+} pool, cpool;
+
+static int worker(void *arg);
 
 void init_threads(void)
 {
   assume(g_num_threads >= 1); // to get rid of some warnings
+
+  mtx_init(&pool.mtx, mtx_plain);
+  pool.generation = 0;
+
+  mtx_init(&cpool.mtx, mtx_plain);
+  cpool.generation = 0;
 
   g_thread_data = alloc_aligned(g_num_threads * sizeof(*g_thread_data), 64);
 
   for (int i = 0; i < g_num_threads; i++) {
     g_thread_data[i].thread_id = i;
     g_thread_data[i].affinity = -1;
-//    g_thread_data[i].p = g_pos;
   }
 
   threads = malloc(g_num_threads * sizeof(*threads));
-  barrier_init(&barrier, g_num_threads);
 
   for (int i = 0; i < g_num_threads - 1; i++) {
     int rc = thrd_create(&threads[i], worker, (void *)&(g_thread_data[i]));
@@ -176,32 +138,36 @@ void init_threads(void)
   }
 }
 
-int worker(void *arg)
+static int worker(void *arg)
 {
-  struct ThreadData *thread = (struct ThreadData *)arg;
-  int t = thread->thread_id;
+  struct ThreadData *thread = arg;
+  size_t seen_generation = 0;
 
-  if (t != g_num_threads - 1) {
-    if (thread->affinity >= 0)
-      setaffinity(thread->affinity);
-  }
+  while (true) {
+    mtx_lock(&pool.mtx);
+    while (pool.generation == seen_generation)
+      cnd_wait(&pool.cv_work, &pool.mtx);
 
-  do {
-    barrier_wait(&barrier);
+    seen_generation = pool.generation;
+    mtx_unlock(&pool.mtx);
 
     int total = queue.total;
 
     while (true) {
       int w = atomic_fetch_add_explicit(&queue.counter, 1,
-            memory_order_relaxed);
+          memory_order_relaxed);
       if (w >= total) break;
       thread->begin = queue.work[w];
       thread->end = queue.work[w + 1];
       queue.func(thread);
     }
 
-    barrier_wait(&barrier);
-  } while (t != g_num_threads - 1);
+    mtx_lock(&pool.mtx);
+    pool.helpers_done++;
+    if (pool.helpers_done == g_num_threads - 1)
+      cnd_signal(&pool.cv_done);
+    mtx_unlock(&pool.mtx);
+  }
 
   return 0;
 }
@@ -275,8 +241,29 @@ void run_threaded(void (*func)(struct ThreadData *), uint64_t *work,
   queue.work = work;
   queue.total = g_total_work;
   queue.counter = 0;
+  int total = queue.total;
+  struct ThreadData *thread = &g_thread_data[g_num_threads - 1];
 
-  worker((void *)&(g_thread_data[g_num_threads - 1]));
+  mtx_lock(&pool.mtx);
+  pool.helpers_done = 0;
+  atomic_store_explicit(&queue.counter, 0, memory_order_relaxed);
+  pool.generation++;
+  cnd_broadcast(&pool.cv_work);
+  mtx_unlock(&pool.mtx);
+
+  while (true) {
+    int w = atomic_fetch_add_explicit(&queue.counter, 1,
+        memory_order_relaxed);
+    if (w >= total) break;
+    thread->begin = queue.work[w];
+    thread->end = queue.work[w + 1];
+    queue.func(thread);
+  }
+
+  mtx_lock(&pool.mtx);
+  while (pool.helpers_done != g_num_threads - 1)
+    cnd_wait(&pool.cv_done, &pool.mtx);
+  mtx_unlock(&pool.mtx);
 
   gettimeofday(&stop_time, nullptr);
   secs = stop_time.tv_sec - g_cur_time.tv_sec;
@@ -317,20 +304,29 @@ static struct ThreadData cmprs_data[COMPRESSION_THREADS];
 static void (*cmprs_func)(int t);
 
 static thrd_t cmprs_threads[COMPRESSION_THREADS];
-static barrier_t cmprs_barrier;
 
 static int cmprs_worker(void *arg)
 {
   struct ThreadData *thread = arg;
   int t = thread->thread_id;
+  size_t seen_generation = 0;
 
-  do {
-    barrier_wait(&cmprs_barrier);
+  while (true) {
+    mtx_lock(&cpool.mtx);
+    while (cpool.generation == seen_generation)
+      cnd_wait(&cpool.cv_work, &cpool.mtx);
+
+    seen_generation = cpool.generation;
+    mtx_unlock(&cpool.mtx);
 
     cmprs_func(t);
 
-    barrier_wait(&cmprs_barrier);
-  } while (t != COMPRESSION_THREADS - 1);
+    mtx_lock(&cpool.mtx);
+    cpool.helpers_done++;
+    if (cpool.helpers_done == COMPRESSION_THREADS - 1)
+      cnd_signal(&cpool.cv_done);
+    mtx_unlock(&cpool.mtx);
+  }
 
   return 0;
 }
@@ -339,8 +335,6 @@ void create_compression_threads(void)
 {
   for (int i = 0; i < COMPRESSION_THREADS; i++)
     cmprs_data[i].thread_id = i;
-
-  barrier_init(&cmprs_barrier, COMPRESSION_THREADS);
 
   for (int i = 0; i < COMPRESSION_THREADS - 1; i++) {
     int rc = thrd_create(&cmprs_threads[i], cmprs_worker, &cmprs_data[i]);
@@ -354,5 +348,17 @@ void create_compression_threads(void)
 void run_compression(void (*func)(int t))
 {
   cmprs_func = func;
-  cmprs_worker(&cmprs_data[COMPRESSION_THREADS - 1]);
+
+  mtx_lock(&cpool.mtx);
+  cpool.helpers_done = 0;
+  cpool.generation++;
+  cnd_broadcast(&cpool.cv_work);
+  mtx_unlock(&cpool.mtx);
+
+  func(COMPRESSION_THREADS - 1);
+
+  mtx_lock(&cpool.mtx);
+  while (cpool.helpers_done != COMPRESSION_THREADS - 1)
+    cnd_wait(&cpool.cv_done, &cpool.mtx);
+  mtx_unlock(&cpool.mtx);
 }
