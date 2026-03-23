@@ -571,10 +571,13 @@ void join_final_462(int type)
       offset += slice_size[i];
     }
 
-  sprintf(str, "../%s%s", g_tablename, suffix[type]);
-  int fd = creat(str, 0666);
+  char fname[128], tmp[128];
+  sprintf(fname, "../%s%s", g_tablename, suffix[type]);
+  strcpy(tmp, fname);
+  strcat(tmp, ".tmp");
+  int fd = creat(tmp, 0666);
   if (fd < 0) {
-    fprintf(stderr, "Could not open %s for writing.\n", str);
+    fprintf(stderr, "Could not open %s for writing.\n", tmp);
     exit(EXIT_FAILURE);
   }
 
@@ -627,8 +630,8 @@ void join_final_462(int type)
     }
   }
   close(fd);
-  sprintf(str, "../%s%s", g_tablename, suffix[type]);
-  add_checksum(str);
+  add_checksum(tmp);
+  rename(tmp, fname);
 }
 
 void join_slices_462(void)
@@ -894,6 +897,7 @@ static void join_dtz_10(int stm)
     }
 
     compress_init_dtz(&dtzmap, tb_wide);
+
     uint8_t best[MAX_SETS];
     printf("Find optimal permutation for %ctm/dtz, slice = %d.\n", "wb"[stm],
         k);
@@ -963,10 +967,13 @@ static void join_final_10(int type)
       offset += slice_size[i];
     }
 
-  sprintf(str, "../%s%s", g_tablename, suffix[type]);
-  int fd = creat(str, 0666);
+  char fname[128], tmp[128];
+  sprintf(fname, "../%s%s", g_tablename, suffix[type]);
+  strcpy(tmp, fname);
+  strcat(tmp, ".tmp");
+  int fd = creat(tmp, 0666);
   if (fd < 0) {
-    fprintf(stderr, "Could not open %s for writing.\n", str);
+    fprintf(stderr, "Could not open %s for writing.\n", tmp);
     exit(EXIT_FAILURE);
   }
 
@@ -1019,8 +1026,8 @@ static void join_final_10(int type)
     }
   }
   close(fd);
-  sprintf(str, "../%s%s", g_tablename, suffix[type]);
-  add_checksum(str);
+  add_checksum(tmp);
+  rename(tmp, fname);
 }
 
 void join_slices_10(void)

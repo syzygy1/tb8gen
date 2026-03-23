@@ -244,13 +244,16 @@ void merge(int stm)
 
   }
 
-  char str[128];
+  char str[128], tmp[128];
   sprintf(str, "merge_info.%c", "wb"[stm]);
-  FILE *F = fopen(str, "wb");
+  strcpy(tmp, str);
+  strcat(tmp, ".tmp");
+  FILE *F = fopen(tmp, "wb");
   if (!F) {
-    fprintf(stderr, "Could not open %s.\n", str);
+    fprintf(stderr, "Could not open %s.\n", tmp);
     exit(EXIT_FAILURE);
   }
   file_write(&mi, sizeof(mi), F);
   fclose(F);
+  rename(tmp, str);
 }

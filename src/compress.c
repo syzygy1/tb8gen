@@ -1318,7 +1318,7 @@ void compress_data_single_valued(struct tb_handle *F, int num)
 void compress_tb(struct tb_handle *F, int num, void *data, uint64_t tb_size,
     uint8_t *perm, int minfreq, bool wide)
 {
-  char name[64];
+  char name[128], tmp[128];
   char ext[16];
   FILE *G;
 
@@ -1335,14 +1335,17 @@ void compress_tb(struct tb_handle *F, int num, void *data, uint64_t tb_size,
     strcpy(name, F->name);
     strcat(name, suffix[F->type]);
     strcat(name, ext);
-    if (!(G = fopen(name, "wb"))) {
-      fprintf(stderr, "Could not open %s for writing.\n", name);
+    strcpy(tmp, name);
+    strcat(tmp, ".tmp");
+    if (!(G = fopen(tmp, "wb"))) {
+      fprintf(stderr, "Could not open %s for writing.\n", tmp);
       exit(EXIT_FAILURE);
     }
 
     compress_data(F, num, G, data, tb_size, minfreq, wide);
 
     fclose(G);
+    rename(tmp, name);
   } else {
     compress_data_single_valued(F, num);
   }
@@ -1351,23 +1354,25 @@ void compress_tb(struct tb_handle *F, int num, void *data, uint64_t tb_size,
 void merge_tb(struct tb_handle *F)
 {
   FILE *G;
-  char name[128];
-  char ext[16];
+  char name[128], tmp[128], str[128];
+  char ext[32];
 
   sprintf(name, "../%s%s", F->name, suffix[F->type]);
-  if (!(G = fopen(name, "wb"))) {
-    fprintf(stderr, "Could not open %s for writing.\n", name);
+  strcpy(tmp, name);
+  strcat(tmp, ".tmp");
+  if (!(G = fopen(tmp, "wb"))) {
+    fprintf(stderr, "Could not open %s for writing.\n", tmp);
     exit(EXIT_FAILURE);
   }
 
   for (int i = 0; i < F->num_tables; i++) {
     if (F->flags[i] & 0x80) continue;
     sprintf(ext, ".%d", 1 + i);
-    strcpy(name, F->name);
-    strcat(name, suffix[F->type]);
-    strcat(name, ext);
-    if (!(F->H[i] = fopen(name, "rb"))) {
-      fprintf(stderr, "Could not open %s for reading.\n", name);
+    strcpy(str, F->name);
+    strcat(str, suffix[F->type]);
+    strcat(str, ext);
+    if (!(F->H[i] = fopen(str, "rb"))) {
+      fprintf(stderr, "Could not open %s for reading.\n", str);
       exit(EXIT_FAILURE);
     }
   }
@@ -1381,17 +1386,17 @@ void merge_tb(struct tb_handle *F)
 
   fclose(G);
 
+  add_checksum(tmp);
+  rename(tmp, name);
+
   for (int i = 0; i < F->num_tables; i++) {
     if (F->flags[i] & 0x80) continue;
     sprintf(ext, ".%d", 1 + i);
-    strcpy(name, F->name);
-    strcat(name, suffix[F->type]);
-    strcat(name, ext);
-    unlink(name);
+    strcpy(str, F->name);
+    strcat(str, suffix[F->type]);
+    strcat(str, ext);
+    unlink(str);
   }
-
-  sprintf(name, "../%s%s", F->name, suffix[F->type]);
-  add_checksum(name);
 
   for (int i = 0; i < F->num_tables; i++) {
     if (F->flags[i] & 0x80) continue;
@@ -1410,16 +1415,19 @@ static constexpr int default_blocksize[3] = { 6, 6, 10 };
 void compress_data_slice(int s, int stm, int type, void *data, uint64_t tb_size,
     uint8_t *perm, int minfreq, bool wide, bool big)
 {
-  char str[128];
+  char str[128], tmp[128];
 
   if (big)
     create_name_10(str, s, stm, name[type]);
   else
     create_name(str, s, stm, name[type], -1);
 
-  FILE *F = fopen(str, "wb");
+  strcpy(tmp, str);
+  strcat(tmp, ".tmp");
+
+  FILE *F = fopen(tmp, "wb");
   if (!F) {
-    fprintf(stderr, "Could not open %s.\n", str);
+    fprintf(stderr, "Could not open %s.\n", tmp);
     exit(EXIT_FAILURE);
   }
 
@@ -1633,4 +1641,5 @@ void compress_data_slice(int s, int stm, int type, void *data, uint64_t tb_size,
 
 finished:
   fclose(F);
+  rename(tmp, str);
 }

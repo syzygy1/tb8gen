@@ -353,11 +353,13 @@ void kslice_nor(int s1, int s2)
 void kslice_write_addr(void *p, int slice, int stm, const char *name, int n,
     uint64_t num)
 {
-  char str[128];
+  char str[128], tmp[128];
   create_name(str, slice, stm, name, n);
-  FILE *F = fopen(str, "wb");
+  strcpy(tmp, str);
+  strcat(tmp, ".tmp");
+  FILE *F = fopen(tmp, "wb");
   if (!F) {
-    fprintf(stderr, "Could not open %s for writing.\n", str);
+    fprintf(stderr, "Could not open %s for writing.\n", tmp);
     exit(EXIT_FAILURE);
   }
   if (num > 0) {
@@ -365,6 +367,7 @@ void kslice_write_addr(void *p, int slice, int stm, const char *name, int n,
     write_data(F, p, kslice_cache_lines << 6);
   }
   fclose(F);
+  rename(tmp, str);
 }
 
 void kslice_write(int s, int slice, int stm, const char *name, int n,
@@ -430,16 +433,19 @@ void kslice_sub_clear(int s, int stm)
 void kslice_sub_write_addr(void *p, int slice, int stm, const char *name,
     uint64_t num)
 {
-  char str[128];
+  char str[128], tmp[128];
   create_name(str, slice, stm, name, -1);
-  FILE *F = fopen(str, "wb");
+  strcpy(tmp, str);
+  strcat(tmp, ".tmp");
+  FILE *F = fopen(tmp, "wb");
   if (!F) {
-    fprintf(stderr, "Could not open %s for writing.\n", str);
+    fprintf(stderr, "Could not open %s for writing.\n", tmp);
     exit(EXIT_FAILURE);
   }
   if (num > 0)
     write_data(F, p, sub_size[stm]);
   fclose(F);
+  rename(tmp, str);
 }
 
 void kslice_sub_read(int s, int slice, int stm, const char *name)

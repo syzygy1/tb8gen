@@ -207,15 +207,18 @@ static void NAME(merge_bitmaps)(int stm, int s)
     stats[MAX_STATS - 1 - DRAW_RULE] = loss_tmp;
   }
 
-  char str[128];
+  char str[128], tmp[128];
   create_name(str, s, stm, "stats", -1);
-  FILE *F = fopen(str, "wb");
+  strcpy(tmp, str);
+  strcat(tmp, ".tmp");
+  FILE *F = fopen(tmp, "wb");
   if (!F) {
-    fprintf(stderr, "Could not open %s.\n", str);
+    fprintf(stderr, "Could not open %s.\n", tmp);
     exit(EXIT_FAILURE);
   }
   write_data(F, stats, sizeof(stats));
   fclose(F);
+  rename(tmp, str);
 
   if (symmetric && stm == BLACK)
     return;
@@ -239,13 +242,16 @@ static void NAME(merge_bitmaps)(int stm, int s)
       z[NAME(mi.v)[MAX_STATS - 1 - i]] = NAME(mi.v)[MAX_STATS - 1 - i];
 
   create_name(str, s, stm, "merged/dtz", -1);
-  F = fopen(str, "wb");
+  strcpy(tmp, str);
+  strcat(tmp, ".tmp");
+  F = fopen(tmp, "wb");
   if (!F) {
-    fprintf(stderr, "Could not open %s.\n", str);
+    fprintf(stderr, "Could not open %s.\n", tmp);
     exit(EXIT_FAILURE);
   }
   NAME(write_data_transform)(F, merge_table, kslice_size * sizeof(T), z);
   fclose(F);
+  rename(tmp, str);
 
 start_wdl:
   // 0/1/2/3/4 -> loss/bloss/draw/cwin/win
@@ -272,11 +278,14 @@ start_wdl:
   }
 
   create_name(str, s, stm, "merged/wdl", -1);
-  F = fopen(str, "wb");
+  strcpy(tmp, str);
+  strcat(tmp, ".tmp");
+  F = fopen(tmp, "wb");
   if (!F) {
-    fprintf(stderr, "Could not open %s.\n", str);
+    fprintf(stderr, "Could not open %s.\n", tmp);
     exit(EXIT_FAILURE);
   }
   NAME(write_data_transform_to_u8)(F, merge_table, kslice_size, w);
   fclose(F);
+  rename(tmp, str);
 }
