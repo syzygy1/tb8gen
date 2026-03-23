@@ -532,7 +532,7 @@ void permute_piece_10(void *tb_table, void *table, uint8_t *best, int type,
 //    best_ii.last[i] = ii.last[k];
   }
   for (int i = 0, n = 62; i < best_ii.numsets; i++) {
-    best_ii.factor[i + 1] = Binomial[ii.mult[i]][n];
+    best_ii.factor[i + 1] = Binomial[best_ii.mult[i]][n];
     n -= best_ii.mult[i];
   }
   best_ii.factor[0] = 64;

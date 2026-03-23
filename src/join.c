@@ -735,7 +735,6 @@ static void join_wdl_10(int stm)
 
     compress_init_wdl(v_wdl);
 
-printf("size = %lu / %lu\n", tb_size, num * kslice_size);
     uint8_t best[MAX_SETS];
     printf("Find optimal permutation for %ctm/wdl, slice = %d.\n", "wb"[stm],
         k);
@@ -782,8 +781,6 @@ static void join_dtz_10(int stm)
   g_pos.stm = stm;
 
   for (int k = 0; k < 10; k++) {
-    if(k==6)
-      printf("hey\n");
     init_permute_piece_10(k);
     int num = 0;
     uint64_t stats[MAX_STATS] = { 0 };
@@ -897,7 +894,6 @@ static void join_dtz_10(int stm)
     }
 
     compress_init_dtz(&dtzmap, tb_wide);
-printf("size = %lu / %lu\n", tb_size, num * kslice_size);
     uint8_t best[MAX_SETS];
     printf("Find optimal permutation for %ctm/dtz, slice = %d.\n", "wb"[stm],
         k);
