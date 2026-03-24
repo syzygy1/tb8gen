@@ -23,26 +23,28 @@ void free_code_rans(struct RansCode *c)
 // Based on from https://github.com/rygorous/ryg_rans.
 static void normalize_freqs(struct RansCode *c, int64_t *freq, int num_syms)
 {
+  uint32_t cum_freq[4096];
+
   uint64_t total = 0;
   for (int i = 0; i < num_syms; i++)
     total += freq[i];
 
-  uint64_t sum = c->cum_freq[0] = 0;
+  uint64_t sum = cum_freq[0] = 0;
   for (int i = 0; i < num_syms; i++) {
     sum += freq[i];
-    c->cum_freq[i + 1] = sum * (1 << 16) / total;
+    cum_freq[i + 1] = sum * (1 << 16) / total;
   }
   for (int i = num_syms + 1; i < 4096; i++)
-    c->cum_freq[i] = c->cum_freq[num_syms];
+    cum_freq[i] = cum_freq[num_syms];
 
-  assert(c->cum_freq[4095] == (uint16_t)(1 << 16));
+  assert(cum_freq[4095] == 1 << 16);
 
   for (int i = 0; i < num_syms; i++)
-    if (freq[i] && c->cum_freq[i + 1] == c->cum_freq[i]) {
+    if (freq[i] && cum_freq[i + 1] == cum_freq[i]) {
       uint32_t best_freq = UINT32_MAX;
       int best_steal = -1;
       for (int j = 0; j < 4095; j++) {
-        uint32_t fr = (uint16_t)(c->cum_freq[j + 1] - c->cum_freq[j]);
+        uint32_t fr = cum_freq[j + 1] - cum_freq[j];
         if (fr > 1 && fr < best_freq) {
           best_freq = fr;
           best_steal = j;
@@ -51,12 +53,15 @@ static void normalize_freqs(struct RansCode *c, int64_t *freq, int num_syms)
       assert(best_steal >= 0);
       if (best_steal < i) {
         for (int j = best_steal + 1; j <= i; j++)
-          c->cum_freq[j]--;
+          cum_freq[j]--;
       } else {
         for (int j = i + 1; j <= best_steal; j++)
-          c->cum_freq[j]++;
+          cum_freq[j]++;
       }
     }
+
+  for (int i = 0; i < 4096; i++)
+    c->cum_freq[i] = cum_freq[i];
 
   for (int i = 0; i < 4095; i++)
     c->d.freq[i] = c->cum_freq[i + 1] - c->cum_freq[i];
