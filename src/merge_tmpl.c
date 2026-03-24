@@ -209,8 +209,7 @@ static void NAME(merge_bitmaps)(int stm, int s)
 
   char str[128], tmp[128];
   create_name(str, s, stm, "stats", -1);
-  strcpy(tmp, str);
-  strcat(tmp, ".tmp");
+  strcat(strcpy(tmp, str), ".tmp");
   FILE *F = fopen(tmp, "wb");
   if (!F) {
     fprintf(stderr, "Could not open %s.\n", tmp);
@@ -242,8 +241,7 @@ static void NAME(merge_bitmaps)(int stm, int s)
       z[NAME(mi.v)[MAX_STATS - 1 - i]] = NAME(mi.v)[MAX_STATS - 1 - i];
 
   create_name(str, s, stm, "merged/dtz", -1);
-  strcpy(tmp, str);
-  strcat(tmp, ".tmp");
+  strcat(strcpy(tmp, str), ".tmp");
   F = fopen(tmp, "wb");
   if (!F) {
     fprintf(stderr, "Could not open %s.\n", tmp);
@@ -278,8 +276,7 @@ start_wdl:
   }
 
   create_name(str, s, stm, "merged/wdl", -1);
-  strcpy(tmp, str);
-  strcat(tmp, ".tmp");
+  strcat(strcpy(tmp, str), ".tmp");
   F = fopen(tmp, "wb");
   if (!F) {
     fprintf(stderr, "Could not open %s.\n", tmp);

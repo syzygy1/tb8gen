@@ -573,8 +573,7 @@ void join_final_462(int type)
 
   char fname[128], tmp[128];
   sprintf(fname, "../%s%s", g_tablename, suffix[type]);
-  strcpy(tmp, fname);
-  strcat(tmp, ".tmp");
+  strcat(strcpy(tmp, fname), ".tmp");
   int fd = creat(tmp, 0666);
   if (fd < 0) {
     fprintf(stderr, "Could not open %s for writing.\n", tmp);
@@ -639,7 +638,7 @@ void join_slices_462(void)
   init_permute_piece_462();
 
   join_table = alloc_huge(kslice_size);
-  tb_table = alloc_huge(tb_size + 1);
+  tb_table = alloc_huge(kslice_size + 1);
   if (!join_table || !tb_table)
     out_of_mem();
   join_wide = tb_wide = false;
@@ -969,8 +968,7 @@ static void join_final_10(int type)
 
   char fname[128], tmp[128];
   sprintf(fname, "../%s%s", g_tablename, suffix[type]);
-  strcpy(tmp, fname);
-  strcat(tmp, ".tmp");
+  strcat(strcpy(tmp, fname), ".tmp");
   int fd = creat(tmp, 0666);
   if (fd < 0) {
     fprintf(stderr, "Could not open %s for writing.\n", tmp);

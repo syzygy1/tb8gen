@@ -1337,7 +1337,7 @@ NOINLINE struct Tbase *init_tbase(struct TbEntry *entry, const char *str,
 {
   map_t mapping;
   const uint8_t *restrict data = map_tb(str, type, &mapping, use_paths);
-  if (!data) return false;
+  if (!data) return nullptr;
 
   if (read_le_u32(data) == magic[type]) {
     int num = entry->has_pawns ? type == DTM ? 6 : 4 : 1;

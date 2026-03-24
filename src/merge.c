@@ -246,8 +246,7 @@ void merge(int stm)
 
   char str[128], tmp[128];
   sprintf(str, "merge_info.%c", "wb"[stm]);
-  strcpy(tmp, str);
-  strcat(tmp, ".tmp");
+  strcat(strcpy(tmp, str), ".tmp");
   FILE *F = fopen(tmp, "wb");
   if (!F) {
     fprintf(stderr, "Could not open %s.\n", tmp);

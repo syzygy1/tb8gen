@@ -224,7 +224,7 @@ static void calc_capt(int stm, int wdl, int n)
   struct KSliceIterator iter;
   uint64_t num, cnt = 0;
 
-  char capt_name[64], sub_name[64];
+  char capt_name[128], sub_name[128];
   strcat(strcpy(capt_name, "capt/"), wdl_name[2 + wdl]);
   strcat(strcpy(sub_name, "sub/"), wdl_name[2 - wdl]);
 

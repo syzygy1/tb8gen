@@ -105,7 +105,7 @@ static void NAME(convert_est_data_piece)(struct ThreadData *thread)
 {
   T *restrict table = est_data.table;
   int num_cands = est_data.num_cands;
-  uint32_t dsize = est_data.dsize;
+  uint64_t dsize = est_data.dsize;
   T *restrict dst = est_data.dst;
   uint8_t sq[MAX_PIECES];
   uint32_t sub[MAX_SETS];
@@ -153,7 +153,7 @@ static void NAME(convert_est_data_pawn)(struct ThreadData *thread)
   T *restrict table = est_data.table;
   int num_cands = est_data.num_cands;
   uint8_t *restrict pcs = est_data.pcs;
-  uint32_t dsize = est_data.dsize;
+  uint64_t dsize = est_data.dsize;
   T *restrict dst = est_data.dst;
   int rank = est_data.rank;
   uint64_t idx;

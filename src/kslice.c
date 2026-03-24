@@ -355,8 +355,7 @@ void kslice_write_addr(void *p, int slice, int stm, const char *name, int n,
 {
   char str[128], tmp[128];
   create_name(str, slice, stm, name, n);
-  strcpy(tmp, str);
-  strcat(tmp, ".tmp");
+  strcat(strcpy(tmp, str), ".tmp");
   FILE *F = fopen(tmp, "wb");
   if (!F) {
     fprintf(stderr, "Could not open %s for writing.\n", tmp);
@@ -435,8 +434,7 @@ void kslice_sub_write_addr(void *p, int slice, int stm, const char *name,
 {
   char str[128], tmp[128];
   create_name(str, slice, stm, name, -1);
-  strcpy(tmp, str);
-  strcat(tmp, ".tmp");
+  strcat(strcpy(tmp, str), ".tmp");
   FILE *F = fopen(tmp, "wb");
   if (!F) {
     fprintf(stderr, "Could not open %s for writing.\n", tmp);

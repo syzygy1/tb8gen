@@ -1087,7 +1087,6 @@ void write_final(struct tb_handle *F, FILE *G)
         }
       } else {
         // RANS. Write out the frequency table.
-        write_u16(G, F->num_syms[i]);
         struct RansCode *c = F->code.rans[i];
         size_t sz = write_freq_table(G, c, F->num_syms[i]);
         printf("num_syms = %d, size freq_table = %lu\n", F->num_syms[i], sz);
@@ -1335,8 +1334,7 @@ void compress_tb(struct tb_handle *F, int num, void *data, uint64_t tb_size,
     strcpy(name, F->name);
     strcat(name, suffix[F->type]);
     strcat(name, ext);
-    strcpy(tmp, name);
-    strcat(tmp, ".tmp");
+    strcat(strcpy(tmp, name), ".tmp");
     if (!(G = fopen(tmp, "wb"))) {
       fprintf(stderr, "Could not open %s for writing.\n", tmp);
       exit(EXIT_FAILURE);
@@ -1358,8 +1356,7 @@ void merge_tb(struct tb_handle *F)
   char ext[32];
 
   sprintf(name, "../%s%s", F->name, suffix[F->type]);
-  strcpy(tmp, name);
-  strcat(tmp, ".tmp");
+  strcat(strcpy(tmp, name), ".tmp");
   if (!(G = fopen(tmp, "wb"))) {
     fprintf(stderr, "Could not open %s for writing.\n", tmp);
     exit(EXIT_FAILURE);
@@ -1422,9 +1419,7 @@ void compress_data_slice(int s, int stm, int type, void *data, uint64_t tb_size,
   else
     create_name(str, s, stm, name[type], -1);
 
-  strcpy(tmp, str);
-  strcat(tmp, ".tmp");
-
+  strcat(strcpy(tmp, str), ".tmp");
   FILE *F = fopen(tmp, "wb");
   if (!F) {
     fprintf(stderr, "Could not open %s.\n", tmp);

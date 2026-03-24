@@ -146,7 +146,7 @@ static void generate_test_list(uint64_t size, int n)
     return;
   }
 
-  if (n <= 4 || (NUM_SEGS + 1) * SEG_SIZE >= size) {
+  if (n <= 3 || (NUM_SEGS + 1) * SEG_SIZE >= size) {
     num_segs = 100;
     seg_size = size / num_segs;
   } else {
@@ -323,7 +323,7 @@ static struct {
   void *table;
   void *dst;
   int num_cands;
-  uint32_t dsize;
+  uint64_t dsize;
   int rank;
 } est_data;
 
@@ -338,7 +338,7 @@ static struct {
 static void estimate_compression_piece(void *table, int num_cands, bool wide,
     bool wdl)
 {
-  uint32_t dsize = num_segs * seg_size;
+  uint64_t dsize = num_segs * seg_size;
   void *dst = malloc((num_cands * dsize + 1) * (1 + wide));
   est_data.table = table;
   est_data.dst = dst;
@@ -383,7 +383,7 @@ static void estimate_compression_piece(void *table, int num_cands, bool wide,
 void estimate_compression_pawn(void *table, uint8_t *pcs, int rank,
     int num_cands, bool wide)
 {
-  uint32_t dsize = num_segs * seg_size;
+  uint64_t dsize = num_segs * seg_size;
   void *dst = malloc((num_cands * dsize + 1) * (wide ? 2 : 1));
   est_data.table = table;
   est_data.pcs = pcs;
