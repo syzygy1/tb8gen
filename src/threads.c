@@ -172,6 +172,7 @@ static int worker(void *arg)
   return 0;
 }
 
+#if 0
 #ifdef HAS_PAWNS
 int group_worker(void *arg)
 {
@@ -229,6 +230,7 @@ void run_group(struct GroupData *g, void (*func)(struct ThreadData *),
   g_cur_time = stop_time;
 }
 
+#endif
 #endif
 
 void run_threaded(void (*func)(struct ThreadData *), uint64_t *work,

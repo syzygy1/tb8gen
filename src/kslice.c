@@ -71,13 +71,13 @@ bool kslice_iter_next(struct KSliceIterator *iter, int *s)
     if (++iter->k1 == 10)
       return false;
     iter->reserved = 0;
-    iter->todo = ~KingMask[InvTriangle[iter->k1]];
+    iter->todo = ~king_mask(InvTriangle[iter->k1]);
     if (iter->k1 >= 6)
       iter->todo &= LOWER;
   }
 
   int k2 = pop_lsb(&iter->todo);
-  Bitboard b =  KingMask[k2] & ~KingMask[InvTriangle[iter->k1]]
+  Bitboard b =  king_mask(k2) & ~king_mask(InvTriangle[iter->k1])
               & ~iter->reserved;
   iter->in_slices = iter->k1 < 6 ? b : b & LOWER;
   *s = kslice(iter->stm, iter->k1, k2);

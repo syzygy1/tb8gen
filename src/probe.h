@@ -19,7 +19,19 @@
 
 enum { WDL = 0, DTM, DTZ };
 //enum { WL_BOTH = 0, WL_WTM, WL_BTM, W_ONLY, L_ONLY };
-//enum { LT_PIECE = 0, LT_PIECE_K, LT_PIECE_KK, LT_PAWN_FILE, LT_PAWN_RANK };
+enum {
+  LT_PIECE = 0, LT_PAWN_FILE, LT_PAWN_RANK,
+  LT_PIECE_K, LT_PIECE_KK,
+  LT_PAWN_P, LT_PAWN_PK, LT_PAWN_PP, LT_PAWN_PvP
+};
+
+enum {
+  TWO_SIDED = 0x01,
+  WTM_OR_BTM = 0x02,
+  WIN_OR_LOSS = 0x04,
+  WIN_ONLY = 0x08,
+  WTM_ONLY = 0x10
+};
 
 #ifdef LOOKUP
 static constexpr int LUBITS = 12;
@@ -185,6 +197,10 @@ extern size_t PawnIdx[2][6][24];
 extern const uint8_t PawnFlip[2][64];
 extern const uint8_t InvPawnFlip[2][24];
 extern const uint8_t InvPawnTwist[2][48];
+extern int16_t KKMap[64][64];
+extern uint8_t MirrorMask[64];
+extern bool FlipTest[64][64];
+extern int16_t KKPIdx[64][64];
 
 extern const char *suffix[3];
 extern uint32_t magic[3], magic2[3];

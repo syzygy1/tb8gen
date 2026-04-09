@@ -7,7 +7,7 @@
 #include <stdint.h>
 
 #include "defs.h"
-#include "index.h"
+#include "indexp.h"
 #include "probe.h"
 #include "types.h"
 
@@ -18,7 +18,7 @@ int pc_to_set[MAX_PIECES];
 INLINE uint64_t sq_to_idx_helper(uint8_t *restrict sq, const struct IdxInfo *ii)
 {
   uint64_t idx = 0;
-  Bitboard occ = bit(sq[0]) | bit(sq[1]);
+  Bitboard occ = bit(sq[0]) | bit(sq[1]) | bit(sq[2]);
 
   for (int k = 0; k < ii->numsets; k++) {
     int i = ii->first[k];
@@ -50,7 +50,7 @@ uint64_t capt_sq_to_idx(uint8_t *restrict sq, int k)
 INLINE Bitboard idx_to_sq_unpack(uint32_t *sub, uint8_t *restrict sq,
     const struct IdxInfo *ii)
 {
-  Bitboard occ = bit(sq[0]) | bit(sq[1]);
+  Bitboard occ = bit(sq[0]) | bit(sq[1]) | bit(sq[2]);
   for (int i = 0; i < ii->numsets; i++)
     occ = unrank_binomial(sub[i], ii->mult[i], sq + ii->first[i], occ);
   return occ;
@@ -82,7 +82,7 @@ Bitboard capt_idx_to_sq(uint32_t *sub, uint8_t *restrict sq, const int k)
 
 void calc_factors(struct IdxInfo *ii)
 {
-  for (int i = 0, n = 62; i < ii->numsets; i++) {
+  for (int i = 0, n = 61; i < ii->numsets; i++) {
     ii->factor[i] = Binomial[ii->mult[i]][n];
     n -= ii->mult[i];
   }
@@ -95,4 +95,5 @@ void calc_factors(struct IdxInfo *ii)
 
 void init_tables(void)
 {
+
 }

@@ -27,7 +27,7 @@ void collect_stats(int stm)
 
   memset(stats, 0, sizeof g_stats[stm]);
 
-  for (int s = 0; s < 462; s++) {
+  for (int s = 0; s < 240; s++) {
     create_name(str, s, stm, "stats", -1);
     FILE *F = fopen(str, "rb");
     if (!F) {
@@ -39,8 +39,6 @@ void collect_stats(int stm)
     for (int i = 0; i < MAX_STATS; i++)
       stats[i] += tmp[i];
   }
-  for (int i = 0; i < MAX_STATS; i++)
-    stats[i] >>= 1;
 }
 
 void print_stats(int stm)
@@ -49,35 +47,36 @@ void print_stats(int stm)
 
   printf("\n%s to move:\n\n", stm == WHITE ? "White" : "Black");
 
-  if (stats[1] + stats[2])
-    printf("%lu (%lu) positions win in %d ply.\n", stats[1] + stats[2],
-        stats[1], 1);
-  for (int i = 3; i <= DRAW_RULE + 1; i++)
-    if (stats[i])
-      printf("%lu positions win in %d ply.\n", stats[i], i - 1);
-  if (stats[DRAW_RULE + 2] + stats[DRAW_RULE + 3])
-    printf("%lu (%lu) positions win in %d ply.\n",
-        stats[DRAW_RULE + 2] + stats[DRAW_RULE + 3], stats[DRAW_RULE + 2],
-        DRAW_RULE + 1);
-  for (int i = DRAW_RULE + 4; i < MAX_STATS / 2; i++)
+  if (stats[1] + stats[2] + stats[3])
+    printf("%lu (%lu,%lu) positions win in %d ply.\n",
+        stats[1] + stats[2] + stats[3], stats[1], stats[2], 1);
+  for (int i = 4; i <= DRAW_RULE + 2; i++)
     if (stats[i])
       printf("%lu positions win in %d ply.\n", stats[i], i - 2);
+  if (stats[DRAW_RULE + 3] + stats[DRAW_RULE + 4] + stats[DRAW_RULE + 5])
+    printf("%lu (%lu,%lu) positions win in %d ply.\n",
+        stats[DRAW_RULE + 3] + stats[DRAW_RULE + 4] + stats[DRAW_RULE + 5],
+        stats[DRAW_RULE + 4], stats[DRAW_RULE + 5], DRAW_RULE + 1);
+  for (int i = DRAW_RULE + 6; i < MAX_STATS / 2; i++)
+    if (stats[i])
+      printf("%lu positions win in %d ply.\n", stats[i], i - 4);
   printf("\n");
 
   uint64_t tot = 0;
-  for (int i = 1; i <= DRAW_RULE + 1; i++)
+  for (int i = 1; i <= DRAW_RULE + 2; i++)
     tot += stats[i];
   printf("%lu positions are wins.\n", tot);
   tot = 0;
-  for (int i = DRAW_RULE + 2; i < MAX_STATS / 2; i++)
+  for (int i = DRAW_RULE + 3; i < MAX_STATS / 2; i++)
     tot += stats[i];
   if (tot)
     printf("%lu positions are cursed wins.\n", tot);
-  if (stats[MAX_STATS / 2] + stats[MAX_STATS / 2 + 1])
-    printf("%lu (%lu) positions are draws.\n",
-        stats[MAX_STATS / 2] + stats[MAX_STATS / 2 + 1], stats[MAX_STATS / 2]);
+  if (stats[MAX_STATS/2] + stats[MAX_STATS/2 + 1] + stats[MAX_STATS/2 + 2])
+    printf("%lu (%lu,%lu) positions are draws.\n",
+        stats[MAX_STATS/2] + stats[MAX_STATS/2 + 1] + stats[MAX_STATS/2 + 2],
+        stats[MAX_STATS/2], stats[MAX_STATS/2 + 1]);
   tot = 0;
-  for (int i = DRAW_RULE + 1; i < MAX_STATS / 2 - 2; i++)
+  for (int i = DRAW_RULE + 1; i < MAX_STATS / 2 - 3; i++)
     tot += stats[MAX_STATS - 1 - i];
   if (tot)
     printf("%lu positions are blessed losses.\n", tot);
@@ -86,7 +85,7 @@ void print_stats(int stm)
     tot += stats[MAX_STATS - 1 - i];
   printf("%lu positions are losses.\n\n", tot);
 
-  for (int i = 0; i < MAX_STATS / 2 - 2; i++)
+  for (int i = 0; i < MAX_STATS / 2 - 3; i++)
     if (stats[MAX_STATS - 1 - i])
       printf("%lu positions lose in %d ply.\n", stats[MAX_STATS - 1 - i], i);
 
@@ -140,10 +139,12 @@ double entropy_one_sided(int stm)
   uint64_t stats[MAX_STATS];
   memcpy(stats, g_stats[stm], sizeof stats);
 
-  uint64_t tot = stats[0] + stats[1] + stats[DRAW_RULE + 2]
-    + stats[MAX_STATS / 2] + stats[MAX_STATS / 2 + 1];
-  stats[0] = stats[1] = stats[DRAW_RULE + 2] = stats[MAX_STATS / 2]
-    = stats[MAX_STATS / 2 + 1] = 0;
+  uint64_t tot = stats[0] + stats[1] + stats[2] + stats[DRAW_RULE + 3]
+    + stats[DRAW_RULE + 4] + stats[MAX_STATS / 2] + stats[MAX_STATS / 2 + 1]
+    + stats[MAX_STATS / 2 + 2];
+  stats[0] = stats[1] = stats[2] = stats[DRAW_RULE + 3] = stats[DRAW_RULE + 4]
+    = stats[MAX_STATS / 2] = stats[MAX_STATS / 2 + 1] = stats[MAX_STATS / 2 + 2]
+    = 0;
 
   return entropy_helper(stats, tot);
 }
@@ -154,7 +155,7 @@ double entropy_loss_only(int stm)
   memcpy(stats, g_stats[stm], sizeof stats);
 
   uint64_t tot = 0;
-  for (int i = 0; i < MAX_STATS / 2 + 2; i++) {
+  for (int i = 0; i < MAX_STATS / 2 + 3; i++) {
     tot += stats[i];
     stats[i] = 0;
   }
@@ -167,11 +168,13 @@ double entropy_win_only(int stm)
   uint64_t stats[MAX_STATS];
   memcpy(stats, g_stats[stm], sizeof stats);
 
-  uint64_t tot = stats[0] + stats[1] + stats[DRAW_RULE + 2]
-    + stats[MAX_STATS / 2] + stats[MAX_STATS / 2 + 1];
-  stats[0] = stats[1] = stats[DRAW_RULE + 2] = stats[MAX_STATS / 2]
-    = stats[MAX_STATS / 2 + 1] = 0;
-  for (int i = MAX_STATS / 2 + 2; i < MAX_STATS; i++) {
+  uint64_t tot = stats[0] + stats[1] + stats[2] + stats[DRAW_RULE + 3]
+    + stats[DRAW_RULE + 4] + stats[MAX_STATS / 2] + stats[MAX_STATS / 2 + 1]
+    + stats[MAX_STATS / 2 + 2];
+  stats[0] = stats[1] = stats[2] = stats[DRAW_RULE + 3] = stats[DRAW_RULE + 4]
+    = stats[MAX_STATS / 2] = stats[MAX_STATS / 2 + 1] = stats[MAX_STATS / 2 + 2]
+    = 0;
+  for (int i = MAX_STATS / 2 + 3; i < MAX_STATS; i++) {
     tot += stats[i];
     stats[i] = 0;
   }

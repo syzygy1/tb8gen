@@ -194,5 +194,10 @@ void read_data_transform_to_u8_u16(FILE *F, void *dst, size_t size,
 void create_dir(int n, int stm, const char *name);
 void create_name(char *str, int s, int stm, const char *name, int n);
 void create_name_10(char *str, int k, int stm, const char *name);
+#ifdef HAS_PAWNS
+void create_name_r(char *str, int s, int r, int stm, const char *name, int n);
+void create_name_p(char *s, int sq, int stm, const char *name);
+void create_name_sq(char *s, int s1, int s2, int stm, const char *name, int n);
+#endif
 
 #endif

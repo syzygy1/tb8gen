@@ -983,9 +983,14 @@ void write_final(struct tb_handle *F, FILE *G)
     // For non-WDL tables, we encode only wtm, btm, wins or losses.
     // For pawnful DTZ, this can vary per pawn slice/file/rank
     // -> to be looked into later.
-    if (F->type != WDL)
-      write_u8(G, one_sided ? one_sided_stm == WHITE ? WL_WTM : WL_BTM
-                            : wins_only ? W_ONLY : L_ONLY);
+    if (F->type != WDL) {
+      uint8_t dist_format = F->split ? TWO_SIDED : 0;
+      if (one_sided)
+        dist_format |= WTM_OR_BTM | (one_sided_stm == WHITE ? WTM_ONLY : 0);
+      else
+        dist_format |= WIN_OR_LOSS | (wins_only ? WIN_ONLY : 0);
+      write_u8(G, dist_format);
+    }
   }
 
   // One "order" nibble for pawnless tables, two nibbles for pawnful tables.
@@ -1414,10 +1419,18 @@ void compress_data_slice(int s, int stm, int type, void *data, uint64_t tb_size,
 {
   char str[128], tmp[128];
 
+#ifndef HAS_PAWNS
   if (big)
     create_name_10(str, s, stm, name[type]);
   else
     create_name(str, s, stm, name[type], -1);
+#else
+  if (big)
+    create_name_p(tmp, s, stm, name[type]);
+  else
+    create_name_sq(tmp, s / 64, s % 64, stm, name[type], -1);
+  strcat(strcpy(str, "../"), tmp);
+#endif
 
   strcat(strcpy(tmp, str), ".tmp");
   FILE *F = fopen(tmp, "wb");

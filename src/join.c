@@ -14,6 +14,7 @@
 #include "compress.h"
 #include "defs.h"
 #include "index.h"
+#include "kslice.h"
 #include "merge.h"
 #include "movegen.h"
 #include "permute.h"
@@ -97,18 +98,6 @@ static void sort_values(int stm, uint64_t *stats, struct DtzMap *dtzmap,
   dtzmap->max_num = num;
   dtzmap->wide = num >= 240;
 
-#if 0
-  // FIXME
-  static uint64_t tot_pos[] = {
-    518,
-    31332,
-    1911252,
-    114675120,
-    6765832080,
-    392418260640
-  };
-  uint64_t tot = tot_pos[g_pos.num - 2] / 7000ULL;
-#endif
   uint64_t tot = tot_pos / 7000ULL;
 
   int i;
@@ -155,7 +144,7 @@ static void read_merge_info(int stm)
     fprintf(stderr, "Could not open %s.\n", str);
     exit(EXIT_FAILURE);
   }
-  file_read(&mi, sizeof(mi), F);
+  file_read(&mi, sizeof mi, F);
   fclose(F);
 }
 
@@ -361,7 +350,7 @@ static void join_wdl_462(int stm)
       fprintf(stderr, "Could not open %s.\n", str);
       exit(EXIT_FAILURE);
     }
-    read_data(F, stats, sizeof(stats));
+    read_data(F, stats, sizeof stats);
     fclose(F);
 
     bool v_wdl[5] = { 0 };
@@ -445,7 +434,7 @@ static void join_dtz_462(int stm)
       fprintf(stderr, "Could not open %s.\n", str);
       exit(EXIT_FAILURE);
     }
-    read_data(F, stats, sizeof(stats));
+    read_data(F, stats, sizeof stats);
     fclose(F);
 
     sort_values(stm, stats, &dtzmap, kslice_size);
@@ -535,10 +524,15 @@ void join_final_462(int type)
   *p++ = g_pos.num;
   for (int i = 2; i < g_pos.num; i++)
     *p++ = (g_pos.pt[i] & 7) | ((g_pos.pt[i] & 8) << 4);
-  if (type != WDL)
-    *p++ = one_sided ? one_sided_stm == WHITE ? WL_WTM : WL_BTM
-                     : wins_only ? W_ONLY : L_ONLY;
   *p++ = LT_PIECE_KK;
+  if (type != WDL) {
+    uint8_t dist_format = (has_stm[WHITE] && has_stm[BLACK]) ? TWO_SIDED : 0;
+    if (one_sided)
+      dist_format |= WTM_OR_BTM | (one_sided_stm == WHITE ? WTM_ONLY : 0);
+    else
+      dist_format |= WIN_OR_LOSS | (wins_only ? WIN_ONLY : 0);
+    *p++ = dist_format;
+  }
   p = buf + (((p - buf) + 7) & ~7);
 
   int num = 0, num_small = 0;
@@ -930,10 +924,15 @@ static void join_final_10(int type)
   *p++ = g_pos.num;
   for (int i = 2; i < g_pos.num; i++)
     *p++ = (g_pos.pt[i] & 7) | ((g_pos.pt[i] & 8) << 4);
-  if (type != WDL)
-    *p++ = one_sided ? one_sided_stm == WHITE ? WL_WTM : WL_BTM
-                     : wins_only ? W_ONLY : L_ONLY;
   *p++ = LT_PIECE_K;
+  if (type != WDL) {
+    uint8_t dist_format = (has_stm[WHITE] && has_stm[BLACK]) ? TWO_SIDED : 0;
+    if (one_sided)
+      dist_format |= WTM_OR_BTM | (one_sided_stm == WHITE ? WTM_ONLY : 0);
+    else
+      dist_format |= WIN_OR_LOSS | (wins_only ? WIN_ONLY : 0);
+    *p++ = dist_format;
+  }
   p = buf + (((p - buf) + 7) & ~7);
 
   int num = 0, num_small = 0;

@@ -40,7 +40,6 @@ extern Bitboard KingMask[64];
 INLINE Bitboard bit(int sq)
 {
   return 1ULL << sq;
-//  return Bit[sq];
 }
 
 INLINE int lsb(Bitboard b)
@@ -63,6 +62,11 @@ INLINE int popcnt(Bitboard b)
 #include "magic.h"
 //#include "hyper.h"
 //#include "bmi2.h"
+
+INLINE Bitboard king_mask(int sq)
+{
+  return KingMask[sq];
+}
 
 INLINE Bitboard pawn_attacks(int c, int sq)
 {

@@ -19,6 +19,7 @@
 #include "compress.h"
 #include "huffman.h"
 #include "index.h"
+#include "kslice.h"
 #include "permute.h"
 #include "probe.h"
 #include "tb8gen.h"

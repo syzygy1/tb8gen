@@ -9,12 +9,12 @@
 #include <stdlib.h>
 
 #include "defs.h"
-#include "index.h"
-#include "generate.h"
-#include "kslice.h"
+#include "indexp.h"
+#include "generatep.h"
+#include "kslicep.h"
 #include "merge.h"
 #include "movegen.h"
-#include "tb8gen.h"
+#include "tb8genp.h"
 #include "threads.h"
 #include "types.h"
 
@@ -22,67 +22,26 @@ struct MergeInfo mi;
 
 static void *merge_table;
 static int merge_n;
-static int work_set, work_slice;
+static int work_set;
 static bool include_wins, include_losses;
 
 alignas(64) static uint64_t thread_stats[MAX_THREADS][MAX_STATS];
 
-static void stat_count_worker(struct ThreadData *thread)
+static void stat_count(uint64_t stats[16][MAX_STATS], int n)
 {
-  uint32_t sub[MAX_SETS];
-  Position pos = g_pos;
-
-  uint64_t *restrict p = (uint64_t *)kslice_get_address(-1);
-
-  uint64_t cnt = 0;
-  p += thread->begin >> 6;
-  uint64_t last = thread->begin;
-  idx_to_sq_init(last, sub, &ii);
-  for (uint64_t idx = thread->begin, end = thread->end; idx < end; idx += 64) {
-    uint64_t w = *p++;
-    while (w) {
-      unsigned bt = pop_lsb(&w);
-      if (idx + bt >= end) break;
-      idx_to_sq_add(idx + bt - last, sub, &ii);
-      last = idx + bt;
-      idx_to_sq(sub, pos.sq);
-      mirror_diagonal(pos.sq);
-      uint64_t idx2 = sq_to_idx(pos.sq);
-      cnt += (idx + bt == idx2) ? 2 : 1;
-    }
-  }
-
-  thread->cnt += cnt;
-}
-
-static uint64_t stat_count(int stm, int s)
-{
-  if (s < 441)
-    return kslice_read_count << 1;
-
-  work_slice = s;
-
-  for (int t = 0; t < g_num_threads; t++)
-    g_thread_data[t].cnt = 0;
-
-  run_threaded(stat_count_worker, work_g, 0);
-
-  uint64_t cnt = 0;
-  for (int t = 0; t < g_num_threads; t++)
-    cnt += g_thread_data[t].cnt;
-
-  return cnt;
+  for (int r = 0; r < 16; r++)
+    stats[r][n] = k16slice_read_count[r];
 }
 
 #define T u8
 #define MAX 256
-#include "merge_tmpl.c"
+#include "mergep_tmpl.c"
 #undef MAX
 #undef T
 
 #define T u16
 #define MAX MAX_STATS
-#include "merge_tmpl.c"
+#include "mergep_tmpl.c"
 #undef MAX
 #undef T
 
@@ -110,9 +69,9 @@ void merge(int stm)
   // Count the number of distinct values to see if we can fit them all
   // in one byte.
   int win_vals = 0, cwin_vals = 0, bloss_vals = 0, loss_vals = 0;
-  for (int i = 2; i <= DRAW_RULE + 1; i++)
+  for (int i = 3; i <= DRAW_RULE + 2; i++)
     win_vals += (stats[i] != 0);
-  for (int i = DRAW_RULE + 3; i < MAX_STATS / 2; i++)
+  for (int i = DRAW_RULE + 5; i < MAX_STATS / 2; i++)
     cwin_vals += (stats[i] != 0);
   for (int i = 0; i <= DRAW_RULE; i++)
     loss_vals += (stats[MAX_STATS - 1 - i] != 0);
@@ -121,12 +80,14 @@ void merge(int stm)
 
   mi.v_wdl[0] = loss_vals;
   mi.v_wdl[1] = bloss_vals;
-  mi.v_wdl[2] = stats[MAX_STATS / 2 + 1];
-  mi.v_wdl[3] = cwin_vals;
-  mi.v_wdl[4] = win_vals;
+  mi.v_wdl[2] = stats[MAX_STATS / 2 + 1] || stats[MAX_STATS / 2 + 2];
+  mi.v_wdl[3] = stats[DRAW_RULE + 4] || cwin_vals;
+  mi.v_wdl[4] = stats[2] || win_vals;
 
+  // FIXME: sub_cnt[stm ^ 1][3] should also take into account blessed losses
+  // by pawn capture and capture of pawn.
   bool dc[4] = {
-    sub_cnt[stm ^ 1][3], stats[MAX_STATS / 2], stats[DRAW_RULE + 2], true
+    sub_cnt[stm ^ 1][3], stats[MAX_STATS / 2], stats[DRAW_RULE + 3], true
   };
 
   int i, j;
@@ -137,10 +98,11 @@ void merge(int stm)
   if (j > i + 1)
     mi.v_wdl[0] = true;
 
-  int special = 1 + (stats[1] != 0)
-                  + (stats[DRAW_RULE + 2] != 0)
+  int special = 1 + (stats[1] != 0) + (stats[2] != 0)
+                  + (stats[DRAW_RULE + 2] != 0) + (stats[DRAW_RULE + 3] != 0)
                   + (stats[MAX_STATS / 2] != 0)
-                  + (stats[MAX_STATS / 2 + 1] != 0);
+                  + (stats[MAX_STATS / 2 + 1] != 0)
+                  + (stats[MAX_STATS / 2 + 2] != 0);
 
   int wins_red = (win_vals != 0) + (cwin_vals != 0);
   int losses_red = (loss_vals != 0) + (bloss_vals != 0);
@@ -173,39 +135,47 @@ void merge(int stm)
     mi.v_u8[0] = n;
     n += (stats[1] != 0);
     mi.v_u8[1] = n;
+    n += (stats[2] != 0);
+    mi.v_u8[2] = n;
     if (include_wins) {
-      for (int i = 2; i <= DRAW_RULE + 1; i++) {
+      for (int i = 3; i <= DRAW_RULE + 2; i++) {
         n += (stats[i] != 0);
         mi.v_u8[i] = n;
       }
-      n += (stats[DRAW_RULE + 2] != 0);
-      mi.v_u8[DRAW_RULE + 2] = n;
-      for (int i = DRAW_RULE + 3; i < MAX_STATS / 2; i++) {
+      n += (stats[DRAW_RULE + 3] != 0);
+      mi.v_u8[DRAW_RULE + 3] = n;
+      n += (stats[DRAW_RULE + 4] != 0);
+      mi.v_u8[DRAW_RULE + 4] = n;
+      for (int i = DRAW_RULE + 5; i < MAX_STATS / 2; i++) {
         n += (stats[i] != 0);
         mi.v_u8[i] = n;
       }
     } else {
       n += (win_vals != 0);
-      for (int i = 2; i <= DRAW_RULE + 1; i++)
+      for (int i = 3; i <= DRAW_RULE + 2; i++)
         mi.v_u8[i] = n;
-      n += (stats[DRAW_RULE + 2] != 0);
-      mi.v_u8[DRAW_RULE + 2] = n;
+      n += (stats[DRAW_RULE + 3] != 0);
+      mi.v_u8[DRAW_RULE + 3] = n;
+      n += (stats[DRAW_RULE + 4] != 0);
+      mi.v_u8[DRAW_RULE + 4] = n;
       n += (cwin_vals != 0);
-      for (int i = DRAW_RULE + 3; i < MAX_STATS / 2; i++)
+      for (int i = DRAW_RULE + 5; i < MAX_STATS / 2; i++)
         mi.v_u8[i] = n;
     }
     n += (stats[MAX_STATS / 2] != 0);
     mi.v_u8[MAX_STATS / 2] = n;
     n += (stats[MAX_STATS / 2 + 1] != 0);
     mi.v_u8[MAX_STATS / 2 + 1] = n;
+    n += (stats[MAX_STATS / 2 + 2] != 0);
+    mi.v_u8[MAX_STATS / 2 + 2] = n;
     if (include_losses) {
-      for (int i = MAX_STATS / 2 - 3; i >= 0; i--) {
+      for (int i = MAX_STATS / 2 - 4; i >= 0; i--) {
         n += (stats[MAX_STATS - 1 - i] != 0);
         mi.v_u8[MAX_STATS - 1 - i] = n;
       }
     } else {
       n += (bloss_vals != 0);
-      for (int i = MAX_STATS / 2 - 3; i >= DRAW_RULE + 1; i--)
+      for (int i = MAX_STATS / 2 - 4; i >= DRAW_RULE + 1; i--)
         mi.v_u8[MAX_STATS - 1 - i] = n;
       n += (loss_vals != 0);
       for (int i = DRAW_RULE; i >= 0; i--)
@@ -217,11 +187,11 @@ void merge(int stm)
       if (mi.v_u8[i] != j)
         mi.v_inv_u8[j = mi.v_u8[i]] = i;
 
-    merge_table = alloc_huge(sizeof(u8) * kslice_size);
+    merge_table = alloc_huge(sizeof(u8) * 8 * k16slice_alloc_size);
     if (!merge_table)
       out_of_mem();
 
-    for (int s = 0; s < 462; s++)
+    for (int s = 0; s < 240; s++)
       merge_bitmaps_u8(stm, s);
 
     free(merge_table);
@@ -233,11 +203,11 @@ void merge(int stm)
     for (int i = 0; i < MAX_STATS; i++)
       mi.v_u16[i] = mi.v_inv_u16[i] = i;
 
-    merge_table = alloc_huge(sizeof(u16) * kslice_size);
+    merge_table = alloc_huge(sizeof(u16) * 8 * k16slice_alloc_size);
     if (!merge_table)
       out_of_mem();
 
-    for (int s = 0; s < 462; s++)
+    for (int s = 0; s < 240; s++)
       merge_bitmaps_u16(stm, s);
 
     free(merge_table);

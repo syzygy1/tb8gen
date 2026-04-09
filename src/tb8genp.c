@@ -15,15 +15,15 @@
 #include <sys/time.h>
 
 #include "defs.h"
-#include "generate.h"
-#include "index.h"
-#include "join.h"
-#include "kslice.h"
+#include "generatep.h"
+#include "indexp.h"
+#include "joinp.h"
+#include "kslicep.h"
 #include "merge.h"
 #include "movegen.h"
 #include "probe.h"
 #include "stats.h"
-#include "tb8gen.h"
+#include "tb8genp.h"
 #include "threads.h"
 #include "types.h"
 
@@ -31,11 +31,12 @@
 #define STATSDIR "RTBSTATSDIR"
 
 Position g_pos;
+bool flipped = false;
 bool g_only_generate, g_use_rans, symmetric, used_rans = false;
 bool one_sided, wins_only;
 int one_sided_stm;
 char *g_tablename;
-uint64_t *work_g, *work_capt[MAX_SETS];
+uint64_t *work_g, *work_g16, *work_capt[MAX_SETS];
 
 const char *name[3] = { "wdl", "dtm", "dtz" };
 
@@ -86,8 +87,8 @@ int main(int argc, char **argv)
   }
   g_tablename = argv[optind];
 
-  init_movegen();
   init_tablebases(path);
+  init_movegen();
   init_tables();
   init_threads();
 
@@ -109,8 +110,10 @@ int main(int argc, char **argv)
     }
   int numpcs = k;
 
+#if 1
   if (layout < 0 || layout > 2)
-    layout = numpcs <= 6 ? 0 : numpcs == 7 ? 1 : 2;
+    layout = numpcs <= 6 ? 1 : numpcs == 7 ? 1 : 2;
+#endif
 
   if (!color) exit(EXIT_FAILURE);
 
@@ -124,14 +127,10 @@ int main(int argc, char **argv)
     exit(EXIT_FAILURE);
   }
 
-  if (pcs[WPAWN] || pcs[BPAWN]) {
-    fprintf(stderr, "Can't handle pawns.\n");
+  if (pcs[WPAWN] + pcs[BPAWN] != 1) {
+    fprintf(stderr, "Expecting exactly one pawn.\n");
     exit(EXIT_FAILURE);
   }
-
-  symmetric = true;
-  for (int i = PAWN; i <= KING; i++)
-    symmetric = symmetric && pcs[i] == pcs[i + 8];
 
   g_num_threads = min(max(g_num_threads, 1), MAX_THREADS);
   printf("number of threads = %d\n", g_num_threads);
@@ -141,9 +140,17 @@ int main(int argc, char **argv)
 
   g_pos.num = numpcs;
 
+  // Flip all piece colors if the pawn is white.
+  if (pcs[WPAWN] > 0) {
+    for (int i = 0; i < numpcs; i++)
+      pt[i] ^= 0x08;
+    flipped = true;
+  }
+
+  // Move the wK and bK to the front, followed by the black pawn.
   static const int piece_order[16] = {
-    0, 0, 3, 5, 7, 9, 1, 0,
-    0, 0, 4, 6, 8, 10, 2, 0
+    0, 0, 4, 6, 8, 10, 1, 0,
+    0, 3, 5, 7, 9, 11, 2, 0
   };
 
   for (int i = 0; i < numpcs; i++)
@@ -155,20 +162,20 @@ int main(int argc, char **argv)
     g_pos.pt[i] = pt[i];
 
   k = 0;
-  for (int i = 0; i < numpcs; i++)
+  for (int i = 3; i < numpcs; i++)
     if (!(pt[i] & 0x08))
       g_pos.pcs[WHITE][k++] = i;
   g_pos.pcs[WHITE][k] = -1;
 
   k = 0;
-  for (int i = 0; i < numpcs; i++)
+  for (int i = 3; i < numpcs; i++)
     if (pt[i] & 0x08)
       g_pos.pcs[BLACK][k++] = i;
   g_pos.pcs[BLACK][k] = -1;
 
   // Initialize main IdxInfo struct.
   k = 0;
-  for (int i = 2; i < numpcs;) {
+  for (int i = 3; i < numpcs;) {
     int j = i;
     for (; i < numpcs && pt[i] == pt[j]; i++)
       pc_to_set[i] = k;
@@ -179,7 +186,6 @@ int main(int argc, char **argv)
   }
   ii.numsets = k;
   calc_factors(&ii);
-  kslice_size = ii.size;
 
   // Initialize IdxInfo structs for running through positions with
   // a captured piece.
@@ -194,85 +200,119 @@ int main(int argc, char **argv)
 
   // Align work units on cache lines of 64 x 8 = 512 positions.
   work_g = create_work(g_total_work, kslice_size, 0x1ff);
+  work_g16 = create_work(g_total_work, k16slice_alloc_size, 0x1ff);
   for (int i = 0; i < ii.numsets; i++)
     work_capt[i] = create_work(g_total_work, capt_ii[i].size, 0x1ff);
 
   make_dir(g_tablename);
   change_dir(g_tablename);
+layout=0;
+  for (int p = 0; p < 2; p++) {
 
-  generate();
+    g_pos.sq[2] = InvPawnFlip[0][p];
+    char str[128];
+    sprintf(str, "%c%c", 'a' + (g_pos.sq[2] & 7), '1' + (g_pos.sq[2] >> 3));
+    make_dir(str);
+    change_dir(str);
 
-  kslice_free_buffers(); // Free memory but keep slice "-1".
+    memset(g_stats, 0, sizeof g_stats);
 
-  for (int stm = 0; stm < 2; stm++) {
-    // Remove some double counting.
-    g_stats[stm][2] -= g_stats[stm][1];
-    g_stats[stm][3 + DRAW_RULE] -= g_stats[stm][2 + DRAW_RULE];
-    uint64_t tot = 0;
-    for (int i = 0; i < MAX_STATS; i++)
-      tot += g_stats[stm][i];
-    g_stats[stm][MAX_STATS / 2 + 1] = 462 * kslice_size - tot;
-  }
+    generate();
 
-  printf("\n########## %s ##########\n", g_tablename);
-  print_stats(WHITE);
-  print_stats(BLACK);
-  printf("\n");
+    // FIXME: decide whether:
+    // - to count exact capt_win and pawn_win stats during generation
+    // - to count them now after generation (but illegal positions)?
+    // - to merge full table and then let stats do the job.
+    //
+    // Probably best to avoid merging more info than necessary, for which
+    // we need the stats first.
+    //
+    // Which numbers do we need:
+    // - capt_win + pawn_win
+    // - capt_cwin + pawn_cwin
+    // All draws anyway map to don't care for DTZ.
 
-  // Estimate sizes of different DTZ formats.
-  double ewh, ebl, elo, ewi;
-  ewh = entropy_one_sided(WHITE);
-  ebl = entropy_one_sided(BLACK);
-  elo = entropy_loss_only(WHITE) + (symmetric? 0.0 : entropy_loss_only(BLACK));
-  ewi = entropy_win_only(WHITE) + (symmetric ? 0.0 : entropy_win_only(BLACK));
+    for (int stm = 0; stm < 2; stm++) {
+      // Remove some double counting.
+      g_stats[stm][3] -= g_stats[stm][1] + g_stats[stm][2];
+      g_stats[stm][DRAW_RULE + 4] -= g_stats[stm][2 + DRAW_RULE]
+        + g_stats[stm][3 + DRAW_RULE];
+      uint64_t tot = 0;
+      for (int i = 0; i < MAX_STATS; i++)
+        tot += g_stats[stm][i];
+      // FIXME: is multiplying 16 always correct here?
+      g_stats[stm][MAX_STATS / 2 + 2] = 240 * 16 * kslice_size - tot;
+    }
 
-  printf("entropy wtm  = %lf\n", ewh);
-  printf("entropy btm  = %lf\n", ebl);
-  printf("entropy loss = %lf\n", elo);
-  printf("entropy win  = %lf\n\n", ewi);
+    printf("\n########## %s - %d ##########\n", g_tablename, p);
+    print_stats(WHITE);
+    print_stats(BLACK);
+    printf("\n");
 
-  // Add 0.1% of overhead for having a table for each side.
-  // Perhaps this should be higher?
-  if (!symmetric) {
-    elo *= 1.001;
-    ewi *= 1.001;
-  }
+    // Estimate sizes of different DTZ formats.
+    double ewh, ebl, elo, ewi;
+    ewh = entropy_one_sided(WHITE);
+    ebl = entropy_one_sided(BLACK);
+    elo = entropy_loss_only(WHITE) + (symmetric? 0.0 : entropy_loss_only(BLACK));
+    ewi = entropy_win_only(WHITE) + (symmetric ? 0.0 : entropy_win_only(BLACK));
 
-  // Determine the DTZ format to use.
-  one_sided = !symmetric && min(ewh, ebl) < min(elo, ewi);
-  wins_only = ewi < elo;
-  one_sided_stm = ewh < ebl ? WHITE : BLACK;
+    printf("entropy wtm  = %lf\n", ewh);
+    printf("entropy btm  = %lf\n", ebl);
+    printf("entropy loss = %lf\n", elo);
+    printf("entropy win  = %lf\n\n", ewi);
 
-  printf("DTZ format: %s only.\n\n",
+    // Add 0.1% of overhead for having a table for each side.
+    // Perhaps this should be higher?
+    if (!symmetric) {
+      elo *= 1.001;
+      ewi *= 1.001;
+    }
+
+    // Determine the DTZ format to use.
+    one_sided = !symmetric && min(ewh, ebl) <= min(elo, ewi);
+    wins_only = ewi <= elo;
+    one_sided_stm = ewh <= ebl ? WHITE : BLACK;
+
+    printf("DTZ format: %s only.\n\n",
         one_sided ? one_sided_stm == WHITE ? "white" : "black"
-      : wins_only ? "wins" : "losses");
+        : wins_only ? "wins" : "losses");
 
-  merge(WHITE);
-  merge(BLACK);
+    merge(WHITE);
+    merge(BLACK);
 
-  // We could now delete all files except those in stats/ and merged/,
-  // or let merge() delete those.
+    // We could now delete all files except those in stats/ and merged/,
+    // or let merge() delete those.
 
-  // Read out the files in "stats".
-  collect_stats(WHITE);
-  collect_stats(BLACK);
+    // Read out the files in "stats".
+    collect_stats(WHITE);
+    collect_stats(BLACK);
 
-  printf("\n########## %s ##########\n", g_tablename);
-  print_stats(WHITE);
-  print_stats(BLACK);
-  printf("\n");
+    printf("\n########## %s ##########\n", g_tablename);
+    print_stats(WHITE);
+    print_stats(BLACK);
+    printf("\n");
 
-  kslice_cleanup();
+    kslice_cleanup();
+
+    // only compress wdl/dtz wtm/btm slices.
+    switch (layout) {
+    case 1:
+      compress_slice_p();
+      break;
+    case 2:
+      compress_slice_pk();
+      break;
+    }
+
+    change_dir("..");
+  }
 
   switch (layout) {
-  case 0:
-    join_slices(pcs, pt);
-    break;
   case 1:
-    join_slices_10();
+    join_slices_p();
     break;
   case 2:
-    join_slices_462();
+    join_slices_pk();
     break;
   }
 

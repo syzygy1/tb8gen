@@ -182,7 +182,7 @@ static void NAME(merge_bitmaps)(int stm, int s)
   // CAPT_BLOSS to be added to produce WDL files
 
   for (int t = 0; t < g_num_threads; t++)
-    memset(thread_stats[t], 0, sizeof(thread_stats[t]));
+    memset(thread_stats[t], 0, sizeof thread_stats[t]);
   work_slice = s;
   run_threaded(NAME(merge_statistics_worker), work_g, 0);
 
@@ -215,7 +215,7 @@ static void NAME(merge_bitmaps)(int stm, int s)
     fprintf(stderr, "Could not open %s.\n", tmp);
     exit(EXIT_FAILURE);
   }
-  write_data(F, stats, sizeof(stats));
+  write_data(F, stats, sizeof stats);
   fclose(F);
   rename(tmp, str);
 

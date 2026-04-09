@@ -27,6 +27,7 @@ extern uint8_t *kslice_sub_buf[19];
 extern size_t sub_offset[MAX_SETS];
 extern int8_t kslice_slot[463];
 
+extern size_t kslice_size, kslice_sub_size[MAX_SETS];
 extern uint64_t kslice_cache_lines;
 
 extern uint64_t kslice_read_count;

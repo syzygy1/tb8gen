@@ -28,6 +28,10 @@
 #include "threads.h"
 #include "util.h"
 
+#ifdef HAS_PAWNS
+#include "kslicep.h"
+#endif
+
 static constexpr size_t HUGEPAGE_SIZE = 2 * 1024 * 1024;
 
 FD open_file(const char *name)
@@ -564,6 +568,7 @@ void create_dir(int n, int stm, const char *name)
     }
 }
 
+#ifndef HAS_PAWNS
 void create_name(char *str, int s, int stm, const char *name, int n)
 {
   int wk = KKSquare[s][0], bk = KKSquare[s][1];
@@ -574,6 +579,33 @@ void create_name(char *str, int s, int stm, const char *name, int n)
     sprintf(str, "%s/%c/%c%c%c%c", name, "wb"[stm], 'a' + (wk & 7),
         '1' + (wk >> 3), 'a'+ (bk & 7), '1' + (bk >> 3));
 }
+#else
+void create_name_sq(char *str, int s1, int s2, int stm, const char *name, int n)
+{
+  if (n >= 0)
+    sprintf(str, "%d/%s/%c/%c%c%c%c", n, name, "wb"[stm], 'a' + (s1 & 7),
+        '1' + (s1 >> 3), 'a'+ (s2 & 7), '1' + (s2 >> 3));
+  else
+    sprintf(str, "%s/%c/%c%c%c%c", name, "wb"[stm], 'a' + (s1 & 7),
+        '1' + (s1 >> 3), 'a'+ (s2 & 7), '1' + (s2 >> 3));
+}
+
+void create_name_r(char *str, int s, int r, int stm, const char *name, int n)
+{
+  int wk = KK16Square[s][r][0], bk = KK16Square[s][r][1];
+  create_name_sq(str, wk, bk, stm, name, n);
+}
+
+void create_name(char *str, int s, int stm, const char *name, int n)
+{
+  create_name_r(str, s, 0, stm, name, n);
+}
+
+void create_name_p(char *str, int sq, int stm, const char *name)
+{
+  sprintf(str, "%s/%c/%c%c", name, "wb"[stm], 'a' + (sq & 7), '1' + (sq >> 3));
+}
+#endif
 
 void create_name_10(char *str, int k, int stm, const char *name)
 {

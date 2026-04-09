@@ -13,7 +13,7 @@
 
 #include "defs.h"
 #include "probe.h"
-#include "tb8gen.h"
+#include "tb8genp.h"
 #include "types.h"
 
 struct IdxInfo {

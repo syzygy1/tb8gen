@@ -28,9 +28,9 @@ endif
 
 export FLAGS CC CFLAGS LDFLAGS
 
-tb8gen clean:
+tb8gen tb8genp clean cleanp:
 	@$(MAKE) -f Makefile.regular $@
 
 all: tb8gen
 
-.PHONY: tb8gen clean
+.PHONY: tb8gen tb8genp clean cleanp
