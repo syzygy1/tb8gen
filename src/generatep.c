@@ -462,8 +462,6 @@ static void calc_capt(int stm, int wdl)
       }
 
       while (k16slice_iter_out(&iter, &s)) {
-//        k16slice_read(-1, s, stm, "wins", 0); // Illegal positions.
-//        k16slice_and_not(s, -1); // Remove illegal positions from capt/win.
         cnt += k16slice_count(s, num);
         k16slice_write(s, s, stm, capt_name, -1, num);
       }
@@ -475,7 +473,7 @@ static void calc_capt(int stm, int wdl)
 }
 
 // Calculate positions with a capture or pawn move >= wdl (wdl = -1 or 0).
-// Removing these positions from potential losses allows us to ignore
+// Removing these positions from potential losses allows us to skip
 // captures and pawn moves in check_successors().
 static void calc_noloss(int stm, int wdl)
 {
@@ -518,7 +516,7 @@ static void calc_noloss(int stm, int wdl)
 
     while (k16slice_iter_out(&iter, &s)) {
       // Add illegal positions to avoid having to check legality later.
-      // Add any faster wins already found to increase efficiency.
+      // As a bonus, add any faster wins already found to increase efficiency.
       k16slice_read(-1, s, stm, "wins", 0);
       k16slice_or(s, -1);
       k16slice_count(s, num);
@@ -1196,7 +1194,7 @@ static bool calc_L(int stm, int n, bool more_l)
 static bool calc_W(int stm, int n, bool more_w)
 {
   struct K16SliceIterator iter;
-  uint64_t cnt = 0, num[16];
+  uint64_t cnt = 0, cnt_w = 0, cnt_pw = 0, num[16];
 
   create_dir(n, stm, "W");
 
@@ -1207,8 +1205,34 @@ static bool calc_W(int stm, int n, bool more_w)
     bool pred = more_w && k16slice_test(s, stm ^ 1, "L", n - 1);
 
     if (pred || n == 1 || n == DRAW_RULE + 1) {
-      while (k16slice_iter_in(&iter, &s1))
-        k16slice_clear(s1);
+      while (k16slice_iter_in(&iter, &s1)) {
+        if (n == 1) {
+          // Add any wins by capture or pawn push.
+          k16slice_read(s1, s1, stm, "capt/win", -1);
+          // Remove illegal positions to count wins by capture.
+          k16slice_read(-1, s1, stm, "wins", 0);
+          k16slice_and_not(s1, -1);
+          cnt_w += k16slice_count(s1, num);
+          if (stm == BLACK) {
+            // Count wins by pawn push. These are all legal already.
+            k16slice_read(-1, s1, stm, "pawn/win", -1);
+            k16slice_or(s1, -1);
+            cnt_pw += k16slice_count(s1, num);
+          }
+        }
+        else if (n == DRAW_RULE + 1) {
+          k16slice_read(s1, s1, stm, "capt/cwin", -1);
+          if (stm == BLACK) {
+            k16slice_read(-1, s1, stm, "pawn/cwin", -1);
+            k16slice_or(s1, -1);
+          }
+          k16slice_read(-1, s1, stm, "wins", 0);
+          k16slice_and_not(s1, -1);
+          cnt_w += k16slice_count(s1, num);
+        }
+        else
+          k16slice_clear(s1);
+      }
 
       if (pred) {
         k16slice_read(-1, s, stm ^ 1, "L", n - 1);
@@ -1217,24 +1241,6 @@ static bool calc_W(int stm, int n, bool more_w)
     }
 
     while (k16slice_iter_out(&iter, &s)) {
-      // Add any wins by capture or pawn push.
-      if (n == 1) {
-        k16slice_read(-1, s, stm, "capt/win", -1);
-        k16slice_or(s, -1);
-        if (stm == BLACK) {
-          k16slice_read(-1, s, stm, "pawn/win", -1);
-          k16slice_or(s, -1);
-        }
-      }
-      else if (n == DRAW_RULE + 1) {
-        k16slice_read(-1, s, stm, "capt/cwin", -1);
-        k16slice_or(s, -1);
-        if (stm == BLACK) {
-          k16slice_read(-1, s, stm, "pawn/cwin", -1);
-          k16slice_or(s, -1);
-        }
-      }
-
       // Remove illegal positions and known faster wins.
       k16slice_read(-1, s, stm, "wins", 0);
       k16slice_and_not(s, -1);
@@ -1252,6 +1258,23 @@ static bool calc_W(int stm, int n, bool more_w)
     }
   }
 
+  if (n == 1) {
+    printf("capt_win_%c = %lu\n", "wb"[stm], cnt_w);
+    g_stats[stm][1] = cnt_w;
+    if (stm == BLACK) {
+      g_stats[stm][2] = cnt_pw - cnt_w;
+      printf("pawn_win_%c = %lu\n", "wb"[stm], cnt_pw - cnt_w);
+    }
+  }
+  else if (n == DRAW_RULE + 1) {
+    printf("capt_cwin_%c = %lu\n", "wb"[stm], cnt_w);
+    g_stats[stm][DRAW_RULE + 3] = cnt_w;
+    if (stm == BLACK) {
+      printf("pawn_cwin_%c = %lu\n", "wb"[stm], cnt_pw - cnt_w);
+      g_stats[stm][DRAW_RULE + 4] = cnt_pw - cnt_w;
+    }
+  }
+
   g_stats[stm][2 + n + 2 * (n > DRAW_RULE)] = cnt;
   printf("w%d_%c = %lu\n", n, "wb"[stm], cnt);
   return cnt != 0;
@@ -1266,7 +1289,8 @@ static bool calc_W(int stm, int n, bool more_w)
 
 void generate(void)
 {
-  printf("Generating table for pawn slice %d.\n", g_pos.sq[2]);
+  printf("Generating table for pawn slice %c%c.\n", 'a' + (g_pos.sq[2] & 7),
+      '1' + (g_pos.sq[2] >> 3));
 
   for (int i = 0; i < 7; i++)
     k16slice_buf[i] = alloc_k16slice();
@@ -1305,14 +1329,17 @@ void generate(void)
 
   calc_pawn_capts();
 
-  // CAPT_WIN
+  // Calculate positions with winning captures.
   calc_capt(WHITE, 2);
   calc_capt(BLACK, 2);
 
+  // Calculate positions with losing captures.
+  // (Only used to find loss-in-1 positions.)
   calc_capt(WHITE, -2);
   calc_capt(BLACK, -2);
 
-  // Calculate noloss positions, i.e. captures that give at least blessed loss.
+  // Calculate noloss positions, i.e. positions with a capture or pawn move
+  // that gives at least a blessed loss.
   calc_noloss(WHITE, -1);
   calc_noloss(BLACK, -1);
 
@@ -1331,14 +1358,16 @@ void generate(void)
     more_ww = more_ww_next;
   }
 
-  // CAPT_CWIN
+  // Calculate positions with a capture that gives a cursed win.
   calc_capt(WHITE, 1);
   calc_capt(BLACK, 1);
 
+  // Calculate positions with a capture that gives a blessed loss.
   calc_capt(WHITE, -1);
   calc_capt(BLACK, -1);
 
-  // Calculate nobloss positions, i.e. captures that at least draw.
+  // Calculate nobloss positions, i.e. positions with a capture or pawn move
+  // that gives at least a draw.
   calc_noloss(WHITE, 0);
   calc_noloss(BLACK, 0);
 
@@ -1362,8 +1391,8 @@ void generate(void)
     more_ww = more_ww_next;
   }
 
-  // FIXME: necessary if we have nobloss tables?
-  // CAPT_DRAW
+  // Calculate positions with a drawing capture.
+  // During WDL merging, these positions are set to partial don't care.
   calc_capt(WHITE, 0);
   calc_capt(BLACK, 0);
 

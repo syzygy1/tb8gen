@@ -219,29 +219,23 @@ layout=0;
 
     generate();
 
-    // FIXME: decide whether:
-    // - to count exact capt_win and pawn_win stats during generation
-    // - to count them now after generation (but illegal positions)?
-    // - to merge full table and then let stats do the job.
-    //
-    // Probably best to avoid merging more info than necessary, for which
-    // we need the stats first.
-    //
-    // Which numbers do we need:
-    // - capt_win + pawn_win
-    // - capt_cwin + pawn_cwin
-    // All draws anyway map to don't care for DTZ.
+    uint64_t num_kslices = 0;
+    for (int s = 0; s < 240; s++)
+      for (int r = 0; r < 16; r++) {
+        g_pos.sq[0] = KK16Square[s][r][0];
+        g_pos.sq[1] = KK16Square[s][r][1];
+        num_kslices += !is_broken(&g_pos);
+      }
 
     for (int stm = 0; stm < 2; stm++) {
       // Remove some double counting.
       g_stats[stm][3] -= g_stats[stm][1] + g_stats[stm][2];
-      g_stats[stm][DRAW_RULE + 4] -= g_stats[stm][2 + DRAW_RULE]
-        + g_stats[stm][3 + DRAW_RULE];
-      uint64_t tot = 0;
+      g_stats[stm][DRAW_RULE + 5] -=
+        g_stats[stm][DRAW_RULE + 3] - g_stats[stm][DRAW_RULE + 4];
+      uint64_t total = 0;
       for (int i = 0; i < MAX_STATS; i++)
-        tot += g_stats[stm][i];
-      // FIXME: is multiplying 16 always correct here?
-      g_stats[stm][MAX_STATS / 2 + 2] = 240 * 16 * kslice_size - tot;
+        total += g_stats[stm][i];
+      g_stats[stm][MAX_STATS / 2 + 2] = num_kslices * kslice_size - total;
     }
 
     printf("\n########## %s - %d ##########\n", g_tablename, p);

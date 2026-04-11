@@ -56,7 +56,7 @@ void print_stats(int stm)
   if (stats[DRAW_RULE + 3] + stats[DRAW_RULE + 4] + stats[DRAW_RULE + 5])
     printf("%lu (%lu,%lu) positions win in %d ply.\n",
         stats[DRAW_RULE + 3] + stats[DRAW_RULE + 4] + stats[DRAW_RULE + 5],
-        stats[DRAW_RULE + 4], stats[DRAW_RULE + 5], DRAW_RULE + 1);
+        stats[DRAW_RULE + 3], stats[DRAW_RULE + 4], DRAW_RULE + 1);
   for (int i = DRAW_RULE + 6; i < MAX_STATS / 2; i++)
     if (stats[i])
       printf("%lu positions win in %d ply.\n", stats[i], i - 4);
