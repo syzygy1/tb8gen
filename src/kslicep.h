@@ -98,6 +98,11 @@ INLINE size_t k16offset(const uint8_t *sq)
   return _pext_u32(sq[0] + (sq[1] << 8), 0x909) * kslice_alloc_size;
 }
 
+INLINE size_t k16offset_sub(const uint8_t *sq, int set)
+{
+  return _pext_u32(sq[0] + (sq[1] << 8), 0x909) * kslice_sub_alloc_size[set];
+}
+
 INLINE uint8_t *kslice_get_address(const uint8_t *sq)
 {
   int s = kk_to_slice[_pext_u32(sq[0] + (sq[1] << 8), 0b11011000110110)];
@@ -107,13 +112,13 @@ INLINE uint8_t *kslice_get_address(const uint8_t *sq)
 INLINE uint8_t *kslice_sub_get_address(const uint8_t *sq, int set)
 {
   int s = kk_to_slice[_pext_u32(sq[0] + (sq[1] << 8), 0b11011000110110)];
-  return k16slice_sub_get_address(s, set) + k16offset(sq);
+  return k16slice_sub_get_address(s, set) + k16offset_sub(sq, set);
 }
 
 INLINE uint8_t *kslice_psub_get_address(const uint8_t *sq, int set)
 {
   int s = kk_to_slice[_pext_u32(sq[0] + (sq[1] << 8), 0b11011000110110)];
-  return k16slice_psub_get_address(s, set) + k16offset(sq);
+  return k16slice_psub_get_address(s, set) + k16offset_sub(sq, set);
 }
 
 INLINE uint8_t *kslice_get_address_scratch(const uint8_t *sq)

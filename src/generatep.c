@@ -39,7 +39,8 @@ void list_positions(int s, uint8_t *restrict q)
     for (uint64_t idx = 0; idx < kslice_size; idx++, idx_to_sq_inc(sub, &ii)) {
       idx_to_sq(sub, pos.sq);
       if (kslice_bit_test(p, idx)) {
-        printf("%d %d %d %d\n", pos.sq[0], pos.sq[1], pos.sq[3], pos.sq[2]);
+        printf("%d %d %d %d %d\n", pos.sq[0], pos.sq[1], pos.sq[3],
+            pos.sq[4], pos.sq[2]);
       }
     }
   }
@@ -72,7 +73,7 @@ INLINE void mark_unmoves(int k, uint8_t *restrict const p, Bitboard occ,
   }
 }
 
-static int work_set, work_r, work_wdl;
+static int work_set, work_r, work_lower, work_upper;
 
 static void calc_sub_worker(struct ThreadData *thread)
 {
@@ -191,7 +192,7 @@ static void calc_psub_worker(struct ThreadData *thread)
       idx++, idx_to_sq_inc(sub, &capt_ii[k]))
   {
     pos.occ = capt_idx_to_sq(sub, pos.sq, k);
-    pos.sq[m] = g_pos.sq[n];
+    pos.sq[m] = pos.sq[n];
     if (opp_king_attacked(&pos))
       continue;
     int v = probe_wdl(&pos, -2, 2);
@@ -389,9 +390,8 @@ static void calc_king_captures_pawn_worker(struct ThreadData *thread)
 {
   uint32_t sub[MAX_SETS];
   Position pos = g_pos;
-  int n = --pos.num;
-  int wdl = work_wdl;
-  pos.pt[2] = pos.pt[n];
+  int lower = work_lower;
+  int upper = work_upper;
 
   uint8_t *restrict const p = kslice_get_address(pos.sq);
 
@@ -399,24 +399,22 @@ static void calc_king_captures_pawn_worker(struct ThreadData *thread)
   for (uint64_t idx = thread->begin, end = thread->end; idx < end;
       idx++, idx_to_sq_inc(sub, &ii))
   {
-    // FIXME: optimize this
-    Bitboard occ = idx_to_sq(sub, pos.sq);
-    pos.sq[0] = g_pos.sq[2];
-    pos.sq[2] = pos.sq[n];
-    pos.occ = occ ^ bit(g_pos.sq[0]);
-    if (!opp_king_attacked(&pos)) {
+    pos.occ = idx_to_sq(sub, pos.sq);
+    if (opp_king_attacked(&pos))
+      continue;
+    if (do_capture(&pos, g_pos.sq[0], g_pos.sq[2], 0, 2)) {
       int v = -probe_wdl(&pos, -2, 2);
-      if (v >= wdl)  // FIXME: check correctness
+      if (v >= lower && v <= upper)
         kslice_bit_set(p, idx);
+      undo_capture(&pos, g_pos.sq[0], g_pos.sq[2], 0, 2);
     }
-    pos.sq[0] = g_pos.sq[0];
-    pos.sq[2] = g_pos.sq[2];
   }
 }
 
-static void calc_king_captures_pawn(int s, int wdl)
+static void calc_king_captures_pawn(int s, int lower, int upper)
 {
-  work_wdl = wdl;
+  work_lower = lower;
+  work_upper = upper;
   g_pos.stm = BLACK; // btm after captures of the black pawn.
   for (int r = 0; r < 16; r++) {
     g_pos.sq[0] = KK16Square[s][r][0];
@@ -466,7 +464,7 @@ static void calc_capt(int stm, int wdl)
         if (stm == WHITE) {
           k16slice_sub_read(s, s, stm, psub_name);
           predecessors_psub(s);
-          calc_king_captures_pawn(s, wdl);
+          calc_king_captures_pawn(s, wdl, wdl);
         }
       }
 
@@ -536,7 +534,6 @@ static void calc_noloss(int stm, int wdl)
 
     while (k16slice_iter_in(&iter, &s1)) {
       k16slice_clear(s1);
-#if 0
       if (stm == WHITE)
         k16slice_clear(s1);
       else {
@@ -544,23 +541,15 @@ static void calc_noloss(int stm, int wdl)
         k16slice_read(-1, s1, BLACK, pawn_name, -1);
         k16slice_or(s1, -1);
       }
-#endif
     }
 
     k16slice_sub_read(s, s, stm ^ 1, sub_name);
     predecessors_sub(stm, s);
 
-    if (stm == BLACK) {
-      k16slice_read(-1, s, BLACK, pcapt_name, -1);
-      k16slice_or(s, -1);
-      k16slice_read(-1, s, BLACK, pawn_name, -1);
-      k16slice_or(s, -1);
-    }
-
     if (stm == WHITE) {
       k16slice_sub_read(s, s, stm, psub_name);
       predecessors_psub(s);
-      calc_king_captures_pawn(s, wdl); // FIXME
+      calc_king_captures_pawn(s, wdl, 2);
     }
 
     while (k16slice_iter_out(&iter, &s)) {
@@ -574,8 +563,6 @@ static void calc_noloss(int stm, int wdl)
 
 static int probe_promotions(Position *pos, int v)
 {
-  if (opp_king_attacked(pos))
-    return v;
   pos->pt[2] = BQUEEN;
   for (int i = 0; i < 4; i++, pos->pt[2]--)
     if (v < 2)
@@ -583,12 +570,11 @@ static int probe_promotions(Position *pos, int v)
   return v;
 }
 
-// FIXME no promotions if not capturing to 1st rank.
 static void calc_pawn_capts_worker(struct ThreadData *thread)
 {
   uint32_t sub[MAX_SETS];
   Position pos = g_pos;
-  int n = --pos.num;
+  pos.stm = BLACK;
 
   size_t offset = k16offset(pos.sq);
 
@@ -598,21 +584,23 @@ static void calc_pawn_capts_worker(struct ThreadData *thread)
       idx++, idx_to_sq_inc(sub, &ii))
   {
     pos.occ = idx_to_sq(sub, pos.sq);
+//    if(pos.sq[0]==0 && pos.sq[1]==2 && pos.sq[3]==1 && pos.sq[4]==3)
+//      printf("hey\n");
     Bitboard b = pawn_attacks(BLACK, pos.sq[2]) & pos.occ;
     if (!b || opp_king_attacked(&pos))
       continue;
-    pos.occ ^= bit(pos.sq[2]);
     int v = -3;
     while (b) {
       int sq = pop_lsb(&b);
       int j = piece_idx(&pos, sq);
       if (pos.pt[j] & 0x08) continue;
-      pos.sq[2] = sq;
-      pos.pt[j] = pos.pt[n];
-      pos.sq[j] = pos.sq[n];
-      v = probe_promotions(&pos, v);
-      pos.pt[j] = g_pos.pt[j];
-      pos.sq[j] = sq;
+      if (do_capture(&pos, g_pos.sq[2], sq, 2, j)) {
+        if (sq < 8)
+          v = probe_promotions(&pos, v);
+        else
+          v = max(v, -probe_wdl(&pos, -2, -v));
+        undo_capture(&pos, g_pos.sq[2], sq, 2, j);
+      }
     }
     if (v > -3)
       kslice_bit_set(k16slice_buf[v + 2] + offset, idx);
@@ -629,8 +617,6 @@ static void calc_pawn_capts(void)
   create_dir(-1, BLACK, "pcapt/noloss");
   create_dir(-1, BLACK, "pcapt/nobloss");
 
-  g_pos.stm = WHITE; // side to move after capture by black pawn
-
   for (int s = 0; s < 240; s++) {
     for (int i = 0; i < 5; i++)
       k16slice_clear_addr(k16slice_buf[i]);
@@ -641,9 +627,6 @@ static void calc_pawn_capts(void)
 
       if (is_broken(&g_pos))
         continue;
-
-      if (g_pos.sq[0] == 0 && g_pos.sq[1] == 4)
-        printf("hey\n");
 
       if (pawn_attacks(BLACK, g_pos.sq[2]) & bit(g_pos.sq[0]))
         continue;
@@ -708,7 +691,8 @@ static void calc_pawn_prom_worker(struct ThreadData *thread)
     if (!(pos.occ & bit(s - 8))) {
       pos.sq[2] = s - 8;
       pos.occ ^= bit(s) ^ bit(s - 8);
-      v = probe_promotions(&pos, v);
+      if (!opp_king_attacked(&pos))
+        v = probe_promotions(&pos, v);
       pos.sq[2] = s;
     }
     if (v > -3)
@@ -1225,6 +1209,7 @@ static bool calc_L(int stm, int n, bool more_l)
           k16slice_or(s, -1);
         }
       }
+
       // Remove positions with non-losing captures or pawn moves.
       k16slice_read(-1, s, stm, n <= DRAW_RULE ? "noloss" : "nobloss", -1);
       k16slice_and_not(s, -1);
@@ -1245,7 +1230,7 @@ static bool calc_L(int stm, int n, bool more_l)
       k16slice_read(-1, s, stm, "X", n);
       cnt += check_successors(stm, s, num);
       k16slice_write(-1, s, stm, "L", n, num);
-      if (0 && stm == BLACK && n == 2) {
+      if (0 && stm == BLACK && n == 4) {
         list_positions(s, k16slice_buf[11]);
 //        printf("s = %d, cnt = %lu\n", s, cnt);
       }
@@ -1307,9 +1292,10 @@ static bool calc_W(int stm, int n, bool more_w)
       k16slice_and_not(s, -1);
       cnt += k16slice_count(s, num);
       k16slice_write(s, s, stm, "W", n, num);
-      if (0 && stm == WHITE && n == 1) {
+
+      if (1 && stm == WHITE && n == 1) {
         list_positions(s, k16slice_get_address(s));
-        printf("s = %d, cnt = %lu\n", s, cnt);
+//        printf("s = %d, cnt = %lu\n", s, cnt);
       }
 
       // TODO: do not update "wins" each iteration but work with small deltas.
@@ -1428,6 +1414,7 @@ void generate(void)
     more_ww = more_ww_next;
   }
 
+  // FIXME: necessary if we have nobloss tables?
   // CAPT_DRAW
   calc_capt(WHITE, 0);
   calc_capt(BLACK, 0);
