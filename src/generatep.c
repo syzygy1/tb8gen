@@ -415,7 +415,7 @@ static void calc_king_captures_pawn(int s, int lower, int upper)
 {
   work_lower = lower;
   work_upper = upper;
-  g_pos.stm = BLACK; // btm after captures of the black pawn.
+  g_pos.stm = WHITE;
   for (int r = 0; r < 16; r++) {
     g_pos.sq[0] = KK16Square[s][r][0];
     g_pos.sq[1] = KK16Square[s][r][1];
@@ -584,8 +584,6 @@ static void calc_pawn_capts_worker(struct ThreadData *thread)
       idx++, idx_to_sq_inc(sub, &ii))
   {
     pos.occ = idx_to_sq(sub, pos.sq);
-//    if(pos.sq[0]==0 && pos.sq[1]==2 && pos.sq[3]==1 && pos.sq[4]==3)
-//      printf("hey\n");
     Bitboard b = pawn_attacks(BLACK, pos.sq[2]) & pos.occ;
     if (!b || opp_king_attacked(&pos))
       continue;
@@ -1293,7 +1291,7 @@ static bool calc_W(int stm, int n, bool more_w)
       cnt += k16slice_count(s, num);
       k16slice_write(s, s, stm, "W", n, num);
 
-      if (1 && stm == WHITE && n == 1) {
+      if (0 && stm == WHITE && n == 1) {
         list_positions(s, k16slice_get_address(s));
 //        printf("s = %d, cnt = %lu\n", s, cnt);
       }
