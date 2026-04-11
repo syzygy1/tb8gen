@@ -291,7 +291,6 @@ static void predecessors_sub_worker(struct ThreadData *thread)
     uint64_t w = *p++;
     while (w) {
       uint64_t cur = idx + pop_lsb(&w);
-      if (cur >= end) break;
       idx_to_sq_add(cur - last, sub, &capt_ii[k]);
       last = cur;
       Bitboard occ = capt_idx_to_sq(sub, pos.sq, k);
@@ -349,7 +348,6 @@ static void predecessors_psub_worker(struct ThreadData *thread)
     uint64_t w = *p++;
     while (w) {
       uint64_t cur = idx + pop_lsb(&w);
-      if (cur >= end) break;
       idx_to_sq_add(cur - last, sub, &capt_ii[k]);
       last = cur;
       Bitboard occ = capt_idx_to_sq(sub, pos.sq, k);
@@ -796,8 +794,6 @@ static void predecessors_worker(struct ThreadData *thread)
     uint64_t w = *p++;
     while (w) {
       uint64_t cur = idx + pop_lsb(&w);
-      if (cur >= end)
-        break;
       idx_to_sq_add(cur - last, sub, &ii);
       last = cur;
       Bitboard occ = idx_to_sq(sub, pos.sq);
@@ -826,7 +822,7 @@ static void predecessors(int stm, int s)
   }
 }
 
-INLINE int get_idx(uint8_t *restrict sq, int s)
+INLINE int get_idx(const uint8_t *restrict sq, int s)
 {
   for (int i = 0; ; i++)
     if (sq[i] == s)
@@ -834,7 +830,7 @@ INLINE int get_idx(uint8_t *restrict sq, int s)
   unreachable();
 }
 
-INLINE bool check_king_moves(int stm, Bitboard occ, uint8_t *restrict sq)
+INLINE bool check_king_moves(int stm, Bitboard occ, const uint8_t *restrict sq)
 {
   uint8_t sq2[MAX_PIECES];
   memcpy(sq2, sq, sizeof sq2);
@@ -850,7 +846,7 @@ INLINE bool check_king_moves(int stm, Bitboard occ, uint8_t *restrict sq)
   return true;
 }
 
-INLINE bool check_moves(int k, uint8_t *restrict const p, Bitboard occ,
+INLINE bool check_moves(int k, const uint8_t *restrict const p, Bitboard occ,
     const uint8_t *restrict sq)
 {
   uint8_t sq2[MAX_PIECES];
@@ -887,8 +883,6 @@ static void check_successors_worker(struct ThreadData *thread)
     while (todo) {
       unsigned bt = pop_lsb(&todo);
       uint64_t cur = idx + bt;
-      if (cur >= end)
-        break;
       idx_to_sq_add(cur - last, sub, &ii);
       last = cur;
       Bitboard occ = pos.occ = idx_to_sq(sub, pos.sq);
@@ -987,8 +981,6 @@ static void calc_mate_worker(struct ThreadData *thread)
     while (w) {
       unsigned bt = pop_lsb(&w);
       uint64_t cur = idx + bt;
-      if (cur >= end)
-        break;
       idx_to_sq_add(cur - last, sub, &ii);
       last = cur;
       pos.occ = idx_to_sq(sub, pos.sq);
@@ -1168,6 +1160,7 @@ static bool calc_L(int stm, int n, bool more_l)
       // Remove positions with non-losing captures or pawn moves.
       k16slice_read(-1, s, stm, n <= DRAW_RULE ? "noloss" : "nobloss", -1);
       k16slice_and_not(s, -1);
+      k16slice_clear_tail(s);
       k16slice_write(s, s, stm, "X", n, nullptr); // FIXME
     }
   }

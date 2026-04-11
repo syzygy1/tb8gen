@@ -65,7 +65,7 @@ INLINE void kslice_bit_clear(uint8_t *restrict p, uint64_t idx)
   p[idx >> 3] &= ~(1 << (idx & 7));
 }
 
-INLINE bool kslice_bit_test(uint8_t *restrict p, uint64_t idx)
+INLINE bool kslice_bit_test(const uint8_t *restrict p, uint64_t idx)
 {
   return p[idx >> 3] & (1 << (idx & 7));
 }
@@ -157,6 +157,8 @@ void k16slice_sub_write_addr(void *p, int slice, int stm, const char *name,
 void k16slice_sub_read(int s, int slice, int stm, const char *name);
 void k16slice_sub_or_addr(void *p, void *q, int stm);
 void k16slice_sub_and_not(int s1, int s2, int stm);
+void k16slice_clear_tail(int s);
+void k16slice_clear_tail_add(void *p);
 uint64_t k16slice_count(int s, uint64_t num[16]);
 uint64_t k16slice_count_addr(void *p, uint64_t num[16]);
 uint64_t k16slice_sub_count_addr(void *p, int stm);

@@ -576,6 +576,30 @@ void k16slice_sub_and_not(int s1, int s2, int stm)
   run_threaded(and_not_worker, work_sub_cl[stm], 0);
 }
 
+INLINE void clear_tail(void *p, size_t num_bits, size_t num_words)
+{
+  uint64_t *restrict q = p;
+  size_t idx = num_bits >> 6;
+  int r = num_bits & 63;
+  if (r)
+    q[idx++] &= (1ULL << r) - 1;
+
+  for (; idx < num_words; idx++)
+    q[idx] = 0;
+}
+
+void k16slice_clear_tail_addr(void *p)
+{
+  uint8_t *restrict q = p;
+  for (int r = 0; r < 16; r++, q += kslice_alloc_size)
+    clear_tail(q, kslice_size, kslice_cache_lines << 3);
+}
+
+void k16slice_clear_tail(int s)
+{
+  k16slice_clear_tail_addr(k16slice_get_address(s));
+}
+
 static void count_worker(struct ThreadData *thread)
 {
   uint64_t cnt = 0, *restrict p = work_p;
@@ -594,17 +618,9 @@ static uint64_t kslice_count_addr(void *p)
   for (int t = 0; t < g_num_threads; t++)
     g_thread_data[t].cnt = 0;
 
-  run_threaded(count_worker, work_clc, 0);
+  run_threaded(count_worker, work_cl, 0);
 
-  // Count 1s in the last cache line up to kslice_size.
-  uint64_t *restrict q = p;
-  uint64_t cnt = 0, idx = (kslice_cache_lines - 1) << 3;
-  for (; idx < (kslice_size >> 6); idx++)
-    cnt += popcnt(q[idx]);
-  uint64_t last = q[idx];
-  last &= (1ULL << (kslice_size & 0x3f)) - 1;
-  cnt += popcnt(last);
-
+  uint64_t cnt = 0;
   for (int t = 0; t < g_num_threads; t++)
     cnt += g_thread_data[t].cnt;
 
@@ -613,6 +629,8 @@ static uint64_t kslice_count_addr(void *p)
 
 uint64_t k16slice_count_addr(void *p, uint64_t count[16])
 {
+  k16slice_clear_tail_addr(p);
+
   uint64_t cnt = 0;
   uint8_t *q = p;
   for (int r = 0; r < 16; r++) {
