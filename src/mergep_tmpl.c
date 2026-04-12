@@ -50,7 +50,7 @@ static void NAME(merge_capt_bloss_worker)(struct ThreadData *thread)
 {
   const uint64_t *restrict p = (uint64_t *)k16slice_get_address(-1);
   T *restrict const q = merge_table;
-  p += thread->begin;
+  p += thread->begin >> 6;
   for (uint64_t idx = thread->begin, end = thread->end; idx < end; idx += 64) {
     uint64_t w = *p++;
     while (w) {
@@ -82,7 +82,7 @@ static void NAME(merge_illegal_worker)(struct ThreadData *thread)
   int stm = pos.stm;
   int king_sq = pos.sq[stm ^ 1];
 
-  T *restrict const p = merge_table;
+  T *restrict const p = (T *)merge_table + 8 * k16offset(g_pos.sq);
 
   idx_to_sq_init(thread->begin, sub, &capt_ii[k]);
 
@@ -120,10 +120,9 @@ static void NAME(merge_statistics_worker)(struct ThreadData *thread)
 // wins          3..102 -> win-in-1 to win-in-100
 // CAPT_CWIN   = 103
 // PAWN_CWIN   = 104
-// wins          105-127  -> win-in-101 to-win-in-123
-// CAPT_DRAW   = MAX_STATS/2
-// PAWN_DRAW   = MAX_STATS/2+1
-// unknown       MAX_STATS/2+2 -> draw
+// wins          105-128  -> win-in-101 to-win-in-124
+// CAPT_DRAW   = MAX_STATS/2+1
+// unknown       MAX_STATS/2+2 -> draw, including PAWN_DRAW
 // CAPT_CLOSS  = x
 // losses        131..154 -> loss-in-124 to loss-in-101
 // losses        MAX_STATS-101..MAX_STATS-2 -> loss-in-100 to loss-in-1
@@ -141,8 +140,10 @@ static void NAME(merge_bitmaps)(int stm, int s)
 
   // losses
   for (int n = 0; n < max_iteration; n++)
-    if (k16slice_test(s, stm, "L", n)) {
-      k16slice_read(-1, s, stm, "L", n);
+    if (   g_stats[stm][MAX_STATS - 1 - n]
+        && k16slice_test(s, stm, "L", n)
+        && k16slice_read(-1, s, stm, "L", n))
+    {
       merge_n = MAX_STATS - 1 - n;
       run_threaded(NAME(merge_worker), work_g16, 0);
       if (!include_losses)
@@ -151,8 +152,11 @@ static void NAME(merge_bitmaps)(int stm, int s)
 
   // wins
   for (int n = 1; n < max_iteration; n++)
-    if (k16slice_test(s, stm, "W", n)) {
-      k16slice_read(-1, s, stm, "W", n);
+    if (   (n == 1 || n == DRAW_RULE + 1
+            || g_stats[stm][2 + n + 2 * (n > DRAW_RULE)])
+        && k16slice_test(s, stm, "W", n)
+        && k16slice_read(-1, s, stm, "W", n))
+    {
       merge_n = n <= DRAW_RULE ? 2 + n : 4 + n;
       run_threaded(NAME(merge_worker), work_g16, 0);
       if (!include_wins)
@@ -160,50 +164,36 @@ static void NAME(merge_bitmaps)(int stm, int s)
     }
 
   // CAPT_WIN
-  // FIXME
-  if (true || sub_cnt[stm ^ 1][0]) {
-    k16slice_read(-1, s, stm, "capt/win", -1);
+  if (g_stats[stm][1] && k16slice_read(-1, s, stm, "capt/win", -1)) {
     merge_r = 3;
     merge_n = 1;
     run_threaded(NAME(merge_repl_worker), work_g16, 0);
   }
 
   // PAWN_WIN
-  if (stm == BLACK) {
-    k16slice_read(-1, s, stm, "pawn/win", -1);
+  if (g_stats[stm][2] && k16slice_read(-1, s, stm, "pawn/win", -1)) {
     merge_r = 3;
     merge_n = 2;
     run_threaded(NAME(merge_repl_worker), work_g16, 0);
   }
 
   // CAPT_CWIN
-  // FIXME
-  if (true || sub_cnt[stm ^ 1][1]) {
-    k16slice_read(-1, s, stm, "capt/cwin", -1);
+  if (capt_cnt[stm][3] && k16slice_read(-1, s, stm, "capt/cwin", -1)) {
     merge_r = DRAW_RULE + 5;
     merge_n = DRAW_RULE + 3;
     run_threaded(NAME(merge_repl_worker), work_g16, 0);
   }
 
   // PAWN_CWIN
-  if (stm == BLACK) {
-    k16slice_read(-1, s, stm, "pawn/cwin", -1);
+  if (stm == BLACK && pawn_cnt[3] && k16slice_read(-1, s, stm, "pawn/cwin", -1))
+  {
     merge_r = DRAW_RULE + 5;
     merge_n = DRAW_RULE + 4;
     run_threaded(NAME(merge_repl_worker), work_g16, 0);
   }
 
   // CAPT_DRAW
-  if (true || sub_cnt[stm ^ 1][2]) {
-    k16slice_read(-1, s, stm, "capt/draw", -1);
-    merge_r = MAX_STATS / 2 + 2;
-    merge_n = MAX_STATS / 2;
-    run_threaded(NAME(merge_repl_worker), work_g16, 0);
-  }
-
-  // PAWN_DRAW
-  if (stm == BLACK) {
-    k16slice_read(-1, s, stm, "pawn/draw", -1);
+  if (capt_cnt[stm][2] && k16slice_read(-1, s, stm, "capt/draw", -1)) {
     merge_r = MAX_STATS / 2 + 2;
     merge_n = MAX_STATS / 2 + 1;
     run_threaded(NAME(merge_repl_worker), work_g16, 0);
@@ -230,7 +220,7 @@ static void NAME(merge_bitmaps)(int stm, int s)
     }
   }
 
-  // CAPT_BLOSS to be added to produce WDL files
+  // CAPT_BLOSS is added below to produce WDL files
 
   // Calculate and save stats for each of the 16 K-slices.
   for (int r = 0; r < 16; r++) {
@@ -240,7 +230,6 @@ static void NAME(merge_bitmaps)(int stm, int s)
     if (is_broken(&g_pos))
       continue;
 
-#if 1
     for (int t = 0; t < g_num_threads; t++)
       memset(thread_stats[t], 0, sizeof thread_stats[t]);
     run_threaded(NAME(merge_statistics_worker), work_g, 0);
@@ -266,7 +255,6 @@ static void NAME(merge_bitmaps)(int stm, int s)
       stats[r][MAX_STATS / 2 + 3] = bloss_tmp;
       stats[r][MAX_STATS - 1 - DRAW_RULE] = loss_tmp;
     }
-#endif
 
     create_name_r(str, s, r, stm, "stats", -1);
     strcat(strcpy(tmp, str), ".tmp");
@@ -291,7 +279,7 @@ static void NAME(merge_bitmaps)(int stm, int s)
     if (one_sided || wins_only) {
       for (int i = 3; i <= DRAW_RULE + 2; i++)
         z[NAME(mi.v)[i]] = NAME(mi.v)[i];
-      for (int i = DRAW_RULE + 5; i < MAX_STATS / 2; i++)
+      for (int i = DRAW_RULE + 5; i < MAX_STATS / 2 + 1; i++)
         z[NAME(mi.v)[i]] = NAME(mi.v)[i];
     }
 
@@ -325,10 +313,9 @@ static void NAME(merge_bitmaps)(int stm, int s)
     w[NAME(mi.v)[MAX_STATS - 1 - i]] = 0;
   for (int i = DRAW_RULE + 1; i < MAX_STATS / 2 - 3; i++)
     w[NAME(mi.v)[MAX_STATS - 1 - i]] = 1;
-  w[NAME(mi.v)[MAX_STATS / 2 + 2]] = 2;
-  w[NAME(mi.v)[MAX_STATS / 2 + 1]] = 2; // PAWN_DRAW is stored as DRAW.
-  w[NAME(mi.v)[MAX_STATS / 2]] = 6;     // But CAPT_DRAW as partial don't care.
-  for (int i = MAX_STATS / 2 - 1; i >= DRAW_RULE + 4; i--)
+  w[NAME(mi.v)[MAX_STATS / 2 + 2]] = 2; // DRAW including PAWN_DRAW
+  w[NAME(mi.v)[MAX_STATS / 2 + 1]] = 6; // CAPT_DRAW
+  for (int i = MAX_STATS / 2; i >= DRAW_RULE + 4; i--)
     w[NAME(mi.v)[i]] = 3;
   w[NAME(mi.v)[DRAW_RULE + 3]] = 7;
   for (int i = DRAW_RULE + 2; i >= 2; i--)
@@ -337,8 +324,7 @@ static void NAME(merge_bitmaps)(int stm, int s)
   w[NAME(mi.v)[0]] = 8;
 
   // Replace bloss (1) with capt_bloss (5) where appropriate.
-  // FIXME: Also consider blessed loss by pawn capture or capture of pawn.
-  if (sub_cnt[stm ^ 1][3]) {
+  if (capt_cnt[stm][1]) {
     k16slice_read(-1, s, stm, "capt/bloss", -1);
     run_threaded(NAME(merge_capt_bloss_worker), work_g16, 0);
   }

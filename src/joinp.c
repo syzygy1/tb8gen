@@ -75,7 +75,7 @@ static void sort_values(int stm, uint64_t *stats, struct DtzMap *dtzmap,
       freq[0][i - 1] += stats[2 + i];
     dtzmap->num[0] = sort_list(freq[0], map[0], inv_map[0]);
 
-    for (int i = DRAW_RULE + 1; i < MAX_STATS / 2 - 4; i++)
+    for (int i = DRAW_RULE + 1; i < MAX_STATS / 2 - 3; i++)
       freq[2][(i - DRAW_RULE - 1) / 2] += stats[4 + i];
     dtzmap->num[2] = sort_list(freq[2], map[2], inv_map[2]);
   }
@@ -122,7 +122,7 @@ static void prepare_dtz_map(uint16_t *v, struct DtzMap *map)
   if (one_sided || wins_only) {
     for (int i = 1; i <= DRAW_RULE; i++)
       v[2 + i] = inv_map[0][i - 1];
-    for (int i = DRAW_RULE + 1; i < MAX_STATS / 2 - 4; i++)
+    for (int i = DRAW_RULE + 1; i < MAX_STATS / 2 - 3; i++)
       v[4 + i] = inv_map[2][(i - DRAW_RULE - 1) / 2];
   }
   if (one_sided || !wins_only) {
@@ -200,12 +200,12 @@ static void join_wdl_pk(int stm)
         v_wdl[4] = true;
         break;
       }
-    for (int i = DRAW_RULE + 4; i < MAX_STATS / 2; i++)
+    for (int i = DRAW_RULE + 4; i < MAX_STATS / 2 + 1; i++)
       if (stats[i]) {
         v_wdl[3] = true;
         break;
       }
-    v_wdl[2] = (bool)(stats[MAX_STATS / 2 + 1] + stats[MAX_STATS / 2 + 2]);
+    v_wdl[2] = (bool)stats[MAX_STATS / 2 + 2];
     for (int i = DRAW_RULE + 1; i < MAX_STATS / 2 - 3; i++)
       if (stats[MAX_STATS - 1 - i]) {
         v_wdl[1] = true;
@@ -612,12 +612,12 @@ static void join_wdl_p(int stm)
       v_wdl[4] = true;
       break;
     }
-  for (int i = DRAW_RULE + 4; i < MAX_STATS / 2; i++)
+  for (int i = DRAW_RULE + 4; i < MAX_STATS / 2 + 1; i++)
     if (stats[i]) {
       v_wdl[3] = true;
       break;
     }
-  v_wdl[2] = (bool)(stats[MAX_STATS / 2 + 1] + stats[MAX_STATS / 2 + 2]);
+  v_wdl[2] = (bool)stats[MAX_STATS / 2 + 2];
   for (int i = DRAW_RULE + 1; i < MAX_STATS / 2 - 3; i++)
     if (stats[MAX_STATS - 1 - i]) {
       v_wdl[1] = true;

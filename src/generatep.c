@@ -17,7 +17,7 @@
 #include "threads.h"
 #include "types.h"
 
-uint64_t sub_cnt[2][5];
+uint64_t capt_cnt[2][5], sub_cnt[2][5];
 uint64_t psub_cnt[5];
 uint64_t pawn_cnt[5];
 int max_iteration;
@@ -436,40 +436,36 @@ static void calc_capt(int stm, int wdl)
   strcat(strcpy(sub_name  , "sub/"  ), wdl_name[2 - wdl]);
   strcat(strcpy(psub_name , "psub/" ), wdl_name[2 - wdl]);
 
-  if (true || sub_cnt[stm ^ 1][2 - wdl]) {
-    create_dir(-1, stm, capt_name);
+  create_dir(-1, stm, capt_name);
 
-    k16slice_iter_init(&iter, stm);
-    int s, s1;
-    while (k16slice_iter_next(&iter, &s)) {
+  k16slice_iter_init(&iter, stm);
+  int s, s1;
+  while (k16slice_iter_next(&iter, &s)) {
 
-      if (true || k16slice_test(s, stm ^ 1, sub_name, -1)) {
-        while (k16slice_iter_in(&iter, &s1)) {
-          if (stm == WHITE)
-            k16slice_clear(s1);
-          else
-            k16slice_read(s1, s1, BLACK, pcapt_name, -1);
-        }
+    while (k16slice_iter_in(&iter, &s1)) {
+      if (stm == WHITE)
+        k16slice_clear(s1);
+      else
+        k16slice_read(s1, s1, BLACK, pcapt_name, -1);
+    }
 
-        k16slice_sub_read(s, s, stm ^ 1, sub_name);
-        predecessors_sub(stm, s);
+    k16slice_sub_read(s, s, stm ^ 1, sub_name);
+    predecessors_sub(stm, s);
 
-        if (stm == WHITE) {
-          k16slice_sub_read(s, s, stm, psub_name);
-          predecessors_psub(s);
-          calc_king_captures_pawn(s, wdl, wdl);
-        }
-      }
+    if (stm == WHITE) {
+      k16slice_sub_read(s, s, stm, psub_name);
+      predecessors_psub(s);
+      calc_king_captures_pawn(s, wdl, wdl);
+    }
 
-      while (k16slice_iter_out(&iter, &s)) {
-        cnt += k16slice_count(s, num);
-        k16slice_write(s, s, stm, capt_name, -1, num);
-      }
+    while (k16slice_iter_out(&iter, &s)) {
+      cnt += k16slice_count(s, num);
+      k16slice_write(s, s, stm, capt_name, -1, num);
     }
   }
 
-//  g_stats[stm][n] = cnt;
-  printf("capt_%s_%c = %lu\n", wdl_name[2 + wdl], "wb"[stm], cnt);
+  capt_cnt[stm][2 + wdl] = cnt;
+  printf("capt_cnt[%d][%d] = %lu\n", stm, 2 + wdl, cnt);
 }
 
 // Calculate positions with a capture or pawn move >= wdl (wdl = -1 or 0).
@@ -1292,12 +1288,8 @@ static bool calc_W(int stm, int n, bool more_w)
     }
   }
   else if (n == DRAW_RULE + 1) {
-    printf("capt_cwin_%c = %lu\n", "wb"[stm], cnt_w);
+    printf("capt/pawn_cwin_%c = %lu\n", "wb"[stm], cnt_w);
     g_stats[stm][DRAW_RULE + 3] = cnt_w;
-    if (stm == BLACK) {
-      printf("pawn_cwin_%c = %lu\n", "wb"[stm], cnt_pw - cnt_w);
-      g_stats[stm][DRAW_RULE + 4] = cnt_pw - cnt_w;
-    }
   }
 
   g_stats[stm][2 + n + 2 * (n > DRAW_RULE)] = cnt;
@@ -1314,8 +1306,8 @@ static bool calc_W(int stm, int n, bool more_w)
 
 void generate(void)
 {
-  printf("Generating table for pawn slice %c%c.\n", 'a' + (g_pos.sq[2] & 7),
-      '1' + (g_pos.sq[2] >> 3));
+  printf("Generating table for pawn slice %c%c.\n",
+      'a' + (g_pos.sq[2] & 7), '1' + (g_pos.sq[2] >> 3));
 
   for (int i = 0; i < 7; i++)
     k16slice_buf[i] = alloc_k16slice();
@@ -1332,7 +1324,8 @@ void generate(void)
   }
 
   for (int i = 0; i < 5; i++)
-    pawn_cnt[i] = psub_cnt[i] = sub_cnt[WHITE][i] = sub_cnt[BLACK][i] = 0;
+    pawn_cnt[i] = psub_cnt[i] = sub_cnt[WHITE][i] = sub_cnt[BLACK][i]
+      = capt_cnt[WHITE][i] = capt_cnt[BLACK][i] = 0;
 
   calc_illegal_and_mate_and_pawn_push();
 

@@ -16,6 +16,7 @@
 #include "kslicep.h"
 #include "movegen.h"
 #include "stats.h"
+#include "tb8genp.h"
 #include "types.h"
 #include "util.h"
 
@@ -23,7 +24,6 @@ uint64_t g_stats[2][MAX_STATS];
 
 void collect_stats(int stm)
 {
-  Position pos;
   char str[128];
   uint64_t tmp[MAX_STATS];
 
@@ -33,13 +33,13 @@ void collect_stats(int stm)
 
   for (int s = 0; s < 240; s++)
     for (int r = 0; r < 16; r++) {
-      pos.sq[0] = KK16Square[s][r][0];
-      pos.sq[1] = KK16Square[s][r][1];
+      g_pos.sq[0] = KK16Square[s][r][0];
+      g_pos.sq[1] = KK16Square[s][r][1];
 
-      if (is_broken(&pos))
+      if (is_broken(&g_pos))
         continue;
 
-      create_name_sq(str, pos.sq[0], pos.sq[1], stm, "stats", -1);
+      create_name_sq(str, g_pos.sq[0], g_pos.sq[1], stm, "stats", -1);
       FILE *F = fopen(str, "rb");
       if (!F) {
         fprintf(stderr, "Could not open %s.\n", str);
@@ -68,7 +68,7 @@ void print_stats(int stm)
     printf("%lu (%lu,%lu) positions win in %d ply.\n",
         stats[DRAW_RULE + 3] + stats[DRAW_RULE + 4] + stats[DRAW_RULE + 5],
         stats[DRAW_RULE + 3], stats[DRAW_RULE + 4], DRAW_RULE + 1);
-  for (int i = DRAW_RULE + 6; i < MAX_STATS / 2; i++)
+  for (int i = DRAW_RULE + 6; i < MAX_STATS / 2 + 1; i++)
     if (stats[i])
       printf("%lu positions win in %d ply.\n", stats[i], i - 4);
   printf("\n");
@@ -78,14 +78,14 @@ void print_stats(int stm)
     tot += stats[i];
   printf("%lu positions are wins.\n", tot);
   tot = 0;
-  for (int i = DRAW_RULE + 3; i < MAX_STATS / 2; i++)
+  for (int i = DRAW_RULE + 3; i < MAX_STATS / 2 + 1; i++)
     tot += stats[i];
   if (tot)
     printf("%lu positions are cursed wins.\n", tot);
-  if (stats[MAX_STATS/2] + stats[MAX_STATS/2 + 1] + stats[MAX_STATS/2 + 2])
-    printf("%lu (%lu,%lu) positions are draws.\n",
-        stats[MAX_STATS/2] + stats[MAX_STATS/2 + 1] + stats[MAX_STATS/2 + 2],
-        stats[MAX_STATS/2], stats[MAX_STATS/2 + 1]);
+  if (stats[MAX_STATS / 2 + 1] + stats[MAX_STATS / 2 + 2])
+    printf("%lu (%lu) positions are draws.\n",
+        stats[MAX_STATS / 2 + 1] + stats[MAX_STATS / 2 + 2],
+        stats[MAX_STATS / 2 + 1]);
   tot = 0;
   for (int i = DRAW_RULE + 1; i < MAX_STATS / 2 - 3; i++)
     tot += stats[MAX_STATS - 1 - i];
@@ -93,7 +93,7 @@ void print_stats(int stm)
     printf("%lu positions are blessed losses.\n", tot);
   tot = 0;
   for (int i = 0; i <= DRAW_RULE; i++)
-    tot += stats[MAX_STATS - 1 - i];
+    tot += stats[MAX_STATS - 1 -  i];
   printf("%lu positions are losses.\n\n", tot);
 
   for (int i = 0; i < MAX_STATS / 2 - 3; i++)
@@ -150,12 +150,10 @@ double entropy_one_sided(int stm)
   uint64_t stats[MAX_STATS];
   memcpy(stats, g_stats[stm], sizeof stats);
 
-  uint64_t tot = stats[0] + stats[1] + stats[2] + stats[DRAW_RULE + 3]
-    + stats[DRAW_RULE + 4] + stats[MAX_STATS / 2] + stats[MAX_STATS / 2 + 1]
-    + stats[MAX_STATS / 2 + 2];
+  uint64_t tot = stats[0] + stats[1] + stats[2] + stats[DRAW_RULE + 3] +
+    stats[DRAW_RULE + 4] + stats[MAX_STATS / 2 + 1] + stats[MAX_STATS / 2 + 2];
   stats[0] = stats[1] = stats[2] = stats[DRAW_RULE + 3] = stats[DRAW_RULE + 4]
-    = stats[MAX_STATS / 2] = stats[MAX_STATS / 2 + 1] = stats[MAX_STATS / 2 + 2]
-    = 0;
+    = stats[MAX_STATS / 2 + 1] = stats[MAX_STATS / 2 + 2] = 0;
 
   return entropy_helper(stats, tot);
 }
@@ -179,12 +177,10 @@ double entropy_win_only(int stm)
   uint64_t stats[MAX_STATS];
   memcpy(stats, g_stats[stm], sizeof stats);
 
-  uint64_t tot = stats[0] + stats[1] + stats[2] + stats[DRAW_RULE + 3]
-    + stats[DRAW_RULE + 4] + stats[MAX_STATS / 2] + stats[MAX_STATS / 2 + 1]
-    + stats[MAX_STATS / 2 + 2];
+  uint64_t tot = stats[0] + stats[1] + stats[2] + stats[DRAW_RULE + 3] +
+    stats[DRAW_RULE + 4] + stats[MAX_STATS / 2 + 1] + stats[MAX_STATS / 2 + 2];
   stats[0] = stats[1] = stats[2] = stats[DRAW_RULE + 3] = stats[DRAW_RULE + 4]
-    = stats[MAX_STATS / 2] = stats[MAX_STATS / 2 + 1] = stats[MAX_STATS / 2 + 2]
-    = 0;
+    = stats[MAX_STATS / 2 + 1] = stats[MAX_STATS / 2 + 2] = 0;
   for (int i = MAX_STATS / 2 + 3; i < MAX_STATS; i++) {
     tot += stats[i];
     stats[i] = 0;

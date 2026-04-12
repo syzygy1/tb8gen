@@ -71,23 +71,21 @@ void merge(int stm)
   int win_vals = 0, cwin_vals = 0, bloss_vals = 0, loss_vals = 0;
   for (int i = 3; i <= DRAW_RULE + 2; i++)
     win_vals += (stats[i] != 0);
-  for (int i = DRAW_RULE + 5; i < MAX_STATS / 2; i++)
+  for (int i = DRAW_RULE + 5; i < MAX_STATS / 2 + 1; i++)
     cwin_vals += (stats[i] != 0);
   for (int i = 0; i <= DRAW_RULE; i++)
     loss_vals += (stats[MAX_STATS - 1 - i] != 0);
-  for (int i = DRAW_RULE + 1; i < MAX_STATS / 2 - 2; i++)
+  for (int i = DRAW_RULE + 1; i < MAX_STATS / 2 - 3; i++)
     bloss_vals += (stats[MAX_STATS - 1 - i] != 0);
 
   mi.v_wdl[0] = loss_vals;
   mi.v_wdl[1] = bloss_vals;
-  mi.v_wdl[2] = stats[MAX_STATS / 2 + 1] || stats[MAX_STATS / 2 + 2];
+  mi.v_wdl[2] = stats[MAX_STATS / 2 + 2];
   mi.v_wdl[3] = stats[DRAW_RULE + 4] || cwin_vals;
   mi.v_wdl[4] = stats[2] || win_vals;
 
-  // FIXME: sub_cnt[stm ^ 1][3] should also take into account blessed losses
-  // by pawn capture and capture of pawn.
   bool dc[4] = {
-    sub_cnt[stm ^ 1][3], stats[MAX_STATS / 2], stats[DRAW_RULE + 3], true
+    capt_cnt[stm][1], capt_cnt[stm][2], stats[DRAW_RULE + 3], true
   };
 
   int i, j;
@@ -100,8 +98,7 @@ void merge(int stm)
 
   int special = 1 + (stats[1] != 0) + (stats[2] != 0)
                   + (stats[DRAW_RULE + 3] != 0) + (stats[DRAW_RULE + 4] != 0)
-                  + (stats[MAX_STATS / 2] != 0)
-                  + (stats[MAX_STATS / 2 + 1] != 0)
+                  + (capt_cnt[stm][2] != 0)
                   + (stats[MAX_STATS / 2 + 2] != 0);
 
   int wins_red = (win_vals != 0) + (cwin_vals != 0);
@@ -121,7 +118,7 @@ void merge(int stm)
     // Include more if it fits. This slightly speeds up counting statistics.
     include_wins = wins;
     include_losses = losses;
-#if 1
+#if 0
     if (special + win_vals + cwin_vals + bloss_vals + loss_vals <= 256)
       include_wins = include_losses = true;
     else if (!wins && !losses && special + win_vals + cwin_vals <= 256)
@@ -142,11 +139,11 @@ void merge(int stm)
         n += (stats[i] != 0);
         mi.v_u8[i] = n;
       }
-      n += (stats[DRAW_RULE + 3] != 0);
+      n += (capt_cnt[stm][3] != 0);
       mi.v_u8[DRAW_RULE + 3] = n;
-      n += (stats[DRAW_RULE + 4] != 0);
+      n += (stm == BLACK && pawn_cnt[3] != 0);
       mi.v_u8[DRAW_RULE + 4] = n;
-      for (int i = DRAW_RULE + 5; i < MAX_STATS / 2; i++) {
+      for (int i = DRAW_RULE + 5; i < MAX_STATS / 2 + 1; i++) {
         n += (stats[i] != 0);
         mi.v_u8[i] = n;
       }
@@ -154,17 +151,15 @@ void merge(int stm)
       n += (win_vals != 0);
       for (int i = 3; i <= DRAW_RULE + 2; i++)
         mi.v_u8[i] = n;
-      n += (stats[DRAW_RULE + 3] != 0);
+      n += (capt_cnt[stm][3] != 0);
       mi.v_u8[DRAW_RULE + 3] = n;
-      n += (stats[DRAW_RULE + 4] != 0);
+      n += (stm == BLACK && pawn_cnt[3] != 0);
       mi.v_u8[DRAW_RULE + 4] = n;
       n += (cwin_vals != 0);
-      for (int i = DRAW_RULE + 5; i < MAX_STATS / 2; i++)
+      for (int i = DRAW_RULE + 5; i < MAX_STATS / 2 + 1; i++)
         mi.v_u8[i] = n;
     }
-    n += (stats[MAX_STATS / 2] != 0);
-    mi.v_u8[MAX_STATS / 2] = n;
-    n += (stats[MAX_STATS / 2 + 1] != 0);
+    n += (capt_cnt[stm][2] != 0);
     mi.v_u8[MAX_STATS / 2 + 1] = n;
     n += (stats[MAX_STATS / 2 + 2] != 0);
     mi.v_u8[MAX_STATS / 2 + 2] = n;
