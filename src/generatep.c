@@ -695,18 +695,33 @@ static void calc_pawn_push_worker(struct ThreadData *thread)
   }
 }
 
+INLINE char fl(int sq)
+{
+  return 'a' + (sq & 7);
+}
+
+INLINE char rk(int sq)
+{
+  return '1' + (sq >> 3);
+}
+
 static void calc_pawn_push(void)
 {
   char str[128];
 
-  // FIXME
-  create_name_sq(str, g_pos.sq[0], g_pos.sq[1], WHITE, "../a2/merged/wdl", -1);
+  if (g_pos.sq[2] - 8 == g_pos.sq[0] || g_pos.sq[2] - 8 == g_pos.sq[1])
+    return;
+
+  sprintf(str, "../%c%c/merged/wdl/w/%c%c%c%c", fl(g_pos.sq[2]),
+      rk(g_pos.sq[2] - 8), fl(g_pos.sq[0]), rk(g_pos.sq[0]),
+      fl(g_pos.sq[1]), rk(g_pos.sq[1]));
   FILE *F = fopen(str, "rb");
   if (!F) {
     fprintf(stderr, "Could not open %s.\n", str);
     exit(EXIT_FAILURE);
   }
   read_data(F, merged_table, kslice_size);
+  fclose(F);
 
   run_threaded(calc_pawn_push_worker, work_g, 0);
 }
@@ -755,23 +770,33 @@ static void calc_pawn_double_push(void)
 {
   char str[128];
 
-  // FIXME
-  create_name_sq(str, g_pos.sq[0], g_pos.sq[1], WHITE, "../a6/merged/wdl", -1);
+  if (g_pos.sq[2] - 8 == g_pos.sq[0] || g_pos.sq[2] - 8 == g_pos.sq[1])
+    return;
+
+  sprintf(str, "../%c%c/merged/wdl/w/%c%c%c%c", fl(g_pos.sq[2]),
+      rk(g_pos.sq[2] - 8), fl(g_pos.sq[0]), rk(g_pos.sq[0]),
+      fl(g_pos.sq[1]), rk(g_pos.sq[1]));
   FILE *F = fopen(str, "rb");
   if (!F) {
     fprintf(stderr, "Could not open %s.\n", str);
     exit(EXIT_FAILURE);
   }
   read_data(F, merged_table, kslice_size);
+  fclose(F);
 
-  // FIXME
-  create_name_sq(str, g_pos.sq[0], g_pos.sq[1], WHITE, "../a5/merged/wdl", -1);
+  if (g_pos.sq[2] - 16 == g_pos.sq[0] || g_pos.sq[2] - 16 == g_pos.sq[1])
+    return;
+
+  sprintf(str, "../%c%c/merged/wdl/w/%c%c%c%c", fl(g_pos.sq[2]),
+      rk(g_pos.sq[2] - 16), fl(g_pos.sq[0]), rk(g_pos.sq[0]),
+      fl(g_pos.sq[1]), rk(g_pos.sq[1]));
   F = fopen(str, "rb");
   if (!F) {
     fprintf(stderr, "Could not open %s.\n", str);
     exit(EXIT_FAILURE);
   }
   read_data(F, merged_table2, kslice_size);
+  fclose(F);
 
   run_threaded(calc_pawn_double_push_worker, work_g, 0);
 }

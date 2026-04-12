@@ -222,36 +222,34 @@ static void NAME(merge_bitmaps)(int stm, int s)
   if (symmetric && stm == BLACK)
     return;
 
-  if (one_sided && stm != one_sided_stm)
-    goto start_wdl;
+  if (!one_sided || stm == one_sided_stm) {
+    T z[MAX];
+    for (int i = 0; i < MAX; i++)
+      z[i] = 0;
 
-  T z[MAX];
-  for (int i = 0; i < MAX; i++)
-    z[i] = 0;
+    if (one_sided || wins_only) {
+      for (int i = 2; i <= DRAW_RULE + 1; i++)
+        z[NAME(mi.v)[i]] = NAME(mi.v)[i];
+      for (int i = DRAW_RULE + 3; i < MAX_STATS / 2; i++)
+        z[NAME(mi.v)[i]] = NAME(mi.v)[i];
+    }
 
-  if (one_sided || wins_only) {
-    for (int i = 2; i <= DRAW_RULE + 1; i++)
-      z[NAME(mi.v)[i]] = NAME(mi.v)[i];
-    for (int i = DRAW_RULE + 3; i < MAX_STATS / 2; i++)
-      z[NAME(mi.v)[i]] = NAME(mi.v)[i];
+    if (one_sided || !wins_only)
+      for (int i = 0; i < MAX_STATS / 2 - 2; i++)
+        z[NAME(mi.v)[MAX_STATS - 1 - i]] = NAME(mi.v)[MAX_STATS - 1 - i];
+
+    create_name(str, s, stm, "merged/dtz", -1);
+    strcat(strcpy(tmp, str), ".tmp");
+    F = fopen(tmp, "wb");
+    if (!F) {
+      fprintf(stderr, "Could not open %s.\n", tmp);
+      exit(EXIT_FAILURE);
+    }
+    NAME(write_data_transform)(F, merge_table, kslice_size * sizeof(T), z);
+    fclose(F);
+    rename(tmp, str);
   }
 
-  if (one_sided || !wins_only)
-    for (int i = 0; i < MAX_STATS / 2 - 2; i++)
-      z[NAME(mi.v)[MAX_STATS - 1 - i]] = NAME(mi.v)[MAX_STATS - 1 - i];
-
-  create_name(str, s, stm, "merged/dtz", -1);
-  strcat(strcpy(tmp, str), ".tmp");
-  F = fopen(tmp, "wb");
-  if (!F) {
-    fprintf(stderr, "Could not open %s.\n", tmp);
-    exit(EXIT_FAILURE);
-  }
-  NAME(write_data_transform)(F, merge_table, kslice_size * sizeof(T), z);
-  fclose(F);
-  rename(tmp, str);
-
-start_wdl:
   // 0/1/2/3/4 -> loss/bloss/draw/cwin/win
   // 5/6/7/8 -> capt_bloss/_draw/_cwin/_win+illegal
   uint8_t w[MAX];

@@ -12,6 +12,9 @@
 
 #include "compress.h"
 #include "defs.h"
+#include "generatep.h"
+#include "kslicep.h"
+#include "movegen.h"
 #include "stats.h"
 #include "types.h"
 #include "util.h"
@@ -20,6 +23,7 @@ uint64_t g_stats[2][MAX_STATS];
 
 void collect_stats(int stm)
 {
+  Position pos;
   char str[128];
   uint64_t tmp[MAX_STATS];
 
@@ -27,18 +31,25 @@ void collect_stats(int stm)
 
   memset(stats, 0, sizeof g_stats[stm]);
 
-  for (int s = 0; s < 240; s++) {
-    create_name(str, s, stm, "stats", -1);
-    FILE *F = fopen(str, "rb");
-    if (!F) {
-      fprintf(stderr, "Could not open %s.\n", str);
-      exit(EXIT_FAILURE);
+  for (int s = 0; s < 240; s++)
+    for (int r = 0; r < 16; r++) {
+      pos.sq[0] = KK16Square[s][r][0];
+      pos.sq[1] = KK16Square[s][r][1];
+
+      if (is_broken(&pos))
+        continue;
+
+      create_name_sq(str, pos.sq[0], pos.sq[1], stm, "stats", -1);
+      FILE *F = fopen(str, "rb");
+      if (!F) {
+        fprintf(stderr, "Could not open %s.\n", str);
+        exit(EXIT_FAILURE);
+      }
+      read_data(F, tmp, sizeof tmp);
+      fclose(F);
+      for (int i = 0; i < MAX_STATS; i++)
+        stats[i] += tmp[i];
     }
-    read_data(F, tmp, sizeof tmp);
-    fclose(F);
-    for (int i = 0; i < MAX_STATS; i++)
-      stats[i] += tmp[i];
-  }
 }
 
 void print_stats(int stm)

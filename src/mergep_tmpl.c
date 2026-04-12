@@ -18,7 +18,7 @@ static void NAME(merge_worker)(struct ThreadData *thread)
 {
   T n = NAME(mi.v)[merge_n];
 
-  const uint64_t *restrict p = (uint64_t *)kslice_get_address_scratch(g_pos.sq);
+  const uint64_t *restrict p = (uint64_t *)k16slice_get_address(-1);
   T *restrict const q = merge_table;
   p += thread->begin >> 6;
   for (uint64_t idx = thread->begin, end = thread->end; idx < end; idx += 64) {
@@ -28,11 +28,29 @@ static void NAME(merge_worker)(struct ThreadData *thread)
   }
 }
 
-static void NAME(merge_capt_bloss_worker)(struct ThreadData *thread)
+static void NAME(merge_repl_worker)(struct ThreadData *thread)
 {
-  const uint64_t *restrict p = (uint64_t *)kslice_get_address(g_pos.sq);
+  T r = NAME(mi.v)[merge_r];
+  T n = NAME(mi.v)[merge_n];
+
+  const uint64_t *restrict p = (uint64_t *)k16slice_get_address(-1);
   T *restrict const q = merge_table;
   p += thread->begin >> 6;
+  for (uint64_t idx = thread->begin, end = thread->end; idx < end; idx += 64) {
+    uint64_t w = *p++;
+    while (w) {
+      unsigned bt = pop_lsb(&w);
+      if (q[idx + bt] == r)
+        q[idx + bt] = n;
+    }
+  }
+}
+
+static void NAME(merge_capt_bloss_worker)(struct ThreadData *thread)
+{
+  const uint64_t *restrict p = (uint64_t *)k16slice_get_address(-1);
+  T *restrict const q = merge_table;
+  p += thread->begin;
   for (uint64_t idx = thread->begin, end = thread->end; idx < end; idx += 64) {
     uint64_t w = *p++;
     while (w) {
@@ -49,11 +67,9 @@ INLINE void NAME(merge_mark_unmoves)(int k, T *restrict const p, Bitboard occ,
   uint8_t sq2[MAX_PIECES];
   Bitboard b = non_king_piece_moves(g_pos.pt[k], sq[k], occ);
   while (b) {
-    sq[k] = pop_lsb(&b);
-    for (int i = 0; i < MAX_PIECES; i++)
-      sq2[i] = sq[i];
-    uint64_t idx = sq_to_idx(sq2);
-    p[idx] = 0;
+    memcpy(sq2, sq, sizeof sq2);
+    sq2[k] = pop_lsb(&b);
+    p[sq_to_idx(sq2)] = 0;
   }
 }
 
@@ -123,6 +139,76 @@ static void NAME(merge_bitmaps)(int stm, int s)
   // DRAW
   run_threaded(NAME(merge_draw_worker), work_g16, 0);
 
+  // losses
+  for (int n = 0; n < max_iteration; n++)
+    if (k16slice_test(s, stm, "L", n)) {
+      k16slice_read(-1, s, stm, "L", n);
+      merge_n = MAX_STATS - 1 - n;
+      run_threaded(NAME(merge_worker), work_g16, 0);
+      if (!include_losses)
+        stat_count(stats, merge_n);
+    }
+
+  // wins
+  for (int n = 1; n < max_iteration; n++)
+    if (k16slice_test(s, stm, "W", n)) {
+      k16slice_read(-1, s, stm, "W", n);
+      merge_n = n <= DRAW_RULE ? 2 + n : 4 + n;
+      run_threaded(NAME(merge_worker), work_g16, 0);
+      if (!include_wins)
+        stat_count(stats, merge_n);
+    }
+
+  // CAPT_WIN
+  // FIXME
+  if (true || sub_cnt[stm ^ 1][0]) {
+    k16slice_read(-1, s, stm, "capt/win", -1);
+    merge_r = 3;
+    merge_n = 1;
+    run_threaded(NAME(merge_repl_worker), work_g16, 0);
+  }
+
+  // PAWN_WIN
+  if (stm == BLACK) {
+    k16slice_read(-1, s, stm, "pawn/win", -1);
+    merge_r = 3;
+    merge_n = 2;
+    run_threaded(NAME(merge_repl_worker), work_g16, 0);
+  }
+
+  // CAPT_CWIN
+  // FIXME
+  if (true || sub_cnt[stm ^ 1][1]) {
+    k16slice_read(-1, s, stm, "capt/cwin", -1);
+    merge_r = DRAW_RULE + 5;
+    merge_n = DRAW_RULE + 3;
+    run_threaded(NAME(merge_repl_worker), work_g16, 0);
+  }
+
+  // PAWN_CWIN
+  if (stm == BLACK) {
+    k16slice_read(-1, s, stm, "pawn/cwin", -1);
+    merge_r = DRAW_RULE + 5;
+    merge_n = DRAW_RULE + 4;
+    run_threaded(NAME(merge_repl_worker), work_g16, 0);
+  }
+
+  // CAPT_DRAW
+  if (true || sub_cnt[stm ^ 1][2]) {
+    k16slice_read(-1, s, stm, "capt/draw", -1);
+    merge_r = MAX_STATS / 2 + 2;
+    merge_n = MAX_STATS / 2;
+    run_threaded(NAME(merge_repl_worker), work_g16, 0);
+  }
+
+  // PAWN_DRAW
+  if (stm == BLACK) {
+    k16slice_read(-1, s, stm, "pawn/draw", -1);
+    merge_r = MAX_STATS / 2 + 2;
+    merge_n = MAX_STATS / 2 + 1;
+    run_threaded(NAME(merge_repl_worker), work_g16, 0);
+  }
+
   // ILLEGAL
   for (int r = 0; r < 16; r++) {
     g_pos.sq[0] = KK16Square[s][r][0];
@@ -144,53 +230,17 @@ static void NAME(merge_bitmaps)(int stm, int s)
     }
   }
 
-  // losses
-  for (int n = 0; n < max_iteration; n++)
-    if (k16slice_test(s, stm, "L", n)) {
-      k16slice_read(-1, s, stm, "L", n);
-      merge_n = MAX_STATS - 1 - n;
-      run_threaded(NAME(merge_worker), work_g16, 0);
-      if (!include_losses)
-        stat_count(stats, merge_n);
-    }
-
-  // wins
-  for (int n = 1; n < max_iteration; n++)
-    if (k16slice_test(s, stm, "W", n)) {
-      k16slice_read(-1, s, stm, "W", n);
-      merge_n = n <= DRAW_RULE ? 1 + n : 2 + n;
-      run_threaded(NAME(merge_worker), work_g16, 0);
-      if (!include_wins)
-        stat_count(stats, merge_n);
-    }
-
-  // CAPT_WIN
-  if (sub_cnt[stm ^ 1][0]) {
-    k16slice_read(-1, s, stm, "capt/win", -1);
-    merge_n = 1;
-    run_threaded(NAME(merge_worker), work_g16, 0);
-  }
-
-  // CAPT_CWIN
-  if (sub_cnt[stm ^ 1][1]) {
-    k16slice_read(-1, s, stm, "capt/cwin", -1);
-    merge_n = 2 + DRAW_RULE;
-    run_threaded(NAME(merge_worker), work_g16, 0);
-  }
-
-  // CAPT_DRAW
-  if (sub_cnt[stm ^ 1][2]) {
-    k16slice_read(-1, s, stm, "capt/draw", -1);
-    merge_n = MAX_STATS / 2;
-    run_threaded(NAME(merge_worker), work_g16, 0);
-  }
-
   // CAPT_BLOSS to be added to produce WDL files
 
+  // Calculate and save stats for each of the 16 K-slices.
   for (int r = 0; r < 16; r++) {
     g_pos.sq[0] = KK16Square[s][r][0];
     g_pos.sq[1] = KK16Square[s][r][1];
 
+    if (is_broken(&g_pos))
+      continue;
+
+#if 1
     for (int t = 0; t < g_num_threads; t++)
       memset(thread_stats[t], 0, sizeof thread_stats[t]);
     run_threaded(NAME(merge_statistics_worker), work_g, 0);
@@ -207,16 +257,16 @@ static void NAME(merge_bitmaps)(int stm, int s)
 
     // This is a bit hackish.
     if (!include_wins) {
-      // FIXME: what about stats[2], PAWN_WIN
-      stats[r][3] = win_tmp - stats[r][1];
-      // FIXME: what about stats[DRAW_RULE + 4], PAWN_CWIN
-      stats[r][DRAW_RULE + 5] = cwin_tmp - stats[r][DRAW_RULE + 3];
+      stats[r][3] = win_tmp - stats[r][1] - stats[r][2];
+      stats[r][DRAW_RULE + 5] =
+        cwin_tmp - stats[r][DRAW_RULE + 3] - stats[r][DRAW_RULE + 4];
     }
 
     if (!include_losses) {
       stats[r][MAX_STATS / 2 + 3] = bloss_tmp;
       stats[r][MAX_STATS - 1 - DRAW_RULE] = loss_tmp;
     }
+#endif
 
     create_name_r(str, s, r, stm, "stats", -1);
     strcat(strcpy(tmp, str), ".tmp");
@@ -233,43 +283,41 @@ static void NAME(merge_bitmaps)(int stm, int s)
   if (symmetric && stm == BLACK)
     return;
 
-  if (one_sided && stm != one_sided_stm)
-    goto start_wdl;
+  if (!one_sided || stm == one_sided_stm) {
+    T z[MAX];
+    for (int i = 0; i < MAX; i++)
+      z[i] = 0;
 
-  T z[MAX];
-  for (int i = 0; i < MAX; i++)
-    z[i] = 0;
-
-  if (one_sided || wins_only) {
-    for (int i = 3; i <= DRAW_RULE + 2; i++)
-      z[NAME(mi.v)[i]] = NAME(mi.v)[i];
-    for (int i = DRAW_RULE + 5; i < MAX_STATS / 2; i++)
-      z[NAME(mi.v)[i]] = NAME(mi.v)[i];
-  }
-
-  if (one_sided || !wins_only)
-    for (int i = 0; i < MAX_STATS / 2 - 3; i++)
-      z[NAME(mi.v)[MAX_STATS - 1 - i]] = NAME(mi.v)[MAX_STATS - 1 - i];
-
-  for (int r = 0; r < 16; r++) {
-    g_pos.sq[0] = KK16Square[s][r][0];
-    g_pos.sq[1] = KK16Square[s][r][1];
-
-    create_name_r(str, s, r, stm, "merged/dtz", -1);
-    strcat(strcpy(tmp, str), ".tmp");
-    FILE *F = fopen(tmp, "wb");
-    if (!F) {
-      fprintf(stderr, "Could not open %s.\n", tmp);
-      exit(EXIT_FAILURE);
+    if (one_sided || wins_only) {
+      for (int i = 3; i <= DRAW_RULE + 2; i++)
+        z[NAME(mi.v)[i]] = NAME(mi.v)[i];
+      for (int i = DRAW_RULE + 5; i < MAX_STATS / 2; i++)
+        z[NAME(mi.v)[i]] = NAME(mi.v)[i];
     }
-    NAME(write_data_transform)(F,
-        (T *)merge_table + r * kslice_alloc_size * sizeof(T),
-        kslice_size * sizeof(T), z);
-    fclose(F);
-    rename(tmp, str);
+
+    if (one_sided || !wins_only)
+      for (int i = 0; i < MAX_STATS / 2 - 3; i++)
+        z[NAME(mi.v)[MAX_STATS - 1 - i]] = NAME(mi.v)[MAX_STATS - 1 - i];
+
+    for (int r = 0; r < 16; r++) {
+      g_pos.sq[0] = KK16Square[s][r][0];
+      g_pos.sq[1] = KK16Square[s][r][1];
+
+      create_name_r(str, s, r, stm, "merged/dtz", -1);
+      strcat(strcpy(tmp, str), ".tmp");
+      FILE *F = fopen(tmp, "wb");
+      if (!F) {
+        fprintf(stderr, "Could not open %s.\n", tmp);
+        exit(EXIT_FAILURE);
+      }
+      NAME(write_data_transform)(F,
+          (T *)merge_table + r * kslice_alloc_size * sizeof(T),
+          kslice_size * sizeof(T), z);
+      fclose(F);
+      rename(tmp, str);
+    }
   }
 
-start_wdl:
   // 0/1/2/3/4 -> loss/bloss/draw/cwin/win
   // 5/6/7/8 -> capt_bloss/_draw/_cwin/_win+illegal
   uint8_t w[MAX];
@@ -298,6 +346,9 @@ start_wdl:
   for (int r = 0; r < 16; r++) {
     g_pos.sq[0] = KK16Square[s][r][0];
     g_pos.sq[1] = KK16Square[s][r][1];
+
+    if (is_broken(&g_pos))
+      continue;
 
     create_name_r(str, s, r, stm, "merged/wdl", -1);
     strcat(strcpy(tmp, str), ".tmp");

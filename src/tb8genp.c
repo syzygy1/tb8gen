@@ -200,7 +200,7 @@ int main(int argc, char **argv)
 
   // Align work units on cache lines of 64 x 8 = 512 positions.
   work_g = create_work(g_total_work, kslice_size, 0x1ff);
-  work_g16 = create_work(g_total_work, k16slice_alloc_size, 0x1ff);
+  work_g16 = create_work(g_total_work, k16slice_alloc_size << 3, 0x1ff);
   for (int i = 0; i < ii.numsets; i++)
     work_capt[i] = create_work(g_total_work, capt_ii[i].size, 0x1ff);
 
@@ -261,6 +261,9 @@ layout=0;
       elo *= 1.001;
       ewi *= 1.001;
     }
+
+    // FIXME: store DTZ format for each pawn slice on disk for later use
+    // by join_slices().
 
     // Determine the DTZ format to use.
     one_sided = !symmetric && min(ewh, ebl) <= min(elo, ewi);

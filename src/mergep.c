@@ -21,7 +21,7 @@
 struct MergeInfo mi;
 
 static void *merge_table;
-static int merge_n;
+static int merge_n, merge_r;
 static int work_set;
 static bool include_wins, include_losses;
 
@@ -99,7 +99,7 @@ void merge(int stm)
     mi.v_wdl[0] = true;
 
   int special = 1 + (stats[1] != 0) + (stats[2] != 0)
-                  + (stats[DRAW_RULE + 2] != 0) + (stats[DRAW_RULE + 3] != 0)
+                  + (stats[DRAW_RULE + 3] != 0) + (stats[DRAW_RULE + 4] != 0)
                   + (stats[MAX_STATS / 2] != 0)
                   + (stats[MAX_STATS / 2 + 1] != 0)
                   + (stats[MAX_STATS / 2 + 2] != 0);
