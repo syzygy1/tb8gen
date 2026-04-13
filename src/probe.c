@@ -1277,7 +1277,7 @@ NOINLINE static struct Tbase *init_old_layout(struct TbEntry *entry,
 
   for (int t = 0; t < num; t++) {
     struct EncInfo *ei = &table[t]->ei;
-    tb_size[t][0] = set_enc_info(&ei[t], entry, data, 0, t, tb->layout);
+    tb_size[t][0] = set_enc_info(ei, entry, data, 0, t, tb->layout);
     if (split) {
       ei = &table[num + t]->ei;
       tb_size[t][1] = set_enc_info(ei, entry, data, 4, t, tb->layout);

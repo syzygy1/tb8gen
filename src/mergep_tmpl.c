@@ -299,7 +299,7 @@ static void NAME(merge_bitmaps)(int stm, int s)
         exit(EXIT_FAILURE);
       }
       NAME(write_data_transform)(F,
-          (T *)merge_table + r * kslice_alloc_size * sizeof(T),
+          (T *)merge_table + 8 * r * kslice_alloc_size * sizeof(T),
           kslice_size * sizeof(T), z);
       fclose(F);
       rename(tmp, str);
@@ -344,7 +344,7 @@ static void NAME(merge_bitmaps)(int stm, int s)
       exit(EXIT_FAILURE);
     }
     NAME(write_data_transform_to_u8)(F,
-        (T *)merge_table + r * kslice_alloc_size, kslice_size, w);
+        (T *)merge_table + 8 * r * kslice_alloc_size, kslice_size, w);
     fclose(F);
     rename(tmp, str);
   }
