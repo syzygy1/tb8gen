@@ -1411,13 +1411,12 @@ NOINLINE struct Tbase *init_tbase(struct TbEntry *entry, const char *str,
     tbase->data = data;
     tbase->mapping = mapping;
     tbase->layout = layout;
-    // For DTZ, distance format can be per pawn slice.
-    // So keep this per table? -> Difficult to find correct slice...
-    // Then may as well store type per pawn slice...
-    // K: 1, KK: 1, P: 24, PK: 24, PvP: 1128, PP: 576
-    // current plan: if some but not all tables 2-sided, then create a
-    // list of 24/576/1128 offsets, and encode the offset to any second
-    // table in the table of the first table.
+    // For DTZ pawnful tables, the distance format for each pawn slice is
+    // encoded in two bitmaps, each one bit per pawn slice. The first bitmap
+    // chooses between WIN_OR_LOSS (1) and WTM_OR_BTM (0). The second bitmap
+    // chooses either between WIN_ONLY (1) or LOSS_ONLY (0) or between
+    // WTM_ONLY (0) and BTM_ONLY (1).
+    // Still to be implemented in the TB access code.
     if (type != WDL)
       tbase->dist_format = dist_format;
     tbase->flipped = false; // Revisit for pawnful tables.

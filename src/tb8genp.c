@@ -37,6 +37,7 @@ bool one_sided, wins_only;
 int one_sided_stm;
 char *g_tablename;
 uint64_t *work_g, *work_g16, *work_capt[MAX_SETS];
+struct DtzFormat dtz_format[24];
 
 const char *name[3] = { "wdl", "dtm", "dtz" };
 
@@ -262,9 +263,6 @@ int main(int argc, char **argv)
       ewi *= 1.001;
     }
 
-    // FIXME: store DTZ format for each pawn slice on disk for later use
-    // by join_slices().
-
     // Determine the DTZ format to use.
     one_sided = !symmetric && min(ewh, ebl) <= min(elo, ewi);
     wins_only = ewi <= elo;
@@ -273,6 +271,11 @@ int main(int argc, char **argv)
     printf("DTZ format: %s only.\n\n",
         one_sided ? one_sided_stm == WHITE ? "white" : "black"
         : wins_only ? "wins" : "losses");
+
+    dtz_format[p] = (struct DtzFormat){
+      .one_sided = one_sided, .wins_only = wins_only,
+      .one_sided_stm = one_sided_stm
+    };
 
     merge(WHITE);
     merge(BLACK);

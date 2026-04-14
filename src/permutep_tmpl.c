@@ -66,8 +66,6 @@ static void NAME(convert_est_data_pawn)(struct ThreadData *thread)
 
   int stm = g_pos.stm;
   sq[2] = g_pos.sq[2];
-  if (sq[2] == 16)
-    printf("stop here\n");
 
   for (int p = 0; p < num_cands; p++) {
     for (int i = thread->begin; i < thread->end; i++) {

@@ -7,6 +7,12 @@
 #ifndef TB8GEN_H
 #define TB8GEN_H
 
+struct DtzFormat {
+  bool one_sided, wins_only;
+  int one_sided_stm;
+};
+
+extern struct DtzFormat dtz_format[24];
 extern bool one_sided, wins_only;
 extern int one_sided_stm;
 

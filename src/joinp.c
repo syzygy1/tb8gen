@@ -834,10 +834,14 @@ static void join_final_p(int type)
   char str[128];
   struct stat st;
   uint64_t slice_size[48], size_small = 0;
-  bool has_stm[2] = {
-    type == WDL || !one_sided || one_sided_stm == WHITE,
-    !symmetric && (type == WDL || !one_sided || one_sided_stm == BLACK)
-  };
+  bool has_stm[24][2];
+
+  for (int i = 0; i < 24; i++) {
+    has_stm[i][WHITE] = type == WDL || !dtz_format[i].one_sided
+        || dtz_format[i].one_sided_stm == WHITE;
+    has_stm[i][BLACK] = !symmetric && (type == WDL || !dtz_format[i].one_sided
+        || dtz_format[i].one_sided_stm == BLACK);
+  }
 
   uint8_t *buf = calloc(1, 2 * 24 * sizeof(uint64_t) + 1000);
   if (!buf)
@@ -851,6 +855,7 @@ static void join_final_p(int type)
   for (int i = 2; i < g_pos.num; i++)
     *p++ = (g_pos.pt[i] & 7) | ((g_pos.pt[i] & 8) << 4);
   *p++ = LT_PAWN_P;
+#if 0
   if (type != WDL) {
     uint8_t dist_format = (has_stm[WHITE] && has_stm[BLACK]) ? TWO_SIDED : 0;
     if (one_sided)
@@ -859,12 +864,28 @@ static void join_final_p(int type)
       dist_format |= WIN_OR_LOSS | (wins_only ? WIN_ONLY : 0);
     *p++ = dist_format;
   }
+#endif
   p = buf + (((p - buf) + 7) & ~7);
+
+  if (type == DTZ) {
+    uint64_t w = 0;
+    for (int i = 0; i < 24; i++) {
+      if (!dtz_format[i].one_sided) {
+        w |= 1ull << i;
+        if (dtz_format[i].wins_only)
+          w |= 1ull << (i + 32);
+      }
+      else if (dtz_format[i].one_sided_stm == BLACK)
+        w |= 1ull << (i + 32);
+    }
+    memcpy(p, &w, 8);
+    p += 8;
+  }
 
   int num = 0, num_small = 0;
   for (int psq = 0; psq < 24; psq++)
     for (int stm = 0; stm < 2; stm++) {
-      if (!has_stm[stm]) continue;
+      if (!has_stm[psq][stm]) continue;
       create_name_p(str, InvPawnFlip[0][psq], stm, name[type]);
       if (stat(str, &st) < 0) {
         fprintf(stderr, "Could not access %s.\n", str);
@@ -907,7 +928,7 @@ static void join_final_p(int type)
   int n = 0;
   for (int psq = 0; psq < 24; psq++) {
     for (int stm = 0; stm < 2; stm++) {
-      if (!has_stm[stm]) continue;
+      if (!has_stm[psq][stm]) continue;
       if (slice_size[n] < 64) {
         create_name_p(str, InvPawnFlip[0][psq], stm, name[type]);
         int slice_fd = open(str, O_RDONLY);
@@ -934,7 +955,7 @@ static void join_final_p(int type)
   n = 0;
   for (int psq = 0; psq < 24; psq++) {
     for (int stm = 0; stm < 2; stm++) {
-      if (!has_stm[stm]) continue;
+      if (!has_stm[psq][stm]) continue;
       if (slice_size[n] >= 64) {
         create_name_p(str, InvPawnFlip[0][psq], stm, name[type]);
         int slice_fd = open(str, O_RDONLY);
