@@ -168,7 +168,7 @@ static void join_wdl_pk(int stm)
       g_pos.sq[stm ^ 1] = k2;
 
       if (king_mask(k1) & bit(k2)) {
-        memset(table + num * kslice_size, 0, kslice_size);
+        memset(table + num * kslice_size, 8, kslice_size);
       } else {
         create_name_sq(str, g_pos.sq[0], g_pos.sq[1], stm, "merged/wdl", -1);
         FILE *F = fopen(str, "rb");
@@ -245,7 +245,7 @@ static void join_dtz_pk(int stm)
   if (dtzmap.wide != join_wide) {
     join_wide = dtzmap.wide;
     free(join_table);
-    join_table = alloc_huge(kslice_size * (1 + join_wide));
+    join_table = alloc_huge(62 * kslice_size * (1 + join_wide));
     if (!join_table)
       out_of_mem();
   }
@@ -253,7 +253,7 @@ static void join_dtz_pk(int stm)
   if (dtzmap.wide != tb_wide) {
     tb_wide = dtzmap.wide;
     free(tb_table);
-    tb_table = alloc_huge((tb_size + 1) * (1 + tb_wide));
+    tb_table = alloc_huge((62 * kslice_size + 1) * (1 + tb_wide));
     if (!tb_table)
       out_of_mem();
   }
@@ -576,7 +576,7 @@ static void join_wdl_p(int stm)
       g_pos.sq[1] = k2;
 
       if (king_mask(k1) & bit(k2)) {
-        memset(table + num * kslice_size, 0, kslice_size);
+        memset(table + num * kslice_size, 8, kslice_size);
         // FIXME: increase stats[] ?
       } else {
 
@@ -709,7 +709,7 @@ static void join_dtz_p(int stm)
     }
   }
 
-  // num == 62*63
+  // num == 62*63  FIXME
   sort_values(stm, stats, &dtzmap, 62*63 * kslice_size);
   prepare_dtz_map(v, &dtzmap);
 
@@ -733,8 +733,8 @@ static void join_dtz_p(int stm)
           continue;
         g_pos.sq[1] = k2;
 
-        if (king_attacks(k1) & bit(k2)) {
-          // memset()
+        if (king_mask(k1) & bit(k2)) {
+          memset(table + n * kslice_size, 0, kslice_size);
         } else {
           create_name_sq(str, k1, k2, stm, "merged/dtz", -1);
           FILE *F = fopen(str, "rb");
@@ -767,8 +767,8 @@ static void join_dtz_p(int stm)
           continue;
         g_pos.sq[1] = k2;
 
-        if (king_attacks(k1) & bit(k2)) {
-          // memset()
+        if (king_mask(k1) & bit(k2)) {
+          memset(table + n * kslice_size, 0, kslice_size);
         } else {
           create_name_sq(str, k1, k2, stm, "merged/dtz", -1);
           FILE *F = fopen(str, "rb");
@@ -798,8 +798,8 @@ static void join_dtz_p(int stm)
           continue;
         g_pos.sq[1] = k2;
 
-        if (king_attacks(k1) & bit(k2)) {
-          // memset()
+        if (king_mask(k1) & bit(k2)) {
+          memset(table + n * kslice_size, 0, kslice_size * 2);
         } else {
           create_name_sq(str, k1, k2, stm, "merged/dtz", -1);
           FILE *F = fopen(str, "rb");
@@ -833,7 +833,7 @@ static void join_final_p(int type)
 {
   char str[128];
   struct stat st;
-  uint64_t slice_size[20], size_small = 0;
+  uint64_t slice_size[48], size_small = 0;
   bool has_stm[2] = {
     type == WDL || !one_sided || one_sided_stm == WHITE,
     !symmetric && (type == WDL || !one_sided || one_sided_stm == BLACK)
@@ -865,7 +865,7 @@ static void join_final_p(int type)
   for (int psq = 0; psq < 24; psq++)
     for (int stm = 0; stm < 2; stm++) {
       if (!has_stm[stm]) continue;
-      create_name_p(str, psq, stm, name[type]);
+      create_name_p(str, InvPawnFlip[0][psq], stm, name[type]);
       if (stat(str, &st) < 0) {
         fprintf(stderr, "Could not access %s.\n", str);
         exit(EXIT_FAILURE);
@@ -909,7 +909,7 @@ static void join_final_p(int type)
     for (int stm = 0; stm < 2; stm++) {
       if (!has_stm[stm]) continue;
       if (slice_size[n] < 64) {
-        create_name_p(str, psq, stm, name[type]);
+        create_name_p(str, InvPawnFlip[0][psq], stm, name[type]);
         int slice_fd = open(str, O_RDONLY);
         if (slice_fd < 0) {
           fprintf(stderr, "Could not open %s.\n", str);
@@ -932,11 +932,11 @@ static void join_final_p(int type)
     write_data_fd(fd, zeros, pad);
   }
   n = 0;
-  for (int psq = 0; psq < 10; psq++) {
+  for (int psq = 0; psq < 24; psq++) {
     for (int stm = 0; stm < 2; stm++) {
       if (!has_stm[stm]) continue;
       if (slice_size[n] >= 64) {
-        create_name_p(str, psq, stm, name[type]);
+        create_name_p(str, InvPawnFlip[0][psq], stm, name[type]);
         int slice_fd = open(str, O_RDONLY);
         if (slice_fd < 0) {
           fprintf(stderr, "Could not open %s.\n", str);

@@ -6,6 +6,14 @@
 
 #define NAME(f) EVALUATOR(f,T)
 
+static void NAME(merge_transform)(struct ThreadData *thread)
+{
+  T *restrict const q = merge_table;
+  T *w = merge_w;
+  for (uint64_t idx = thread->begin, end = thread->end; idx < end; idx++)
+    q[idx] = w[q[idx]];
+}
+
 static void NAME(merge_draw_worker)(struct ThreadData *thread)
 {
   T *restrict const q = merge_table;
@@ -299,7 +307,7 @@ static void NAME(merge_bitmaps)(int stm, int s)
         exit(EXIT_FAILURE);
       }
       NAME(write_data_transform)(F,
-          (T *)merge_table + 8 * r * kslice_alloc_size * sizeof(T),
+          (T *)merge_table + r * 8 * kslice_alloc_size * sizeof(T),
           kslice_size * sizeof(T), z);
       fclose(F);
       rename(tmp, str);
@@ -308,7 +316,7 @@ static void NAME(merge_bitmaps)(int stm, int s)
 
   // 0/1/2/3/4 -> loss/bloss/draw/cwin/win
   // 5/6/7/8 -> capt_bloss/_draw/_cwin/_win+illegal
-  uint8_t w[MAX];
+  T w[MAX];
   for (int i = 0; i <= DRAW_RULE; i++)
     w[NAME(mi.v)[MAX_STATS - 1 - i]] = 0;
   for (int i = DRAW_RULE + 1; i < MAX_STATS / 2 - 3; i++)
@@ -322,6 +330,9 @@ static void NAME(merge_bitmaps)(int stm, int s)
     w[NAME(mi.v)[i]] = 4;
   w[NAME(mi.v)[1]] = 8;
   w[NAME(mi.v)[0]] = 8;
+
+  merge_w = w;
+  run_threaded(NAME(merge_transform), work_g16, 0);
 
   // Replace bloss (1) with capt_bloss (5) where appropriate.
   if (capt_cnt[stm][1]) {
@@ -343,8 +354,8 @@ static void NAME(merge_bitmaps)(int stm, int s)
       fprintf(stderr, "Could not open %s.\n", tmp);
       exit(EXIT_FAILURE);
     }
-    NAME(write_data_transform_to_u8)(F,
-        (T *)merge_table + 8 * r * kslice_alloc_size, kslice_size, w);
+    NAME(write_data_as_u8)(F, (T *)merge_table + r * 8 * kslice_alloc_size,
+        kslice_size);
     fclose(F);
     rename(tmp, str);
   }

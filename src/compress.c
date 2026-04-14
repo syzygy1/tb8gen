@@ -273,6 +273,8 @@ static void remove_wdl_worker(struct ThreadData *thread)
     if (idx == end) break;
     // now idx points to a first dontcare of possibly more
     s = data[idx];
+    if (s < 0 || s > 8)
+      printf("hey\n");
     uint64_t idx2;
     for (idx2 = idx + 1; idx2 < end; idx2++) {
       if (data[idx2] < 5) break;

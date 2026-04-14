@@ -81,10 +81,11 @@ void p_idx_to_sq(uint32_t *sub, uint8_t *restrict sq,
     occ = unrank_binomial(sub[i], ii->mult[i], sq + ii->first[i], occ);
 }
 
-uint64_t p_sq_to_idx(uint8_t *restrict sq, uint64_t idx)
+uint64_t p_sq_to_idx(uint8_t *restrict sq)
 {
   Bitboard occ = bit(sq[2]);
 
+  uint64_t idx = 0;
   for (int k = 0; k < p_ii.numsets; k++) {
     int i = p_ii.first[k];
     sort_squares(p_ii.mult[k], &sq[i]);
@@ -324,11 +325,11 @@ static int64_t estimate_compression(void *table, int *bestp, bool wide,
         try_ii[i].first[j] = p_ii.first[p];
       }
 //      calc_factors(&try_ii[i]);
-      for (int l = 0, n = 62; l < try_ii[i].numsets; l++) {
-        try_ii[i].factor[l + 1] = Binomial[try_ii[i].mult[l]][n];
+      for (int l = 0, n = 63; l < try_ii[i].numsets; l++) {
+        try_ii[i].factor[l] = Binomial[try_ii[i].mult[l]][n];
         n -= try_ii[i].mult[l];
       }
-      try_ii[i].factor[0] = 64;
+//      try_ii[i].factor[0] = 64;
     }
     estimate_compression_pawn(table, num_cands, wide, wdl);
     for (i = 0; i < num_cands; i++) {

@@ -18,7 +18,6 @@ static void NAME(convert_data_pawn)(struct ThreadData *thread)
   uint64_t idx_dec_buf[NUM];
 
   int stm = g_pos.stm;
-  sq[stm] = g_pos.sq[stm];
   sq[2] = g_pos.sq[2];
 
   p_idx_to_sq_init(thread->begin, sub, perm_ii);
@@ -32,7 +31,7 @@ static void NAME(convert_data_pawn)(struct ThreadData *thread)
       fill++, idx++, p_idx_to_sq_inc(sub, perm_ii))
   {
     p_idx_to_sq(sub, sq, perm_ii, stm);
-    uint64_t idx_dec = p_sq_to_idx(sq, sub[0]);
+    uint64_t idx_dec = p_sq_to_idx(sq);
     __builtin_prefetch(src + idx_dec, 0, 3);
     idx_dec_buf[fill] = idx_dec;
   }
@@ -40,7 +39,7 @@ static void NAME(convert_data_pawn)(struct ThreadData *thread)
   // Steady-state pipeline.
   for (; idx < end; idx++, p_idx_to_sq_inc(sub, perm_ii)) {
     p_idx_to_sq(sub, sq, perm_ii, stm);
-    uint64_t idx_dec = p_sq_to_idx(sq, sub[0]);
+    uint64_t idx_dec = p_sq_to_idx(sq);
     __builtin_prefetch(src + idx_dec, 0, 3);
     dst[idx - NUM] = src[idx_dec_buf[head]];
     idx_dec_buf[head] = idx_dec;
@@ -58,7 +57,7 @@ static void NAME(convert_est_data_pawn)(struct ThreadData *thread)
 {
   T *restrict table = est_data.table;
   int num_cands = est_data.num_cands;
-  uint32_t dsize = est_data.dsize;
+  uint64_t dsize = est_data.dsize;
   T *restrict dst = est_data.dst;
   uint8_t sq[MAX_PIECES];
   uint32_t sub[MAX_SETS];
@@ -66,7 +65,9 @@ static void NAME(convert_est_data_pawn)(struct ThreadData *thread)
   uint64_t idx_dec_buf[NUM];
 
   int stm = g_pos.stm;
-  sq[stm] = g_pos.sq[stm];
+  sq[2] = g_pos.sq[2];
+  if (sq[2] == 16)
+    printf("stop here\n");
 
   for (int p = 0; p < num_cands; p++) {
     for (int i = thread->begin; i < thread->end; i++) {
@@ -77,14 +78,14 @@ static void NAME(convert_est_data_pawn)(struct ThreadData *thread)
           fill++, j++, p_idx_to_sq_inc(sub, &try_ii[p]))
       {
         p_idx_to_sq(sub, sq, &try_ii[p], stm);
-        uint64_t idx_dec = p_sq_to_idx(sq, sub[0]);
+        uint64_t idx_dec = p_sq_to_idx(sq);
         __builtin_prefetch(table + idx_dec, 0, 3);
         idx_dec_buf[fill] = idx_dec;
       }
 
       for (; j < seg_size; j++, p_idx_to_sq_inc(sub, &try_ii[p])) {
         p_idx_to_sq(sub, sq, &try_ii[p], stm);
-        uint64_t idx_dec = p_sq_to_idx(sq, sub[0]);
+        uint64_t idx_dec = p_sq_to_idx(sq);
         __builtin_prefetch(table + idx_dec, 0, 3);
         dst[p * dsize + i * seg_size + j - NUM] = table[idx_dec_buf[head]];
         idx_dec_buf[head] = idx_dec;

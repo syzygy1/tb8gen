@@ -22,6 +22,7 @@ struct MergeInfo mi;
 
 static void *merge_table;
 static int merge_n, merge_r;
+static void *merge_w;
 static int work_set;
 static bool include_wins, include_losses;
 

@@ -206,7 +206,7 @@ int main(int argc, char **argv)
 
   make_dir(g_tablename);
   change_dir(g_tablename);
-layout=0;
+
   for (int p = 0; p < 24; p++) {
 
     g_pos.sq[2] = InvPawnFlip[0][p];

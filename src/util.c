@@ -256,7 +256,7 @@ static size_t cmprs_idx;
 static void *cmprs_v;
 static int cmprs_type;
 
-enum { COPY, U8U8, U16U16, U16U8 };
+enum { COPY, U8U8, U16U16, U16U8, COPY_U16U8 };
 
 struct CompressFrame {
   size_t cmprs_chunk;
@@ -385,6 +385,11 @@ static void write_data_worker(int t)
       for (size_t i = 0; i < chunk; i++)
         buf[i] = v8[((uint16_t *)(src + idx))[i]];
       break;
+    case COPY_U16U8:
+      buf = state->buffer;
+      for (size_t i = 0; i < chunk; i++)
+        buf[i] = ((uint16_t *)(src + idx))[i];
+      break;
     }
     size_t cmprs_chunk = compress(state, state->frame->data, buf, chunk);
     state->frame->cmprs_chunk = cmprs_chunk;
@@ -451,6 +456,23 @@ void write_data(FILE *F, void *src, size_t size)
   cmprs_v = nullptr;
   cmprs_type = COPY;
   run_compression(write_data_worker);
+}
+
+void write_data_as_u8_u8(FILE *F, void *src, size_t size)
+{
+  write_data(F, src, size);
+}
+
+void write_data_as_u8_u16(FILE *F, void *src, size_t size)
+{
+  init();
+
+  cmprs_F = F;
+  cmprs_ptr = src;
+  cmprs_size = size;
+  cmprs_idx = 0;
+  cmprs_type = COPY_U16U8;
+  write_data(F, src, size);
 }
 
 static void read_data_worker(int t)
