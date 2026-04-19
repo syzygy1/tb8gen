@@ -29,8 +29,8 @@
 static constexpr int MAX_PERMS = 1*2*3*4*5*6*7;
 static constexpr int MAX_CANDS = 6*7;
 
-static uint64_t *restrict work_convert = NULL;
-static uint64_t *restrict work_est = NULL;
+static uint64_t *restrict work_convert = nullptr;
+static uint64_t *restrict work_est = nullptr;
 
 static int num_sets, num_set_perms;
 static uint8_t set_perm_list[MAX_PERMS][MAX_SETS];
@@ -71,7 +71,7 @@ static void generate_set_perms(int n)
 }
 
 static int num_segs, seg_size;
-static uint64_t *restrict segs = NULL;
+static uint64_t *restrict segs = nullptr;
 
 static constexpr int NUM_SEGS = 1000;
 static constexpr int SEG_SIZE = 64 * 256;

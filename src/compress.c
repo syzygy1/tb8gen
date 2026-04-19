@@ -75,7 +75,7 @@ static uint8_t newtest[MAXSYMB][MAXSYMB];
 static uint32_t (*countfirst)[MAX_NEW + 1][MAXSYMB + 1];
 static uint32_t (*countsecond)[MAX_NEW + 1][MAXSYMB + 1];
 
-static uint64_t *restrict work = NULL, *restrict work_adj = NULL;
+static uint64_t *restrict work = nullptr, *restrict work_adj = nullptr;
 
 static struct {
   void *data;
@@ -1005,22 +1005,19 @@ void write_final(struct tb_handle *F, FILE *G)
   // For each set of wtm/btm tables (1 or 6 sets of 2), write out the "order"
   // bytes and the permutations of piece types (low nibbles for one table,
   // high nibbles for the other table).
-  if (F->type == WDL) {
-    if (F->split) {
-      for (int i = 0; i < F->num_tables; i += 2) {
-        for (int j = 0; j < numorder; j++)
-          write_u8(G, (F->perm[i][j] >> 4) | (F->perm[i + 1][j] & 0xf0));
-        for (int j = 0; j < g_pos.num; j++)
-          write_u8(G, (F->perm[i][j] & 0x0f)
-              | ((F->perm[i + 1][j] & 0x0f) << 4));
-      }
-    } else {
-      for (int i = 0; i < F->num_tables; i++) {
-        for (int j = 0; j < numorder; j++)
-          write_u8(G, (F->perm[i][j] >> 4) | (F->perm[i][j] & 0xf0));
-        for (int j = 0; j < g_pos.num; j++)
-          write_u8(G, (F->perm[i][j] & 0x0f) | ((F->perm[i][j] & 0x0f) << 4));
-      }
+  if (F->split) {
+    for (int i = 0; i < F->num_tables; i += 2) {
+      for (int j = 0; j < numorder; j++)
+        write_u8(G, (F->perm[i][j] >> 4) | (F->perm[i + 1][j] & 0xf0));
+      for (int j = 0; j < g_pos.num; j++)
+        write_u8(G, (F->perm[i][j] & 0x0f) | ((F->perm[i + 1][j] & 0x0f) << 4));
+    }
+  } else if (F->type == WDL) {
+    for (int i = 0; i < F->num_tables; i++) {
+      for (int j = 0; j < numorder; j++)
+        write_u8(G, (F->perm[i][j] >> 4) | (F->perm[i][j] & 0xf0));
+      for (int j = 0; j < g_pos.num; j++)
+        write_u8(G, (F->perm[i][j] & 0x0f) | ((F->perm[i][j] & 0x0f) << 4));
     }
   } else {
     for (int i = 0; i < F->num_tables; i++) {
@@ -1498,8 +1495,16 @@ void compress_data_slice(int s, int stm, int type, void *data, uint64_t tb_size,
   write_u8(F, !mapped ? 0 : !wide ? 1 : 2);
 
   // Piece permutation.
-  for (int i = 0; i < ii.numsets; i++)
-    write_u8(F, perm[i]);
+#ifndef HAS_PAWNS
+  if (!big)
+    for (int i = 0; i < ii.numsets; i++)
+      write_u8(F, perm[i]);
+  else
+    for (int i = 0; i < ii.numsets + 1; i++)
+      write_u8(F, perm[i]);
+#else
+#warning fixme
+#endif
 
   if (ftell(F) & 0x01)
     write_u8(F, 0);

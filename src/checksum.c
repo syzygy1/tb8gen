@@ -22,12 +22,12 @@
 
 static uint64_t checksum1[2];
 static uint64_t checksum2[2];
-static uint64_t *results = NULL;
+static uint64_t *results = nullptr;
 static char *data;
 static size_t fsize;
 static bool checksum_found;
 static bool checksum_match;
-static uint64_t *work = NULL;
+static uint64_t *work = nullptr;
 
 static void checksum_worker(struct ThreadData *thread)
 {

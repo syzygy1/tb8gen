@@ -129,7 +129,7 @@ static void generate_set_perms(int n)
 }
 
 static int num_segs, seg_size;
-static uint64_t *restrict segs = NULL;
+static uint64_t *restrict segs = nullptr;
 
 static constexpr int NUM_SEGS = 1000;
 static constexpr int SEG_SIZE = 64 * 256;

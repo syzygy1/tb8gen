@@ -30,9 +30,11 @@ static void NAME(convert_data_piece)(struct ThreadData *thread)
   for (; fill < NUM && idx < end;
       fill++, idx++, p10_idx_to_sq_inc(sub, perm_ii))
   {
+//    if (stm == WHITE && g_pos.sq[stm] == 2 && idx == 114926)
+//      printf("hey\n");
     p10_idx_to_sq(sub, sq, perm_ii, stm);
     normalize(sq, sq2);
-    uint64_t idx_dec = p10_sq_to_idx(sq2, sub[0]);
+    uint64_t idx_dec = p10_sq_to_idx(sq2, sq[stm ^ 1]);
     __builtin_prefetch(src + idx_dec, 0, 3);
     idx_dec_buf[fill] = idx_dec;
   }
@@ -41,7 +43,7 @@ static void NAME(convert_data_piece)(struct ThreadData *thread)
   for (; idx < end; idx++, p10_idx_to_sq_inc(sub, perm_ii)) {
     p10_idx_to_sq(sub, sq, perm_ii, stm);
     normalize(sq, sq2);
-    uint64_t idx_dec = p10_sq_to_idx(sq2, sub[0]);
+    uint64_t idx_dec = p10_sq_to_idx(sq2, sq[stm ^ 1]);
     __builtin_prefetch(src + idx_dec, 0, 3);
     dst[idx - NUM] = src[idx_dec_buf[head]];
     idx_dec_buf[head] = idx_dec;
@@ -62,7 +64,7 @@ static void NAME(convert_est_data_piece)(struct ThreadData *thread)
   uint32_t dsize = est_data.dsize;
   T *restrict dst = est_data.dst;
   uint8_t sq[MAX_PIECES], sq2[MAX_PIECES];
-  uint32_t sub[MAX_SETS];
+  uint32_t sub[MAX_SETS + 1];
 
   uint64_t idx_dec_buf[NUM];
 
@@ -79,7 +81,7 @@ static void NAME(convert_est_data_piece)(struct ThreadData *thread)
       {
         p10_idx_to_sq(sub, sq, &try_ii[p], stm);
         normalize(sq, sq2);
-        uint64_t idx_dec = p10_sq_to_idx(sq2, sub[0]);
+        uint64_t idx_dec = p10_sq_to_idx(sq2, sq[stm ^ 1]);
         __builtin_prefetch(table + idx_dec, 0, 3);
         idx_dec_buf[fill] = idx_dec;
       }
@@ -87,7 +89,7 @@ static void NAME(convert_est_data_piece)(struct ThreadData *thread)
       for (; j < seg_size; j++, p10_idx_to_sq_inc(sub, &try_ii[p])) {
         p10_idx_to_sq(sub, sq, &try_ii[p], stm);
         normalize(sq, sq2);
-        uint64_t idx_dec = p10_sq_to_idx(sq2, sub[0]);
+        uint64_t idx_dec = p10_sq_to_idx(sq2, sq[stm ^ 1]);
         __builtin_prefetch(table + idx_dec, 0, 3);
         dst[p * dsize + i * seg_size + j - NUM] = table[idx_dec_buf[head]];
         idx_dec_buf[head] = idx_dec;
