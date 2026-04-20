@@ -17,6 +17,7 @@
 #include "defs.h"
 #include "huffman.h"
 #include "index.h"
+#include "joinp.h"
 #include "permute.h"
 #include "probe.h"
 #include "rans.h"
@@ -1444,8 +1445,13 @@ void compress_data_slice(int s, int stm, int type, void *data, uint64_t tb_size,
           write_u8(F, i);
           break;
         }
-    } else
+    } else {
       write_u8(F, current_map->map[0][0]);
+#ifndef HAS_PAWNS
+      if (type != WDL)
+        write_u8(F, g_dist_format);
+#endif
+    }
     goto finished;
   }
 
@@ -1492,7 +1498,12 @@ void compress_data_slice(int s, int stm, int type, void *data, uint64_t tb_size,
   }
 
   // Mapped or not.
-  write_u8(F, !mapped ? 0 : !wide ? 1 : 2);
+  if (type != WDL) {
+    write_u8(F, !mapped ? 0 : !wide ? 1 : 2);
+#ifdef HAS_PAWNS
+    write_u8(F, g_dist_format);
+#endif
+  }
 
   // Piece permutation.
 #ifndef HAS_PAWNS
@@ -1503,7 +1514,12 @@ void compress_data_slice(int s, int stm, int type, void *data, uint64_t tb_size,
     for (int i = 0; i < ii.numsets + 1; i++)
       write_u8(F, perm[i]);
 #else
-#warning fixme
+  if (!big)
+    for (int i = 0; i < ii.numsets + 1; i++)
+      write_u8(F, perm[i]);
+  else
+    for (int i = 0; i < ii.numsets + 2; i++)
+      write_u8(F, perm[i]);
 #endif
 
   if (ftell(F) & 0x01)

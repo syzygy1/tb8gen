@@ -169,6 +169,7 @@ static void generate_test_list(uint64_t size, int n)
 
 void init_permute_pawn_p(void)
 {
+  assume(ii.numsets + 2 <= MAX_SETS);
   //int stm = g_pos.stm;
   p_ii.numsets = ii.numsets + 2;
   p_ii.first[0] = 0; // stm ?
@@ -324,12 +325,10 @@ static int64_t estimate_compression(void *table, int *bestp, bool wide,
         try_ii[i].mult[j] = p_ii.mult[p];
         try_ii[i].first[j] = p_ii.first[p];
       }
-//      calc_factors(&try_ii[i]);
       for (int l = 0, n = 63; l < try_ii[i].numsets; l++) {
         try_ii[i].factor[l] = Binomial[try_ii[i].mult[l]][n];
         n -= try_ii[i].mult[l];
       }
-//      try_ii[i].factor[0] = 64;
     }
     estimate_compression_pawn(table, num_cands, wide, wdl);
     for (i = 0; i < num_cands; i++) {

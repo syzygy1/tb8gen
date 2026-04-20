@@ -139,9 +139,10 @@ struct DtmTable2 {
   uint32_t factor[MAX_SETS];
   uint8_t first[MAX_SETS];
   uint8_t mult[MAX_SETS];
+  uint8_t mapped;
+  uint8_t dist_format;
   const uint16_t *map_dtm;
   uint16_t map_dtm_idx[2];
-  uint8_t mapped;
 };
 
 struct DtzTable2 {
@@ -149,17 +150,19 @@ struct DtzTable2 {
   uint32_t factor[MAX_SETS];
   uint8_t first[MAX_SETS];
   uint8_t mult[MAX_SETS];
+  uint8_t mapped;
+  uint8_t dist_format;
+  uint16_t map_dtz_idx[4];
   union {
     const uint8_t *map_dtz;
     const uint16_t *map_dtz16;
   };
-  uint16_t map_dtz_idx[4];
-  uint8_t mapped;
 };
 
 struct TbTableConst {
   struct PairsData *precomp;
   uint16_t const_value;
+  uint8_t dist_format;
 };
 
 struct Tbase {

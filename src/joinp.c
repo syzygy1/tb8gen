@@ -29,6 +29,7 @@ static constexpr int minfreq = 8;
 
 static void *join_table, *tb_table;
 bool join_wide, tb_wide;
+uint8_t g_dist_format;
 struct DtzMap dtzmap;
 
 static int sort_list(uint64_t *freq, uint16_t *map, uint16_t *inv_map)
@@ -649,6 +650,8 @@ static void join_dtz_p(int stm)
 
   read_merge_info(stm);
 
+  g_dist_format = one_sided ? 0 : WIN_OR_LOSS | (wins_only ? WIN_ONLY : 0);
+
   // FIXME: lower 63*62 here?
   sort_values(stm, g_stats[stm], &dtzmap, 63*62 * kslice_size);
 
@@ -855,18 +858,9 @@ static void join_final_p(int type)
   for (int i = 2; i < g_pos.num; i++)
     *p++ = (g_pos.pt[i] & 7) | ((g_pos.pt[i] & 8) << 4);
   *p++ = LT_PAWN_P;
-#if 0
-  if (type != WDL) {
-    uint8_t dist_format = (has_stm[WHITE] && has_stm[BLACK]) ? TWO_SIDED : 0;
-    if (one_sided)
-      dist_format |= WTM_OR_BTM | (one_sided_stm == WHITE ? WTM_ONLY : 0);
-    else
-      dist_format |= WIN_OR_LOSS | (wins_only ? WIN_ONLY : 0);
-    *p++ = dist_format;
-  }
-#endif
   p = buf + (((p - buf) + 7) & ~7);
 
+#if 0
   if (type == DTZ) {
     uint64_t w = 0;
     for (int i = 0; i < 24; i++) {
@@ -875,17 +869,22 @@ static void join_final_p(int type)
         if (dtz_format[i].wins_only)
           w |= 1ull << (i + 32);
       }
-      else if (dtz_format[i].one_sided_stm == BLACK)
+      else if (dtz_format[i].one_sided_stm == WHITE)
         w |= 1ull << (i + 32);
     }
     memcpy(p, &w, 8);
     p += 8;
   }
+#endif
 
+  int sides = symmetric ? 1 : 2;
   int num = 0, num_small = 0;
   for (int psq = 0; psq < 24; psq++)
-    for (int stm = 0; stm < 2; stm++) {
-      if (!has_stm[psq][stm]) continue;
+    for (int stm = 0; stm < sides; stm++) {
+      if (!has_stm[psq][stm]) {
+        slice_size[num++] = 0;
+        continue;
+      }
       create_name_p(str, InvPawnFlip[0][psq], stm, name[type]);
       if (stat(str, &st) < 0) {
         fprintf(stderr, "Could not access %s.\n", str);
@@ -897,12 +896,13 @@ static void join_final_p(int type)
         size_small += st.st_size;
       }
     }
+  assert(num == 24 * sides);
 
   uint64_t offset = (p - buf) + num * sizeof(uint64_t);
   uint64_t *p64 = (uint64_t *)p;
   for (int i = 0; i < num; i++)
     if (slice_size[i] < 64) {
-      p64[i] = offset;
+      p64[i] = slice_size[i] > 0 ? offset : 0;
       offset += slice_size[i];
     }
   offset = (offset + 0x3f) & ~0x3fULL;
@@ -927,9 +927,8 @@ static void join_final_p(int type)
 
   int n = 0;
   for (int psq = 0; psq < 24; psq++) {
-    for (int stm = 0; stm < 2; stm++) {
-      if (!has_stm[psq][stm]) continue;
-      if (slice_size[n] < 64) {
+    for (int stm = 0; stm < sides; stm++) {
+      if (slice_size[n] > 0 && slice_size[n] < 64) {
         create_name_p(str, InvPawnFlip[0][psq], stm, name[type]);
         int slice_fd = open(str, O_RDONLY);
         if (slice_fd < 0) {
@@ -947,15 +946,14 @@ static void join_final_p(int type)
     fprintf(stderr, "Could not lseek().\n");
     exit(EXIT_FAILURE);
   }
-  size_t pad = (0x40 - (size & 0x3f)) & 0x3f;
+  size_t pad = (-size) & 0x3f;
   if (pad) {
     char zeros[64] = { 0 };
     write_data_fd(fd, zeros, pad);
   }
   n = 0;
   for (int psq = 0; psq < 24; psq++) {
-    for (int stm = 0; stm < 2; stm++) {
-      if (!has_stm[psq][stm]) continue;
+    for (int stm = 0; stm < sides; stm++) {
       if (slice_size[n] >= 64) {
         create_name_p(str, InvPawnFlip[0][psq], stm, name[type]);
         int slice_fd = open(str, O_RDONLY);
