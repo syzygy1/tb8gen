@@ -1447,7 +1447,7 @@ void compress_data_slice(int s, int stm, int type, void *data, uint64_t tb_size,
         }
     } else {
       write_u8(F, current_map->map[0][0]);
-#ifndef HAS_PAWNS
+#ifdef HAS_PAWNS
       if (type != WDL)
         write_u8(F, g_dist_format);
 #endif

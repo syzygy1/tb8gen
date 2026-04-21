@@ -1455,7 +1455,7 @@ NOINLINE struct TbTable2 *init_new_table(struct TbEntry *entry,
   int mapped, dist_format;
   if (type != WDL) {
     mapped = *data++;
-    dist_format = *data++;
+    dist_format = tb->layout >= LT_PAWN_P ? *data++ : 0;
   }
 
   uint8_t first[MAX_SETS];
