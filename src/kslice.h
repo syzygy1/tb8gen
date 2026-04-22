@@ -111,5 +111,7 @@ void kslice_sub_and_not(int s1, int s2, int stm);
 uint64_t kslice_count(int s);
 uint64_t kslice_count_addr(void *p);
 uint64_t kslice_sub_count_addr(void *p, int stm);
+void kslice_sub_clear(int s, int stm);
+void kslice_sub_clear_addr(void *p, int stm);
 
 #endif

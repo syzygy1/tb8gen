@@ -16,6 +16,8 @@
 #include "threads.h"
 #include "types.h"
 
+const char *wdl_name[5] = { "loss", "bloss", "draw", "cwin", "win" };
+
 uint64_t sub_cnt[2][5];
 int max_iteration;
 
@@ -38,14 +40,13 @@ INLINE void mark_king_unmoves(int stm, Bitboard occ, uint8_t *restrict sq,
 }
 
 INLINE void mark_unmoves(int k, uint8_t *restrict const p, Bitboard occ,
-    uint8_t *restrict sq)
+    const uint8_t *restrict sq)
 {
   uint8_t sq2[MAX_PIECES];
   Bitboard b = non_king_piece_moves(g_pos.pt[k], sq[k], occ);
   while (b) {
-    sq[k] = pop_lsb(&b);
-    for (int i = 0; i < MAX_PIECES; i++)
-      sq2[i] = sq[i];
+    memcpy(sq2, sq, sizeof sq2);
+    sq2[k] = pop_lsb(&b);
     uint64_t idx = sq_to_idx(sq2);
     kslice_bit_set_atomic(p, idx);
   }
@@ -64,11 +65,8 @@ static void calc_sub_worker(struct ThreadData *thread)
 
   pos.pt[m] = pos.pt[n];
   uint8_t *restrict p[5];
-  for (int i = 0; i < 5; i++) {
+  for (int i = 0; i < 5; i++)
     p[i] = kslice_sub_buf[i] + sub_offset[k];
-    memset(p[i] + ((thread->begin + 7) >> 3), 0x00,
-        (thread->end - thread->begin + 7) >> 3);
-  }
 
   idx_to_sq_init(thread->begin, sub, &capt_ii[k]);
   for (uint64_t idx = thread->begin, end = thread->end; idx < end;
@@ -96,15 +94,19 @@ static void calc_sub_worker(struct ThreadData *thread)
 // Calculate aggregate bitmaps for subtables, one per loss/bloss/draw/cwin/win.
 static void calc_sub_kslices(int stm)
 {
+  char name[5][16];
+
   g_pos.stm = stm;
 
-  create_dir(-1, stm, "sub/loss");
-  create_dir(-1, stm, "sub/bloss");
-  create_dir(-1, stm, "sub/draw");
-  create_dir(-1, stm, "sub/cwin");
-  create_dir(-1, stm, "sub/win");
+  for (int i = 0; i < 5; i++) {
+    strcat(strcpy(name[i], "sub/"), wdl_name[i]);
+    create_dir(-1, stm, name[i]);
+  }
 
   for (int s = 0; s < 462; s++) {
+    for (int i = 0; i < 5; i++)
+      kslice_sub_clear_addr(kslice_sub_buf[i], stm);
+
     for (int t = 0; t < g_num_threads; t++)
       g_thread_data[t].cnt = 0;
 
@@ -118,31 +120,21 @@ static void calc_sub_kslices(int stm)
       run_threaded(calc_sub_worker, work_capt[k], 0);
     }
 
-    uint64_t cnt_ilgl = 0, cnt_l, cnt_bl, cnt_d, cnt_cw, cnt_w;
-
+    uint64_t cnt_ilgl = 0;
     for (int t = 0; t < g_num_threads; t++)
       cnt_ilgl += g_thread_data[t].cnt;
 
-    cnt_l = kslice_sub_count_addr(kslice_sub_buf[0], stm);
-    kslice_sub_write_addr(kslice_sub_buf[0], s, stm, "sub/loss", cnt_l);
+    uint64_t c[5];
+    for (int i = 0; i < 5; i++) {
+      c[i] = kslice_sub_count_addr(kslice_sub_buf[i], stm);
+      kslice_sub_write_addr(kslice_sub_buf[i], s, stm, name[i], c[i]);
+    }
 
-    cnt_bl = kslice_sub_count_addr(kslice_sub_buf[1], stm);
-    kslice_sub_write_addr(kslice_sub_buf[1], s, stm, "sub/bloss", cnt_bl);
-
-    cnt_d = kslice_sub_count_addr(kslice_sub_buf[2], stm);
-    kslice_sub_write_addr(kslice_sub_buf[2], s, stm, "sub/draw", cnt_d);
-
-    cnt_cw = kslice_sub_count_addr(kslice_sub_buf[3], stm);
-    kslice_sub_write_addr(kslice_sub_buf[3], s, stm, "sub/cwin", cnt_cw);
-
-    cnt_w = kslice_sub_count_addr(kslice_sub_buf[4], stm);
-    kslice_sub_write_addr(kslice_sub_buf[4], s, stm, "sub/win", cnt_w);
-
-    sub_cnt[stm][0] += cnt_l;
-    sub_cnt[stm][1] += cnt_bl;
-    sub_cnt[stm][2] += cnt_d;
-    sub_cnt[stm][3] += cnt_cw - cnt_w;
-    sub_cnt[stm][4] += cnt_w - cnt_ilgl;
+    sub_cnt[stm][0] += c[0];
+    sub_cnt[stm][1] += c[1];
+    sub_cnt[stm][2] += c[2];
+    sub_cnt[stm][3] += c[3] - c[4];
+    sub_cnt[stm][4] += c[4] - cnt_ilgl;
   }
 }
 
@@ -171,10 +163,10 @@ static void predecessors_sub_worker(struct ThreadData *thread)
   for (uint64_t idx = last, end = thread->end; idx < end; idx += 64) {
     uint64_t w = *p++;
     while (w) {
-      unsigned bt = pop_lsb(&w);
-      if (idx + bt >= end) break;
-      idx_to_sq_add(idx + bt - last, sub, &capt_ii[k]);
-      last = idx + bt;
+      uint64_t cur = idx + pop_lsb(&w);
+      if (cur >= end) break; // to be removed
+      idx_to_sq_add(cur - last, sub, &capt_ii[k]);
+      last = cur;
       Bitboard occ = capt_idx_to_sq(sub, pos.sq, k);
       if (legality) {
         pos.occ = occ;
@@ -191,7 +183,6 @@ static void predecessors_sub_worker(struct ThreadData *thread)
         int j = pos.pcs[stm][i];
         pos.sq[m] = pos.sq[j];
         mark_unmoves(j, q, occ, pos.sq);
-        pos.sq[j] = pos.sq[m];
       }
     }
   }
@@ -216,8 +207,6 @@ static void predecessors_sub(int stm, int s, bool legality)
     run_threaded(predecessors_sub_worker, work_capt[k], 0);
   }
 }
-
-const char *wdl_name[5] = { "loss", "bloss", "draw", "cwin", "win" };
 
 static void calc_capt(int stm, int wdl, int n)
 {
@@ -295,19 +284,17 @@ static void predecessors_worker(struct ThreadData *thread)
   for (uint64_t idx = last, end = thread->end; idx < end; idx += 64) {
     uint64_t w = *p++;
     while (w) {
-      unsigned bt = pop_lsb(&w);
-      idx_to_sq_add(idx + bt - last, sub, &ii);
-      last = idx + bt;
-      if (last >= end) break;  // we can remove this check later if safe
+      uint64_t cur = idx + pop_lsb(&w);
+      if (cur >= end) break; // to be removed
+      idx_to_sq_add(cur - last, sub, &ii);
+      last = cur;
       Bitboard occ = idx_to_sq(sub, pos.sq);
       uint8_t tmp = pos.sq[stm];
       mark_king_unmoves(stm, occ, pos.sq, s);
       pos.sq[stm] = tmp;
       for (int i = 1; pos.pcs[stm][i] >= 0; i++) {
         int j = pos.pcs[stm][i];
-        uint8_t tmp = pos.sq[j];
         mark_unmoves(j, q, occ, pos.sq);
-        pos.sq[j] = tmp;
       }
     }
   }
@@ -324,7 +311,7 @@ static void predecessors(int stm, int s)
   run_threaded(predecessors_worker, work_g, 0);
 }
 
-INLINE int get_idx(uint8_t *restrict sq, int s)
+INLINE int get_idx(const uint8_t *restrict sq, int s)
 {
   for (int i = 0; ; i++)
     if (sq[i] == s)
@@ -368,7 +355,7 @@ INLINE bool check_king_moves(int stm, Bitboard occ, uint8_t *restrict sq)
 }
 
 INLINE bool check_moves(int k, int s, uint8_t *restrict const p, Bitboard occ,
-    uint8_t *restrict sq)
+    const uint8_t *restrict sq)
 {
   uint8_t sq2[MAX_PIECES];
 
@@ -380,8 +367,7 @@ INLINE bool check_moves(int k, int s, uint8_t *restrict const p, Bitboard occ,
     int to = pop_lsb(&attacks);
     int j = get_idx(sq, to);
     if (!((g_pos.pt[k] ^ g_pos.pt[j]) & 8)) continue;
-    for (int i = 0; i < MAX_PIECES; i++)
-      sq2[i] = sq[i];
+    memcpy(sq2, sq, sizeof sq2);
     int l = pc_to_set[j];
     sq2[k] = to;
     sq2[j] = sq2[ii.last[l]];
@@ -393,9 +379,8 @@ INLINE bool check_moves(int k, int s, uint8_t *restrict const p, Bitboard occ,
 
   b &= ~occ;
   while (b) {
-    sq[k] = pop_lsb(&b);
-    for (int i = 0; i < MAX_PIECES; i++)
-      sq2[i] = sq[i];
+    memcpy(sq2, sq, sizeof sq2);
+    sq2[k] = pop_lsb(&b);
     if (!kslice_bit_test(p, sq_to_idx(sq2)))
       return false;
   }
@@ -433,9 +418,7 @@ static void check_successors_worker(struct ThreadData *thread)
         goto clear_bit;
       for (int i = 1; pos.pcs[stm][i] >= 0; i++) {
         int j = pos.pcs[stm][i];
-        uint8_t tmp = pos.sq[j];
         bool v = check_moves(j, s, q, occ, pos.sq);
-        pos.sq[j] = tmp;
         if (!v) goto clear_bit;
       }
       uint8_t tmp = pos.sq[stm];

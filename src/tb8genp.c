@@ -265,6 +265,7 @@ int main(int argc, char **argv)
 
     // Determine the DTZ format to use.
     one_sided = !symmetric && min(ewh, ebl) <= min(elo, ewi);
+    one_sided = true;
     wins_only = ewi <= elo;
     one_sided_stm = ewh <= ebl ? WHITE : BLACK;
 

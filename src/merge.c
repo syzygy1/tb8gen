@@ -20,7 +20,7 @@
 
 struct MergeInfo mi;
 
-static void *merge_table;
+static void *merge_table, *merge_w;
 static int merge_n;
 static int work_set, work_slice;
 static bool include_wins, include_losses;

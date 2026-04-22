@@ -99,34 +99,39 @@ void print_stats(int stm)
 // calculate DTZ entropy
 static double entropy_helper(uint64_t *stats, uint64_t removed)
 {
-  uint64_t stats2[4][MAX_VAL] = { 0 };
-  for (int i = 0; i <= DRAW_RULE; i++) {
-    stats2[0][i] = stats[1 + i];
-    stats2[1][i] = stats[MAX_STATS - 1 - i];
-  }
-  for (int i = 0; i < MAX_VAL; i++) {
-    stats2[2][i] = stats[DRAW_RULE + 3 + 2 * i] + stats[DRAW_RULE + 4 + 2 * i];
-    stats2[3][i] =  stats[MAX_STATS - DRAW_RULE - 2 - 2 * i]
-                  + stats[MAX_STATS - DRAW_RULE - 3 - 2 * i];
-  }
+  uint64_t freq[4][MAX_VAL] = { 0 };
+
+  for (int i = 1; i <= DRAW_RULE; i++)
+    freq[0][i - 1] += stats[1 + i];
+
+  for (int i = DRAW_RULE + 1; i < MAX_STATS / 2 - 2; i++)
+    freq[2][(i - DRAW_RULE - 1) / 2] += stats[2 + i];
+
+  freq[1][0] = stats[MAX_STATS - 1];
+  for (int i = 1; i <= DRAW_RULE; i++)
+    freq[1][i - 1] += stats[MAX_STATS - 1 - i];
+
+  for (int i = DRAW_RULE + 1; i < MAX_STATS / 2 - 2; i++)
+    freq[3][(i - DRAW_RULE - 1) / 2] += stats[MAX_STATS - 1 - i];
+
   for (int k = 0; k < 4; k++)
     for (int i = 0; i < MAX_VAL; i++)
       for (int j = i + 1; j < MAX_VAL; j++)
-        if (stats2[k][i] < stats2[k][j])
-          Swap(stats2[k][i], stats2[k][j]);
+        if (freq[k][i] < freq[k][j])
+          Swap(freq[k][i], freq[k][j]);
 
-  for (int i = 0; i < MAX_VAL; i++)
-    for (int k = 1; k < 4; k++)
-      stats2[0][i] += stats2[k][i];
+  for (int k = 1; k < 4; k++)
+    for (int i = 0; i < MAX_VAL; i++)
+      freq[0][i] += freq[k][i];
 
-  stats2[0][0] += removed;
+  freq[0][0] += removed;
 
   uint64_t tot = 0;
   for (int i = 0; i < MAX_VAL; i++)
-    tot += stats2[0][i];
+    tot += freq[0][i];
   double entropy = 0;
-  for (int i = 0; i < MAX_VAL && stats2[0][i]; i++) {
-    double p = (double)stats2[0][i] / tot;
+  for (int i = 0; i < MAX_VAL && freq[0][i]; i++) {
+    double p = (double)freq[0][i] / tot;
     entropy += -p * log(p);
   }
   entropy /= log(2.0);

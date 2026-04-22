@@ -421,12 +421,17 @@ void kslice_delete(int slice, int stm, const char *name, int n)
   remove(str);
 }
 
-void kslice_sub_clear(int s, int stm)
+void kslice_sub_clear_addr(void *p, int stm)
 {
   if (sub_size[stm] == 0) return;
 
-  work_p = kslice_sub_get_base(s);
+  work_p = p;
   run_threaded(clear_worker, work_sub_cl[stm], 0);
+}
+
+void kslice_sub_clear(int s, int stm)
+{
+  kslice_sub_clear_addr(kslice_sub_get_base(s), stm);
 }
 
 void kslice_sub_write_addr(void *p, int slice, int stm, const char *name,

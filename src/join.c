@@ -58,15 +58,11 @@ static int sort_list(uint64_t *freq, uint16_t *map, uint16_t *inv_map)
 static void sort_values(int stm, uint64_t *stats, struct DtzMap *dtzmap,
     uint64_t tot_pos)
 {
-  uint64_t freq[4][MAX_VAL];
+  uint64_t freq[4][MAX_VAL] = { 0 };
   uint16_t (*map)[MAX_VAL] = dtzmap->map;
   uint16_t (*inv_map)[MAX_VAL] = dtzmap->inv_map;
 
   dtzmap->stm = stm;
-
-  for (int j = 0; j < 4; j++)
-    for (int i = 0; i < MAX_VAL; i++)
-      freq[j][i] = 0;
 
   for (int i = 0; i < 4; i++)
     dtzmap->num[i] = 0;

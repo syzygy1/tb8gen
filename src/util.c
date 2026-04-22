@@ -115,12 +115,14 @@ void unmap_file(const void *data, map_t map)
 
 void write_data_fd(int fd, const void *data, ssize_t count)
 {
+  const uint8_t *ptr = data;
   while (count > 0) {
-    ssize_t n = write(fd, data, count);
-    if (n < 0) {
+    ssize_t n = write(fd, ptr, count);
+    if (n <= 0) {
       fprintf(stderr, "Error writing data.\n");
       exit(EXIT_FAILURE);
     }
+    ptr += n;
     count -= n;
   }
 }
@@ -129,7 +131,7 @@ void copy_data_fd(int fd_in, int fd_out, ssize_t count)
 {
   while (count > 0) {
     ssize_t n = copy_file_range(fd_in, nullptr, fd_out, nullptr, count, 0);
-    if (n < 0) {
+    if (n <= 0) {
       fprintf(stderr, "Error copying data.\n");
       exit(EXIT_FAILURE);
     }
@@ -383,12 +385,12 @@ static void write_data_worker(int t)
       v8 = cmprs_v;
       buf = state->buffer;
       for (size_t i = 0; i < chunk; i++)
-        buf[i] = v8[((uint16_t *)(src + idx))[i]];
+        buf[i] = v8[((uint16_t *)src + idx)[i]];
       break;
     case COPY_U16U8:
       buf = state->buffer;
       for (size_t i = 0; i < chunk; i++)
-        buf[i] = ((uint16_t *)(src + idx))[i];
+        buf[i] = ((uint16_t *)src + idx)[i];
       break;
     }
     size_t cmprs_chunk = compress(state, state->frame->data, buf, chunk);
@@ -472,7 +474,7 @@ void write_data_as_u8_u16(FILE *F, void *src, size_t size)
   cmprs_size = size;
   cmprs_idx = 0;
   cmprs_type = COPY_U16U8;
-  write_data(F, src, size);
+  run_compression(write_data_worker);
 }
 
 static void read_data_worker(int t)
@@ -515,13 +517,13 @@ static void read_data_worker(int t)
       uint8_t *restrict v16 = cmprs_v;
       uint16_t *restrict buf16 = state->buffer;
       for (size_t i = 0; i < chunk / 2; i++)
-        ((uint16_t *)(dst + idx))[i] = buf16[i];
+        ((uint16_t *)(dst + idx))[i] = v16[buf16[i]];
       break;
     case U16U8:
       v8 = cmprs_v;
       buf16 = state->buffer;
       for (size_t i = 0; i < chunk / 2; i++)
-        dst[idx / 2 + i] = v16[buf16[i]];
+        dst[idx / 2 + i] = v8[buf16[i]];
       break;
     }
   }
