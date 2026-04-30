@@ -711,11 +711,7 @@ static void calc_pawn_push(void)
   sprintf(str, "../%c%c/merged/wdl/w/%c%c%c%c", fl(g_pos.sq[2]),
       rk(g_pos.sq[2] - 8), fl(g_pos.sq[0]), rk(g_pos.sq[0]),
       fl(g_pos.sq[1]), rk(g_pos.sq[1]));
-  FILE *F = fopen(str, "rb");
-  if (!F) {
-    fprintf(stderr, "Could not open %s.\n", str);
-    exit(EXIT_FAILURE);
-  }
+  FILE *F = file_open_read(str);
   read_data(F, merged_table, kslice_size);
   fclose(F);
 
@@ -772,11 +768,7 @@ static void calc_pawn_double_push(void)
   sprintf(str, "../%c%c/merged/wdl/w/%c%c%c%c", fl(g_pos.sq[2]),
       rk(g_pos.sq[2] - 8), fl(g_pos.sq[0]), rk(g_pos.sq[0]),
       fl(g_pos.sq[1]), rk(g_pos.sq[1]));
-  FILE *F = fopen(str, "rb");
-  if (!F) {
-    fprintf(stderr, "Could not open %s.\n", str);
-    exit(EXIT_FAILURE);
-  }
+  FILE *F = file_open_read(str);
   read_data(F, merged_table, kslice_size);
   fclose(F);
 
@@ -786,11 +778,7 @@ static void calc_pawn_double_push(void)
   sprintf(str, "../%c%c/merged/wdl/w/%c%c%c%c", fl(g_pos.sq[2]),
       rk(g_pos.sq[2] - 16), fl(g_pos.sq[0]), rk(g_pos.sq[0]),
       fl(g_pos.sq[1]), rk(g_pos.sq[1]));
-  F = fopen(str, "rb");
-  if (!F) {
-    fprintf(stderr, "Could not open %s.\n", str);
-    exit(EXIT_FAILURE);
-  }
+  F = file_open_read(str);
   read_data(F, merged_table2, kslice_size);
   fclose(F);
 

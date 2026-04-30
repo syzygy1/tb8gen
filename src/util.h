@@ -176,6 +176,13 @@ void file_read(void *ptr, size_t size, FILE *F);
 void file_write(void *ptr, size_t size, FILE *F);
 void report_io(void);
 
+FILE *file_open_read(const char *name);
+FILE *file_open_write(const char *name);
+void file_rename(const char *name);
+bool file_exists(const char *name);
+bool dir_exists(int n, int stm, const char *name);
+void create_empty(const char *name);
+
 void copy_data(FILE *F, FILE *G, size_t num);
 void write_data(FILE *F, void *src, size_t size);
 void write_data_transform_u8(FILE *F, void *src, size_t size, uint8_t *v);
@@ -192,6 +199,7 @@ void read_data_transform_u8(FILE *F, void *dst, size_t size, uint8_t *v);
 void read_data_transform_u16(FILE *F, void *dst, size_t size, uint16_t *v);
 void read_data_transform_to_u8_u16(FILE *F, void *dst, size_t size,
     uint8_t *v);
+void read_data_or(FILE *F, void *dst, size_t size);
 
 void create_dir(int n, int stm, const char *name);
 void create_name(char *str, int s, int stm, const char *name, int n);

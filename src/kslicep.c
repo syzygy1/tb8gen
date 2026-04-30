@@ -426,14 +426,9 @@ void k16slice_nor(int s1, int s2)
 void k16slice_write_addr(void *p, int slice, int stm, const char *name, int n,
     uint64_t num[16])
 {
-  char str[128], tmp[128];
+  char str[128];
   create_name(str, slice, stm, name, n);
-  strcat(strcpy(tmp, str), ".tmp");
-  FILE *F = fopen(tmp, "wb");
-  if (!F) {
-    fprintf(stderr, "Could not open %s for writing.\n", tmp);
-    exit(EXIT_FAILURE);
-  }
+  FILE *F = file_open_write(str);
   uint64_t cnt = 0;
   if (num) {
     for (int r = 0; r < 16; r++)
@@ -449,7 +444,7 @@ void k16slice_write_addr(void *p, int slice, int stm, const char *name, int n,
     write_data(F, p, k16slice_cache_lines << 6);
   }
   fclose(F);
-  rename(tmp, str);
+  file_rename(str);
 }
 
 void k16slice_write(int s, int slice, int stm, const char *name, int n,
@@ -526,29 +521,20 @@ void k16slice_sub_clear(int s, int stm)
 void k16slice_sub_write_addr(void *p, int slice, int stm, const char *name,
     uint64_t num)
 {
-  char str[128], tmp[128];
+  char str[128];
   create_name(str, slice, stm, name, -1);
-  strcat(strcpy(tmp, str), ".tmp");
-  FILE *F = fopen(tmp, "wb");
-  if (!F) {
-    fprintf(stderr, "Could not open %s for writing.\n", tmp);
-    exit(EXIT_FAILURE);
-  }
+  FILE *F = file_open_write(str);
   if (num > 0)
     write_data(F, p, sub_size[stm]);
   fclose(F);
-  rename(tmp, str);
+  file_rename(str);
 }
 
 void k16slice_sub_read(int s, int slice, int stm, const char *name)
 {
   char str[128];
   create_name(str, slice, stm, name, -1);
-  FILE *F = fopen(str, "rb");
-  if (!F) {
-    fprintf(stderr, "Could not open %s for reading.\n", str);
-    exit(EXIT_FAILURE);
-  }
+  FILE *F = file_open_read(str);
   struct stat st;
   fstat(fileno(F), &st);
   if (st.st_size > 0)

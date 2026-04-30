@@ -158,7 +158,7 @@ void k16slice_sub_read(int s, int slice, int stm, const char *name);
 void k16slice_sub_or_addr(void *p, void *q, int stm);
 void k16slice_sub_and_not(int s1, int s2, int stm);
 void k16slice_clear_tail(int s);
-void k16slice_clear_tail_add(void *p);
+void k16slice_clear_tail_addr(void *p);
 uint64_t k16slice_count(int s, uint64_t num[16]);
 uint64_t k16slice_count_addr(void *p, uint64_t num[16]);
 uint64_t k16slice_sub_count_addr(void *p, int stm);

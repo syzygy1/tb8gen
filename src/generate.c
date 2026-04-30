@@ -21,10 +21,15 @@ const char *wdl_name[5] = { "loss", "bloss", "draw", "cwin", "win" };
 uint64_t sub_cnt[2][5];
 int max_iteration;
 
+INLINE int stats_n(int n) {
+  return 1 + n + (n > DRAW_RULE);
+}
+
 INLINE void mark_king_unmoves(int stm, Bitboard occ, uint8_t *restrict sq,
     int s)
 {
   uint8_t sq2[MAX_PIECES];
+  uint8_t tmp = sq[stm];
   Bitboard b = king_attacks(sq[stm]) & ~(occ | king_attacks(sq[stm ^ 1]));
   while (b) {
     sq[stm] = pop_lsb(&b);
@@ -37,6 +42,7 @@ INLINE void mark_king_unmoves(int stm, Bitboard occ, uint8_t *restrict sq,
       kslice_bit_set_atomic(p, sq_to_idx(sq2));
     }
   }
+  sq[stm] = tmp;
 }
 
 INLINE void mark_unmoves(int k, uint8_t *restrict const p, Bitboard occ,
@@ -94,6 +100,16 @@ static void calc_sub_worker(struct ThreadData *thread)
 // Calculate aggregate bitmaps for subtables, one per loss/bloss/draw/cwin/win.
 static void calc_sub_kslices(int stm)
 {
+  char done[16];
+  sprintf(done, "sub/done_%c", "wb"[stm]);
+  FILE *F = fopen(done, "rb");
+  if (F) {
+    for (int i = 0; i < 5; i++)
+      file_read(&sub_cnt[stm][i], 8, F);
+    fclose(F);
+    return;
+  }
+
   char name[5][16];
 
   g_pos.stm = stm;
@@ -104,30 +120,36 @@ static void calc_sub_kslices(int stm)
   }
 
   for (int s = 0; s < 462; s++) {
+    uint64_t c[5], cnt_ilgl = 0;
+
+    bool done = true;
     for (int i = 0; i < 5; i++)
-      kslice_sub_clear_addr(kslice_sub_buf[i], stm);
+      done = done && kslice_test_count(s, stm, name[i], -1, &c[i]);
 
-    for (int t = 0; t < g_num_threads; t++)
-      g_thread_data[t].cnt = 0;
+    if (!done) {
+      for (int i = 0; i < 5; i++)
+        kslice_sub_clear_addr(kslice_sub_buf[i], stm);
 
-    g_pos.sq[0] = KKSquare[s][0];
-    g_pos.sq[1] = KKSquare[s][1];
+      for (int t = 0; t < g_num_threads; t++)
+        g_thread_data[t].cnt = 0;
 
-    for (int k = 0; k < ii.numsets; k++) {
-      if ((g_pos.pt[ii.first[k]] >> 3) != stm)
-        continue;
-      work_set = k;
-      run_threaded(calc_sub_worker, work_capt[k], 0);
-    }
+      g_pos.sq[0] = KKSquare[s][0];
+      g_pos.sq[1] = KKSquare[s][1];
 
-    uint64_t cnt_ilgl = 0;
-    for (int t = 0; t < g_num_threads; t++)
-      cnt_ilgl += g_thread_data[t].cnt;
+      for (int k = 0; k < ii.numsets; k++) {
+        if ((g_pos.pt[ii.first[k]] >> 3) != stm)
+          continue;
+        work_set = k;
+        run_threaded(calc_sub_worker, work_capt[k], 0);
+      }
 
-    uint64_t c[5];
-    for (int i = 0; i < 5; i++) {
-      c[i] = kslice_sub_count_addr(kslice_sub_buf[i], stm);
-      kslice_sub_write_addr(kslice_sub_buf[i], s, stm, name[i], c[i]);
+      for (int t = 0; t < g_num_threads; t++)
+        cnt_ilgl += g_thread_data[t].cnt;
+
+      for (int i = 0; i < 5; i++) {
+        c[i] = kslice_sub_count_addr(kslice_sub_buf[i], stm);
+        kslice_sub_write_addr(kslice_sub_buf[i], s, stm, name[i], c[i]);
+      }
     }
 
     sub_cnt[stm][0] += c[0];
@@ -136,6 +158,15 @@ static void calc_sub_kslices(int stm)
     sub_cnt[stm][3] += c[3] - c[4];
     sub_cnt[stm][4] += c[4] - cnt_ilgl;
   }
+
+  F = file_open_write(done);
+  for (int i = 0; i < 5; i++)
+    file_write(&sub_cnt[stm][i], 8, F);
+  fclose(F);
+  file_rename(done);
+
+  for (int i = 0; i < 5; i++)
+    printf("sub_cnt[%d][%d] = %lu\n", stm, i, sub_cnt[stm][i]);
 }
 
 static bool work_legality;
@@ -154,17 +185,17 @@ static void predecessors_sub_worker(struct ThreadData *thread)
   int m = ii.last[k];
   pos.pt[m] = pos.pt[n];
 
-  uint64_t *restrict p = (uint64_t *)kslice_sub_get_address(s, k);
+  uint64_t *restrict p =
+    (uint64_t *)kslice_sub_get_address(s, k) + (thread->begin >> 6);
   uint8_t *restrict const q = kslice_get_address(s);
 
   uint64_t last = thread->begin;
-  p += thread->begin >> 6;
   idx_to_sq_init(last, sub, &capt_ii[k]);
+
   for (uint64_t idx = last, end = thread->end; idx < end; idx += 64) {
     uint64_t w = *p++;
     while (w) {
       uint64_t cur = idx + pop_lsb(&w);
-      if (cur >= end) break; // to be removed
       idx_to_sq_add(cur - last, sub, &capt_ii[k]);
       last = cur;
       Bitboard occ = capt_idx_to_sq(sub, pos.sq, k);
@@ -177,7 +208,6 @@ static void predecessors_sub_worker(struct ThreadData *thread)
       // Uncapture by king.
       pos.sq[m] = pos.sq[stm];
       mark_king_unmoves(stm, occ, pos.sq, s);
-      pos.sq[stm] = pos.sq[m];
       // Uncapture by non-king pieces.
       for (int i = 1; pos.pcs[stm][i] >= 0; i++) {
         int j = pos.pcs[stm][i];
@@ -208,64 +238,143 @@ static void predecessors_sub(int stm, int s, bool legality)
   }
 }
 
+static int wins_full[2][462];
+static int wins_checked[2][462];
+static uint64_t wins_cnt[2][462];
+static uint64_t replay_cost[2][462];
+static uint64_t write_cost[2][462];
+
+static void add_wins(int s, int stm, int n, uint64_t num, uint64_t cost)
+{
+  wins_cnt[stm][s] += num;
+
+  replay_cost[stm][s] += cost;
+  if (replay_cost[stm][s] * 1.0 <= write_cost[stm][s])
+    return;
+
+  kslice_or(-1, s);
+  write_cost[stm][s] = kslice_write(-1, s, stm, "wins", n, 1 + wins_cnt[stm][s]);
+  replay_cost[stm][s] = 0;
+
+  kslice_delete(s, stm, "wins", wins_full[stm][s]);
+  for (int i = max(wins_full[stm][s] + 1, wins_checked[stm][s]); i < n; i++)
+    kslice_delete(s, stm, "wins", i);
+  wins_full[stm][s] = wins_checked[stm][s] = n;
+}
+
+static void read_wins(int s, int slice, int stm, int n)
+{
+  if (n < 0)
+    for (n = MAX_STATS / 2 - 3; n > 0; n--)
+      if (g_stats[stm][stats_n(n)])
+        break;
+
+  if (wins_checked[stm][slice] < n) {
+    int i;
+    for (i = n; i > wins_checked[stm][slice]; i--)
+      if (kslice_test(slice, stm, "wins", i))
+        break;
+    if (i > wins_checked[stm][slice]) {
+      for (int j = i - 1; j >= wins_full[stm][slice]; j--)
+        kslice_delete(slice, stm, "wins", j);
+      wins_full[stm][slice] = i;
+    }
+    wins_checked[stm][slice] = n;
+  }
+
+  kslice_read(s, slice, stm, "wins", wins_full[stm][slice]);
+  for (int i = wins_full[stm][slice] + 1; i <= n; i++)
+    if (g_stats[stm][stats_n(i)])
+      kslice_read_or(s, slice, stm, "W", i);
+  wins_cnt[stm][slice] = kslice_read_count;
+}
+
 static void calc_capt(int stm, int wdl, int n)
 {
-  struct KSliceIterator iter;
-  uint64_t num, cnt = 0;
+  if (!sub_cnt[stm ^ 1][2 - wdl])
+    return;
 
   char capt_name[128], sub_name[128];
   strcat(strcpy(capt_name, "capt/"), wdl_name[2 + wdl]);
-  strcat(strcpy(sub_name, "sub/"), wdl_name[2 - wdl]);
+  strcat(strcpy(sub_name , "sub/" ), wdl_name[2 - wdl]);
 
-  if (sub_cnt[stm ^ 1][2 - wdl]) {
-    create_dir(-1, stm, capt_name);
+  char str[128];
+  sprintf(str, "%s/%c/done", capt_name, "wb"[stm]);
+  FILE *F = fopen(str, "rb");
+  if (F) {
+    file_read(&g_stats[stm][n], 8, F);
+    printf("capt_%s_%c = %lu\n", wdl_name[2 + wdl], "wb"[stm], g_stats[stm][n]);
+    fclose(F);
+    return;
+  }
 
-    kslice_iter_init(&iter, stm);
-    int s, s1;
-    while (kslice_iter_next(&iter, &s)) {
+  create_dir(-1, stm, capt_name);
 
-      if (kslice_test(s, stm ^ 1, sub_name, -1)) {
-        while (kslice_iter_in(&iter, &s1))
-          kslice_clear(s1);
+  struct KSliceIterator iter;
+  uint64_t num, cnt = 0;
 
-        kslice_sub_read(s, s, stm ^ 1, sub_name);
-        predecessors_sub(stm, s, false);
-      }
+  kslice_iter_init(&iter, stm);
+  int s, s1;
+  while (kslice_iter_next(&iter, &s)) {
 
-      while (kslice_iter_out(&iter, &s)) {
-        kslice_read(-1, s, stm, "wins", 0); // Illegal positions.
+    if (kslice_test(s, stm ^ 1, sub_name, -1)) {
+      while (kslice_iter_in(&iter, &s1))
+        kslice_clear(s1);
+
+      kslice_sub_read(s, s, stm ^ 1, sub_name);
+      predecessors_sub(stm, s, false);
+    }
+
+    while (kslice_iter_out(&iter, &s)) {
+      if (!kslice_test_count(s, stm, capt_name, -1, &num)) {
+        read_wins(-1, s, stm, -1); // most recent "wins".
         kslice_and_not(s, -1); // Remove illegal positions from capt/win.
-        cnt += num = kslice_count(s);
+        num = kslice_count(s);
         kslice_write(s, s, stm, capt_name, -1, num);
       }
+      cnt += num;
     }
   }
 
   g_stats[stm][n] = cnt;
+
+  F = file_open_write(str);
+  file_write(&g_stats[stm][n], 8, F);
+  fclose(F);
+  file_rename(str);
+
   printf("capt_%s_%c = %lu\n", wdl_name[2 + wdl], "wb"[stm], cnt);
 }
 
 static void calc_capt_bloss(int stm)
 {
+  if (!sub_cnt[stm ^ 1][3])
+    return;
+
+  if (file_exists("capt/bloss/done"))
+    return;
+
+  create_dir(-1, stm, "capt/bloss");
+
   struct KSliceIterator iter;
 
-  if (sub_cnt[stm ^ 1][3]) {
-    create_dir(-1, stm, "capt/bloss");
+  kslice_iter_init(&iter, stm);
+  int s, s1;
+  while (kslice_iter_next(&iter, &s)) {
+    while (kslice_iter_in(&iter, &s1))
+      kslice_clear(s1);
 
-    kslice_iter_init(&iter, stm);
-    int s, s1;
-    while (kslice_iter_next(&iter, &s)) {
+    kslice_sub_read(s, s, stm ^ 1, "sub/cwin");
+    predecessors_sub(stm, s, true);
 
-      while (kslice_iter_in(&iter, &s1))
-        kslice_clear(s1);
-
-      kslice_sub_read(s, s, stm ^ 1, "sub/cwin");
-      predecessors_sub(stm, s, true);
-
-      while (kslice_iter_out(&iter, &s))
-        kslice_write(s, s, stm, "capt/bloss", -1, UINT64_MAX);
+    while (kslice_iter_out(&iter, &s)) {
+      uint64_t num = kslice_count(s);
+      if (num && !kslice_test(s, stm, "capt/bloss", -1))
+        kslice_write(s, s, stm, "capt/bloss", -1, num);
     }
   }
+
+  create_empty("capt/bloss/done");
 }
 
 static void predecessors_worker(struct ThreadData *thread)
@@ -285,13 +394,10 @@ static void predecessors_worker(struct ThreadData *thread)
     uint64_t w = *p++;
     while (w) {
       uint64_t cur = idx + pop_lsb(&w);
-      if (cur >= end) break; // to be removed
       idx_to_sq_add(cur - last, sub, &ii);
       last = cur;
       Bitboard occ = idx_to_sq(sub, pos.sq);
-      uint8_t tmp = pos.sq[stm];
       mark_king_unmoves(stm, occ, pos.sq, s);
-      pos.sq[stm] = tmp;
       for (int i = 1; pos.pcs[stm][i] >= 0; i++) {
         int j = pos.pcs[stm][i];
         mark_unmoves(j, q, occ, pos.sq);
@@ -408,9 +514,9 @@ static void check_successors_worker(struct ThreadData *thread)
     uint64_t w2 = w;
     while (w) {
       unsigned bt = pop_lsb(&w);
-      idx_to_sq_add(idx + bt - last, sub, &ii);
-      last = idx + bt;
-      if (last >= end) break; // we can remove this check later if safe
+      uint64_t cur = idx + bt;
+      idx_to_sq_add(cur - last, sub, &ii);
+      last = cur;
       Bitboard occ = pos.occ = idx_to_sq(sub, pos.sq);
       // Legality check not necessary if we already remove illegal positions.
       // Currently, we need to test.
@@ -502,9 +608,9 @@ static void calc_mate_worker(struct ThreadData *thread)
     uint64_t white = 0, black = 0;
     while (w) {
       unsigned bt = pop_lsb(&w);
-      idx_to_sq_add(idx + bt - last, sub, &ii);
-      last = idx + bt;
-      if (last >= end) break;
+      uint64_t cur = idx + bt;
+      idx_to_sq_add(cur - last, sub, &ii);
+      last = cur;
       pos.occ = idx_to_sq(sub, pos.sq);
       if (*p1 & bit(bt)) {
         pos.stm = WHITE;
@@ -524,9 +630,41 @@ static void calc_mate_worker(struct ThreadData *thread)
 // Calc illegal and mate (L0) positions.
 static void calc_illegal_and_mate(void)
 {
-  uint64_t broken_w = 0, broken_b = 0, loss0_w = 0, loss0_b = 0, num;
+  FILE *F = fopen("0/done", "rb");
+  if (F) {
+    for (int stm = 0; stm < 2; stm++) {
+      file_read(&g_stats[stm][0], 8, F);
+      file_read(&g_stats[stm][MAX_STATS - 1], 8, F);
+    }
+    fclose(F);
+    return;
+  }
+
+  bool partial = file_exists("0");
+
+  for (int stm = 0; stm < 2; stm++) {
+    create_dir(0, stm, "wins");
+    create_dir(0, stm, "L");
+  }
+
+  uint64_t broken[2] = { 0 }, loss0[2] = { 0 }, num;
 
   for (int s = 0; s < 462; s++) {
+    if (partial) {
+      char str[128];
+      create_name(str, s, BLACK, "L", 0);
+      if (file_exists(str)) {
+        for (int stm = 0; stm < 2; stm++) {
+          write_cost[stm][s] = kslice_size_count(s, stm, "wins", 0, &num);
+          wins_cnt[stm][s] = num;
+          broken[stm] += num;
+          kslice_size_count(s, stm, "L", 0, &num);
+          loss0[stm] += num;
+        }
+        continue;
+      }
+    }
+
     g_pos.sq[0] = KKSquare[s][0];
     g_pos.sq[1] = KKSquare[s][1];
 
@@ -538,41 +676,62 @@ static void calc_illegal_and_mate(void)
       run_threaded(calc_illegal_worker, work_capt[k], 0);
     }
 
-    broken_w += num = kslice_count_addr(kslice_buf[0]);
-    kslice_write_addr(kslice_buf[0], s, WHITE, "wins", 0, num);
-
-    broken_b += num = kslice_count_addr(kslice_buf[1]);
-    kslice_write_addr(kslice_buf[1], s, BLACK, "wins", 0, num);
+    for (int stm = 0; stm < 2; stm++) {
+      broken[stm] += num = kslice_count_addr(kslice_buf[stm]);
+      write_cost[stm][s] =
+        kslice_write_addr(kslice_buf[stm], s, stm, "wins", 0, num);
+      wins_cnt[stm][s] = num;
+    }
 
     kslice_clear_addr(kslice_buf[2]); // wtm mate
     kslice_clear_addr(kslice_buf[3]); // btm mate
 
     run_threaded(calc_mate_worker, work_g, 0);
 
-    loss0_w += num = kslice_count_addr(kslice_buf[2]);
-    kslice_write_addr(kslice_buf[2], s, WHITE, "L", 0, num);
-
-    loss0_b += num = kslice_count_addr(kslice_buf[3]);
-    kslice_write_addr(kslice_buf[3], s, BLACK, "L", 0, num);
+    for (int stm = 0; stm < 2; stm++) {
+      loss0[stm] += num = kslice_count_addr(kslice_buf[2 + stm]);
+      kslice_write_addr(kslice_buf[2 + stm], s, stm, "L", 0, num);
+    }
   }
 
-  g_stats[WHITE][0] = broken_w;
-  g_stats[BLACK][0] = broken_b;
-  g_stats[WHITE][MAX_STATS - 1] = loss0_w;
-  g_stats[BLACK][MAX_STATS - 1] = loss0_b;
+  F = file_open_write("0/done");
+  for (int stm = 0; stm < 2; stm++) {
+    g_stats[stm][0] = broken[stm];
+    g_stats[stm][MAX_STATS - 1] = loss0[stm];
+    file_write(&g_stats[stm][0], 8, F);
+    file_write(&g_stats[stm][MAX_STATS - 1], 8, F);
+  }
+  fclose(F);
+  file_rename("0/done");
 
-  printf("broken_w = %lu\n", broken_w);
-  printf("broken_b = %lu\n", broken_b);
-  printf("l0_w = %lu\n", loss0_w);
-  printf("l0_b = %lu\n", loss0_b);
+  printf("broken_w = %lu\n", broken[WHITE]);
+  printf("broken_b = %lu\n", broken[BLACK]);
+  printf("l0_w = %lu\n", loss0[WHITE]);
+  printf("l0_b = %lu\n", loss0[BLACK]);
 }
 
 // Calculate stm losses in n from stm^1 wins in n-1 (n > 1) or
 // from stm^1 wins in sub tables reached through captures (n == 1).
 static bool calc_L(int stm, int n, bool more_l)
 {
+  char str[128];
+  sprintf(str, "%d/L/%c/done", n, "wb"[stm]);
+  FILE *F = fopen(str, "rb");
+  if (F) {
+    file_read(&g_stats[stm][MAX_STATS - 1 - n], 8, F);
+    fclose(F);
+    return g_stats[stm][MAX_STATS - 1 - n] != 0;
+  }
+
   struct KSliceIterator iter;
-  uint64_t cnt = 0, num;
+  bool partial = true;
+
+  if (dir_exists(n, stm, "L"))
+    goto skip_X;
+
+  partial = dir_exists(n, stm, "X");
+  bool done = partial;
+  uint64_t num;
 
   create_dir(n, stm, "X");
 
@@ -586,9 +745,12 @@ static bool calc_L(int stm, int n, bool more_l)
 
     if (pred_sub || pred) {
       while (kslice_iter_in(&iter, &s1))
-        kslice_clear(s1);
+        if (!partial || !kslice_test_count(s1, stm, "X", n, &num)) {
+          done = false;
+          kslice_clear(s1);
+        }
 
-      if (pred_sub) {
+      if (pred_sub && !done) {
         if (n == 1) {
           kslice_sub_read(s, s, stm ^ 1, "sub/win");
           predecessors_sub(stm, s, true);
@@ -601,7 +763,7 @@ static bool calc_L(int stm, int n, bool more_l)
         }
       }
 
-      if (pred) {
+      if (pred && !done) {
         kslice_read(-1, s, stm ^ 1, "W", n - 1);
         predecessors(stm, s);
       }
@@ -609,25 +771,24 @@ static bool calc_L(int stm, int n, bool more_l)
 
     while (kslice_iter_out(&iter, &s)) {
 #if 0
-        // If there are many predecessors, it might be more efficient to
-        // filter them with this method.
-        //
-        // "wins" include illegal positions, so this also removes illegal
-        // positions from X, which means we can remove the legality check
-        // from check_successors().
-        kslice_read(-1, s, stm, "wins", 0);
-        kslice_and_not(s, -1);
-        //
-        // Removing positions with a drawing capture means we don't need to
-        // test captures in check_successors().
-        kslice_read(-1, s, stm, n <= DRAW_RULE ? "capt_bloss" : "capt_draw", 0);
-        kslice_and_not(s, -1);
+      // If there are many predecessors, it might be more efficient to
+      // remove illegal positions and positions with non-losing captures
+      // here.
+      kslice_read(-1, s, stm, n <= DRAW_RULE ? "noloss" : "nobloss", -1);
 #endif
-      kslice_write(s, s, stm, "X", n, UINT64_MAX); // FIXME
+      if (!partial || !kslice_test_count(s, stm, "X", n, &num)) {
+        kslice_clear_tail(s);
+        kslice_write(s, s, stm, "X", n, UINT64_MAX);
+      }
     }
   }
 
   create_dir(n, stm, "L");
+  partial = false;
+
+skip_X:
+
+  uint64_t cnt = 0;
 
   // Verify potential losses.
   kslice_iter_init(&iter, stm);
@@ -635,7 +796,7 @@ static bool calc_L(int stm, int n, bool more_l)
 
     if (kslice_test(s, stm, "X", n)) {
       while (kslice_iter_in(&iter, &s1)) {
-        kslice_read(s1, s1, stm ^ 1, "wins", 0);
+        read_wins(s1, s1, stm ^ 1, n - 1);
         // If there are very few predecessors, it might be more efficient to
         // directly probe_wdl() their captures.
         kslice_sub_read(s1, s1, stm ^ 1,
@@ -645,23 +806,42 @@ static bool calc_L(int stm, int n, bool more_l)
       kslice_read(-1, s, stm, "X", n);
       cnt += num = check_successors(stm, s);
       kslice_write(-1, s, stm, "L", n, num);
-    }
-    kslice_delete(s, stm, "X", n);
+    } else if (partial && kslice_test_count(s, stm, "L", n, &num))
+      cnt += num;
 
-    while (kslice_iter_out(&iter, &s));
+    while (kslice_iter_out(&iter, &s))
+      kslice_delete(s, stm, "X", n);
   }
 
   g_stats[stm][MAX_STATS - 1 - n] = cnt;
+
+  F = file_open_write(str);
+  file_write(&g_stats[stm][MAX_STATS - 1 - n], 8, F);
+  fclose(F);
+  file_rename(str);
+
   printf("l%d_%c = %lu\n", n, "wb"[stm], cnt);
   return cnt != 0;
 }
 
 static bool calc_W(int stm, int n, bool more_w)
 {
+  char str[128];
+  sprintf(str, "%d/W/%c/done", n, "wb"[stm]);
+  FILE *F = fopen(str, "rb");
+  if (F) {
+    file_read(&g_stats[stm][stats_n(n)], 8, F);
+    fclose(F);
+    return g_stats[stm][stats_n(n)] != 0;
+  }
+
   struct KSliceIterator iter;
   uint64_t cnt = 0, num;
 
+  bool partial = dir_exists(n, stm, "W"), done = partial;
+
   create_dir(n, stm, "W");
+  create_dir(n, stm, "wins");
 
   // Calculate wins in n = predecessors(L(n-1))
   kslice_iter_init(&iter, stm);
@@ -672,20 +852,21 @@ static bool calc_W(int stm, int n, bool more_w)
     bool pred = more_w && kslice_test(s, stm ^ 1, "L", n - 1);
 
     if (pred_sub || pred) {
-      while (kslice_iter_in(&iter, &s1))
-        kslice_clear(s1);
-
-      if (pred_sub) {
-        if (n == 1) {
-          kslice_sub_read(s, s, stm ^ 1, "sub/loss");
-          predecessors_sub(stm, s, false);
+      while (kslice_iter_in(&iter, &s1)) {
+        if (partial && kslice_test_count(s1, stm, "W", n, &num)) {
+          cnt += num;
         } else {
-          kslice_sub_read(s, s, stm ^ 1, "sub/bloss");
-          predecessors_sub(stm, s, false);
+          done = false;
+          kslice_clear(s1);
         }
       }
 
-      if (pred) {
+      if (pred_sub && !done) {
+        kslice_sub_read(s, s, stm ^ 1, n == 1 ? "sub/loss" : "sub/bloss");
+        predecessors_sub(stm, s, false);
+      }
+
+      if (pred && !done) {
         kslice_read(-1, s, stm ^ 1, "L", n - 1);
         predecessors(stm, s);
       }
@@ -693,44 +874,57 @@ static bool calc_W(int stm, int n, bool more_w)
 
     while (kslice_iter_out(&iter, &s)) {
 #if 0
-      if (n == 1) {
-        kslice_read(-1, s, stm, "capt_win", 0);
-        kslice_or(s, -1);
-      } else if (n == DRAW_RULE + 1) {
-        kslice_read(-1, s, stm, "capt_cwin", 0);
+      if (n == 1 || n == DRAW_RULE + 1) {
+        kslice_read(-1, s, stm, n == 1 ? "capt_win" : "capt_cwin", 0);
         kslice_or(s, -1);
       }
 #endif
-      // Remove illegal positions and known faster wins.
-      // TODO: do not update "wins" each time but work with small deltas.
-      kslice_read(-1, s, stm, "wins", 0);
-      kslice_and_not(s, -1);
-      cnt += num = kslice_count(s);
-      kslice_write(s, s, stm, "W", n, num);
-      kslice_or(-1, s);
-      kslice_write(-1, s, stm, "wins", 0, UINT64_MAX);
+      if (!(partial && kslice_test_count(s, stm, "W", n, &num))) {
+        // Remove illegal positions and known faster wins.
+        read_wins(-1, s, stm, n - 1);
+        kslice_and_not(s, -1);
+        num = kslice_count(s);
+        uint64_t cost = kslice_write(s, s, stm, "W", n, num);
+        add_wins(s, stm, n, num, cost);
+        cnt += num;
+      }
     }
   }
 
-  g_stats[stm][1 + n + (n > DRAW_RULE)] = cnt;
+  g_stats[stm][stats_n(n)] = cnt;
+
+  F = file_open_write(str);
+  file_write(&g_stats[stm][stats_n(n)], 8, F);
+  fclose(F);
+  file_rename(str);
+
   printf("w%d_%c = %lu\n", n, "wb"[stm], cnt);
   return cnt != 0;
 }
 
 void generate(void)
 {
+  FILE *F = fopen("generate_info", "rb");
+  if (F) {
+    file_read(&g_stats, sizeof g_stats, F);
+    file_read(&sub_cnt, sizeof sub_cnt, F);
+    file_read(&max_iteration, sizeof max_iteration, F);
+    fclose(F);
+    printf("Skipped generation phase.\n");
+    return;
+  }
+
   // Calculate kslices for positions reached through a capture.
-  make_dir("sub");
   calc_sub_kslices(WHITE);
   calc_sub_kslices(BLACK);
 
   calc_capt_bloss(WHITE);
   calc_capt_bloss(BLACK);
 
-  create_dir(0, WHITE, "wins");
-  create_dir(0, BLACK, "wins");
-  create_dir(0, WHITE, "L");
-  create_dir(0, BLACK, "L");
+  memset(&wins_full, 0, sizeof wins_full);
+  memset(&wins_checked, 0, sizeof wins_checked);
+  memset(&replay_cost, 0, sizeof replay_cost);
+
   calc_illegal_and_mate();
 
   // CAPT_WIN
@@ -781,4 +975,21 @@ void generate(void)
   calc_capt(BLACK, 0, MAX_STATS / 2);
 
   max_iteration = n;
+
+  // Remove some double counting.
+  for (int stm = 0; stm < 2; stm++) {
+    g_stats[stm][2] -= g_stats[stm][1];
+    g_stats[stm][3 + DRAW_RULE] -= g_stats[stm][2 + DRAW_RULE];
+    uint64_t tot = 0;
+    for (int i = 0; i < MAX_STATS; i++)
+      tot += g_stats[stm][i];
+    g_stats[stm][MAX_STATS / 2 + 1] = 462 * kslice_size - tot;
+  }
+
+  F = file_open_write("generate_info");
+  file_write(&g_stats, sizeof g_stats, F);
+  file_write(&sub_cnt, sizeof sub_cnt, F);
+  file_write(&max_iteration, sizeof max_iteration, F);
+  fclose(F);
+  file_rename("generate_info");
 }

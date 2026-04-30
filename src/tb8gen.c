@@ -202,8 +202,7 @@ int main(int argc, char **argv)
 
   generate();
 
-  kslice_free_buffers(); // Free memory but keep slice "-1".
-
+#if 0
   for (int stm = 0; stm < 2; stm++) {
     // Remove some double counting.
     g_stats[stm][2] -= g_stats[stm][1];
@@ -213,6 +212,9 @@ int main(int argc, char **argv)
       tot += g_stats[stm][i];
     g_stats[stm][MAX_STATS / 2 + 1] = 462 * kslice_size - tot;
   }
+#endif
+
+  kslice_free_buffers(); // Free memory but keep slice "-1".
 
   printf("\n########## %s ##########\n", g_tablename);
   print_stats(WHITE);
@@ -241,8 +243,8 @@ int main(int argc, char **argv)
   // Determine the DTZ format to use.
   one_sided = !symmetric && min(ewh, ebl) < min(elo, ewi);
 //  one_sided = true;
-  wins_only = ewi < elo;
-  one_sided_stm = ewh < ebl ? WHITE : BLACK;
+  wins_only = ewi <= elo;
+  one_sided_stm = ewh <= ebl ? WHITE : BLACK;
 
   printf("DTZ format: %s only.\n\n",
         one_sided ? one_sided_stm == WHITE ? "white" : "black"

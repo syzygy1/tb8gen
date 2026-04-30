@@ -135,11 +135,7 @@ static void read_merge_info(int stm)
 {
   char str[128];
   sprintf(str, "merge_info.%c", "wb"[stm]);
-  FILE *F = fopen(str, "rb");
-  if (!F) {
-    fprintf(stderr, "Could not open %s.\n", str);
-    exit(EXIT_FAILURE);
-  }
+  FILE *F = file_open_read(str);
   file_read(&mi, sizeof mi, F);
   fclose(F);
 }
@@ -156,11 +152,7 @@ static void join_wdl(int stm, struct tb_handle *G)
 
   for (int s = 0; s < 462; s++) {
     create_name(str, s, stm, "merged/wdl", -1);
-    FILE *F = fopen(str, "rb");
-    if (!F) {
-      fprintf(stderr, "Could not open %s.\n", str);
-      exit(EXIT_FAILURE);
-    }
+    FILE *F = file_open_read(str);
     read_data(F, table + s * kslice_size, kslice_size);
     fclose(F);
   }
@@ -220,11 +212,7 @@ static void join_dtz(int stm, struct tb_handle *G)
 
     for (int s = 0; s < 462; s++) {
       create_name(str, s, stm, "merged/dtz", -1);
-      FILE *F = fopen(str, "rb");
-      if (!F) {
-        fprintf(stderr, "Could not open %s.\n", str);
-        exit(EXIT_FAILURE);
-      }
+      FILE *F = file_open_read(str);
       read_data_transform_u8(F, table + s * kslice_size, kslice_size, w);
       fclose(F);
     }
@@ -240,11 +228,7 @@ static void join_dtz(int stm, struct tb_handle *G)
 
     for (int s = 0; s < 462; s++) {
       create_name(str, s, stm, "merged/dtz", -1);
-      FILE *F = fopen(str, "rb");
-      if (!F) {
-        fprintf(stderr, "Could not open %s.\n", str);
-        exit(EXIT_FAILURE);
-      }
+      FILE *F = file_open_read(str);
       read_data_transform_to_u8_u16(F, table + s * kslice_size,
           kslice_size * 2, w);
       fclose(F);
@@ -257,11 +241,7 @@ static void join_dtz(int stm, struct tb_handle *G)
 
     for (int s = 0; s < 462; s++) {
       create_name(str, s, stm, "merged/dtz", -1);
-      FILE *F = fopen(str, "rb");
-      if (!F) {
-        fprintf(stderr, "could not open %s.\n", str);
-        exit(EXIT_FAILURE);
-      }
+      FILE *F = file_open_read(str);
       read_data_transform_u16(F, table + s * kslice_size, kslice_size * 2, v);
       fclose(F);
     }
@@ -332,20 +312,12 @@ static void join_wdl_462(int stm)
     g_pos.stm = stm;
 
     create_name(str, s, stm, "merged/wdl", -1);
-    FILE *F = fopen(str, "rb");
-    if (!F) {
-      fprintf(stderr, "Could not open %s.\n", str);
-      exit(EXIT_FAILURE);
-    }
+    FILE *F = file_open_read(str);
     read_data(F, table, kslice_size);
     fclose(F);
 
     create_name(str, s, stm, "stats", -1);
-    F = fopen(str, "rb");
-    if (!F) {
-      fprintf(stderr, "Could not open %s.\n", str);
-      exit(EXIT_FAILURE);
-    }
+    F = file_open_read(str);
     read_data(F, stats, sizeof stats);
     fclose(F);
 
@@ -425,11 +397,7 @@ static void join_dtz_462(int stm)
     g_pos.stm = stm;
 
     create_name(str, s, stm, "stats", -1);
-    FILE *F = fopen(str, "rb");
-    if (!F) {
-      fprintf(stderr, "Could not open %s.\n", str);
-      exit(EXIT_FAILURE);
-    }
+    FILE *F = file_open_read(str);
     read_data(F, stats, sizeof stats);
     fclose(F);
 
@@ -445,11 +413,7 @@ static void join_dtz_462(int stm)
       uint8_t *table = join_table;
 
       create_name(str, s, stm, "merged/dtz", -1);
-      FILE *F = fopen(str, "rb");
-      if (!F) {
-        fprintf(stderr, "Could not open %s.\n", str);
-        exit(EXIT_FAILURE);
-      }
+      FILE *F = file_open_read(str);
       read_data_transform_u8(F, table, kslice_size, w);
       fclose(F);
 
@@ -462,11 +426,7 @@ static void join_dtz_462(int stm)
       uint8_t *table = join_table;
 
       create_name(str, s, stm, "merged/dtz", -1);
-      FILE *F = fopen(str, "rb");
-      if (!F) {
-        fprintf(stderr, "Could not open %s.\n", str);
-        exit(EXIT_FAILURE);
-      }
+      FILE *F = file_open_read(str);
       read_data_transform_to_u8_u16(F, table, kslice_size * 2, w);
       fclose(F);
 
@@ -475,11 +435,7 @@ static void join_dtz_462(int stm)
       uint16_t *table = join_table;
 
       create_name(str, s, stm, "merged/dtz", -1);
-      FILE *F = fopen(str, "rb");
-      if (!F) {
-        fprintf(stderr, "could not open %s.\n", str);
-        exit(EXIT_FAILURE);
-      }
+      FILE *F = file_open_read(str);
       read_data_transform_u16(F, table, kslice_size * 2, v);
       fclose(F);
 
@@ -679,20 +635,12 @@ static void join_wdl_10(int stm)
 
       int s = KKMap[g_pos.sq[0]][g_pos.sq[1]];
       create_name(str, s, stm, "merged/wdl", -1);
-      FILE *F = fopen(str, "rb");
-      if (!F) {
-        fprintf(stderr, "Could not open %s.\n", str);
-        exit(EXIT_FAILURE);
-      }
+      FILE *F = file_open_read(str);
       read_data(F, table + num * kslice_size, kslice_size);
       fclose(F);
 
       create_name(str, s, stm, "stats", -1);
-      F = fopen(str, "rb");
-      if (!F) {
-        fprintf(stderr, "Could not open %s.\n", str);
-        exit(EXIT_FAILURE);
-      }
+      F = file_open_read(str);
       uint64_t tmp[MAX_STATS];
       read_data(F, tmp, sizeof tmp);
       fclose(F);
@@ -746,6 +694,7 @@ static void join_dtz_10(int stm)
 
   read_merge_info(stm);
 
+  // Call sort_values() to set dtzmap.wide.
   sort_values(stm, g_stats[stm], &dtzmap, 462 * kslice_size);
 
   if (dtzmap.wide != join_wide) {
@@ -786,11 +735,7 @@ static void join_dtz_10(int stm)
       int s = KKMap[g_pos.sq[0]][g_pos.sq[1]];
 
       create_name(str, s, stm, "stats", -1);
-      FILE *F = fopen(str, "rb");
-      if (!F) {
-        fprintf(stderr, "Could not open %s.\n", str);
-        exit(EXIT_FAILURE);
-      }
+      FILE *F = file_open_read(str);
       uint64_t tmp[MAX_STATS];
       read_data(F, tmp, sizeof tmp);
       fclose(F);
@@ -821,11 +766,7 @@ static void join_dtz_10(int stm)
         int s = KKMap[g_pos.sq[0]][g_pos.sq[1]];
 
         create_name(str, s, stm, "merged/dtz", -1);
-        FILE *F = fopen(str, "rb");
-        if (!F) {
-          fprintf(stderr, "Could not open %s.\n", str);
-          exit(EXIT_FAILURE);
-        }
+        FILE *F = file_open_read(str);
         read_data_transform_u8(F, table + n * kslice_size, kslice_size, w);
         fclose(F);
 
@@ -848,11 +789,7 @@ static void join_dtz_10(int stm)
         int s = KKMap[g_pos.sq[0]][g_pos.sq[1]];
 
         create_name(str, s, stm, "merged/dtz", -1);
-        FILE *F = fopen(str, "rb");
-        if (!F) {
-          fprintf(stderr, "Could not open %s.\n", str);
-          exit(EXIT_FAILURE);
-        }
+        FILE *F = file_open_read(str);
         read_data_transform_to_u8_u16(F, table + n * kslice_size,
             kslice_size * 2, w);
         fclose(F);
@@ -872,11 +809,7 @@ static void join_dtz_10(int stm)
         int s = KKMap[g_pos.sq[0]][g_pos.sq[1]];
 
         create_name(str, s, stm, "merged/dtz", -1);
-        FILE *F = fopen(str, "rb");
-        if (!F) {
-          fprintf(stderr, "could not open %s.\n", str);
-          exit(EXIT_FAILURE);
-        }
+        FILE *F = file_open_read(str);
         read_data_transform_u16(F, table + n * kslice_size, kslice_size * 2, v);
         fclose(F);
 
@@ -1025,7 +958,6 @@ static void join_final_10(int type)
 
 void join_slices_10(void)
 {
-
   join_table = alloc_huge(58 * kslice_size);
   tb_table = alloc_huge(58 * kslice_size + 1);
   if (!join_table || !tb_table)

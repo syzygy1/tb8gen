@@ -139,7 +139,7 @@ static void NAME(merge_statistics_worker)(struct ThreadData *thread)
 static void NAME(merge_bitmaps)(int stm, int s)
 {
   uint64_t stats[16][MAX_STATS] = { 0 };
-  char str[128], tmp[128];
+  char str[128];
 
   g_pos.stm = stm;
 
@@ -265,15 +265,10 @@ static void NAME(merge_bitmaps)(int stm, int s)
     }
 
     create_name_r(str, s, r, stm, "stats", -1);
-    strcat(strcpy(tmp, str), ".tmp");
-    FILE *F = fopen(tmp, "wb");
-    if (!F) {
-      fprintf(stderr, "Could not open %s.\n", tmp);
-      exit(EXIT_FAILURE);
-    }
+    FILE *F = file_open_write(str);
     write_data(F, stats[r], sizeof stats[r]);
     fclose(F);
-    rename(tmp, str);
+    file_rename(str);
   }
 
   if (symmetric && stm == BLACK)
@@ -300,17 +295,12 @@ static void NAME(merge_bitmaps)(int stm, int s)
       g_pos.sq[1] = KK16Square[s][r][1];
 
       create_name_r(str, s, r, stm, "merged/dtz", -1);
-      strcat(strcpy(tmp, str), ".tmp");
-      FILE *F = fopen(tmp, "wb");
-      if (!F) {
-        fprintf(stderr, "Could not open %s.\n", tmp);
-        exit(EXIT_FAILURE);
-      }
+      FILE *F = file_open_write(str);
       NAME(write_data_transform)(F,
           (T *)merge_table + r * 8 * kslice_alloc_size * sizeof(T),
           kslice_size * sizeof(T), z);
       fclose(F);
-      rename(tmp, str);
+      file_rename(str);
     }
   }
 
@@ -348,15 +338,10 @@ static void NAME(merge_bitmaps)(int stm, int s)
       continue;
 
     create_name_r(str, s, r, stm, "merged/wdl", -1);
-    strcat(strcpy(tmp, str), ".tmp");
-    FILE *F = fopen(tmp, "wb");
-    if (!F) {
-      fprintf(stderr, "Could not open %s.\n", tmp);
-      exit(EXIT_FAILURE);
-    }
+    FILE *F = file_open_write(str);
     NAME(write_data_as_u8)(F, (T *)merge_table + r * 8 * kslice_alloc_size,
         kslice_size);
     fclose(F);
-    rename(tmp, str);
+    file_rename(str);
   }
 }

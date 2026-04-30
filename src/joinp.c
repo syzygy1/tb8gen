@@ -139,11 +139,7 @@ static void read_merge_info(int stm)
 {
   char str[128];
   sprintf(str, "merge_info.%c", "wb"[stm]);
-  FILE *F = fopen(str, "rb");
-  if (!F) {
-    fprintf(stderr, "Could not open %s.\n", str);
-    exit(EXIT_FAILURE);
-  }
+  FILE *F = file_open_read(str);
   file_read(&mi, sizeof mi, F);
   fclose(F);
 }
@@ -172,20 +168,12 @@ static void join_wdl_pk(int stm)
         memset(table + num * kslice_size, 8, kslice_size);
       } else {
         create_name_sq(str, g_pos.sq[0], g_pos.sq[1], stm, "merged/wdl", -1);
-        FILE *F = fopen(str, "rb");
-        if (!F) {
-          fprintf(stderr, "Could not open %s.\n", str);
-          exit(EXIT_FAILURE);
-        }
+        FILE *F = file_open_read(str);
         read_data(F, table + num * kslice_size, kslice_size);
         fclose(F);
 
         create_name_sq(str, g_pos.sq[0], g_pos.sq[1], stm, "stats", -1);
-        F = fopen(str, "rb");
-        if (!F) {
-          fprintf(stderr, "Could not open %s.\n", str);
-          exit(EXIT_FAILURE);
-        }
+        F = file_open_read(str);
         uint64_t tmp[MAX_STATS];
         read_data(F, tmp, sizeof tmp);
         fclose(F);
@@ -283,11 +271,7 @@ static void join_dtz_pk(int stm)
       if (king_attacks(k1) & bit(k2)) {
       } else {
         create_name_sq(str, k1, k2, stm, "stats", -1);
-        FILE *F = fopen(str, "rb");
-        if (!F) {
-          fprintf(stderr, "Could not open %s.\n", str);
-          exit(EXIT_FAILURE);
-        }
+        FILE *F = file_open_read(str);
         uint64_t tmp[MAX_STATS];
         read_data(F, tmp, sizeof(tmp));
         fclose(F);
@@ -315,11 +299,7 @@ static void join_dtz_pk(int stm)
         if (king_attacks(k1) & bit(k2)) {
         } else {
           create_name_sq(str, k1, k2, stm, "merged/dtz", -1);
-          FILE *F = fopen(str, "rb");
-          if (!F) {
-            fprintf(stderr, "Could not open %s.\n", str);
-            exit(EXIT_FAILURE);
-          }
+          FILE *F = file_open_read(str);
           read_data_transform_u8(F, table + num * kslice_size, kslice_size, w);
           fclose(F);
         }
@@ -342,11 +322,7 @@ static void join_dtz_pk(int stm)
         if (king_attacks(k1) & bit(k2)) {
         } else {
           create_name_sq(str, k1, k2, stm, "merged/dtz", -1);
-          FILE *F = fopen(str, "rb");
-          if (!F) {
-            fprintf(stderr, "Could not open %s.\n", str);
-            exit(EXIT_FAILURE);
-          }
+          FILE *F = file_open_read(str);
           read_data_transform_to_u8_u16(F, table + num * kslice_size,
               kslice_size * 2, w);
           fclose(F);
@@ -366,11 +342,7 @@ static void join_dtz_pk(int stm)
         if (king_attacks(k1) & bit(k2)) {
         } else {
           create_name_sq(str, k1, k2, stm, "merged/dtz", -1);
-          FILE *F = fopen(str, "rb");
-          if (!F) {
-            fprintf(stderr, "could not open %s.\n", str);
-            exit(EXIT_FAILURE);
-          }
+          FILE *F = file_open_read(str);
           read_data_transform_u16(F, table + num * kslice_size,
               kslice_size * 2, v);
           fclose(F);
@@ -582,20 +554,12 @@ static void join_wdl_p(int stm)
       } else {
 
         create_name_sq(str, k1, k2, stm, "merged/wdl", -1);
-        FILE *F = fopen(str, "rb");
-        if (!F) {
-          fprintf(stderr, "Could not open %s.\n", str);
-          exit(EXIT_FAILURE);
-        }
+        FILE *F = file_open_read(str);
         read_data(F, table + num * kslice_size, kslice_size);
         fclose(F);
 
         create_name_sq(str, k1, k2, stm, "stats", -1);
-        F = fopen(str, "rb");
-        if (!F) {
-          fprintf(stderr, "Could not open %s.\n", str);
-          exit(EXIT_FAILURE);
-        }
+        F = file_open_read(str);
         uint64_t tmp[MAX_STATS];
         read_data(F, tmp, sizeof tmp);
         fclose(F);
@@ -697,11 +661,7 @@ static void join_dtz_p(int stm)
       } else {
 
         create_name_sq(str, k1, k2, stm, "stats", -1);
-        FILE *F = fopen(str, "rb");
-        if (!F) {
-          fprintf(stderr, "Could not open %s.\n", str);
-          exit(EXIT_FAILURE);
-        }
+        FILE *F = file_open_read(str);
         uint64_t tmp[MAX_STATS];
         read_data(F, tmp, sizeof tmp);
         fclose(F);
@@ -740,11 +700,7 @@ static void join_dtz_p(int stm)
           memset(table + n * kslice_size, 0, kslice_size);
         } else {
           create_name_sq(str, k1, k2, stm, "merged/dtz", -1);
-          FILE *F = fopen(str, "rb");
-          if (!F) {
-            fprintf(stderr, "Could not open %s.\n", str);
-            exit(EXIT_FAILURE);
-          }
+          FILE *F = file_open_read(str);
           read_data_transform_u8(F, table + n * kslice_size, kslice_size, w);
           fclose(F);
         }
@@ -774,11 +730,7 @@ static void join_dtz_p(int stm)
           memset(table + n * kslice_size, 0, kslice_size);
         } else {
           create_name_sq(str, k1, k2, stm, "merged/dtz", -1);
-          FILE *F = fopen(str, "rb");
-          if (!F) {
-            fprintf(stderr, "Could not open %s.\n", str);
-            exit(EXIT_FAILURE);
-          }
+          FILE *F = file_open_read(str);
           read_data_transform_to_u8_u16(F, table + n * kslice_size,
               kslice_size, w);
           fclose(F);
@@ -805,11 +757,7 @@ static void join_dtz_p(int stm)
           memset(table + n * kslice_size, 0, kslice_size * 2);
         } else {
           create_name_sq(str, k1, k2, stm, "merged/dtz", -1);
-          FILE *F = fopen(str, "rb");
-          if (!F) {
-            fprintf(stderr, "Could not open %s.\n", str);
-            exit(EXIT_FAILURE);
-          }
+          FILE *F = file_open_read(str);
           read_data_transform_u16(F, table + n * kslice_size, kslice_size * 2,
               v);
           fclose(F);
@@ -859,23 +807,6 @@ static void join_final_p(int type)
     *p++ = (g_pos.pt[i] & 7) | ((g_pos.pt[i] & 8) << 4);
   *p++ = LT_PAWN_P;
   p = buf + (((p - buf) + 7) & ~7);
-
-#if 0
-  if (type == DTZ) {
-    uint64_t w = 0;
-    for (int i = 0; i < 24; i++) {
-      if (!dtz_format[i].one_sided) {
-        w |= 1ull << i;
-        if (dtz_format[i].wins_only)
-          w |= 1ull << (i + 32);
-      }
-      else if (dtz_format[i].one_sided_stm == WHITE)
-        w |= 1ull << (i + 32);
-    }
-    memcpy(p, &w, 8);
-    p += 8;
-  }
-#endif
 
   int sides = symmetric ? 1 : 2;
   int num = 0, num_small = 0;

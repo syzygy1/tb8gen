@@ -258,7 +258,7 @@ static size_t cmprs_idx;
 static void *cmprs_v;
 static int cmprs_type;
 
-enum { COPY, U8U8, U16U16, U16U8, COPY_U16U8 };
+enum { COPY, U8U8, U16U16, U16U8, COPY_U16U8, U8_OR };
 
 struct CompressFrame {
   size_t cmprs_chunk;
@@ -320,6 +320,51 @@ void report_io(void)
 {
   printf("total bytes written = %lu\n", total_written);
   printf("total bytes read = %lu\n", total_read);
+}
+
+FILE *file_open_read(const char *name)
+{
+  FILE *F = fopen(name, "rb");
+  if (!F) {
+    fprintf(stderr, "Could not open %s for reading.\n", name);
+    exit(EXIT_FAILURE);
+  }
+  return F;
+}
+
+FILE *file_open_write(const char *name)
+{
+  char str[64];
+  strcat(strcpy(str, name), ".tmp");
+  FILE *F = fopen(str, "wb");
+  if (!F) {
+    fprintf(stderr, "Could not open %s for writing.\n", str);
+    exit(EXIT_FAILURE);
+  }
+  return F;
+}
+
+void file_rename(const char *name)
+{
+  char str[64];
+  strcat(strcpy(str, name), ".tmp");
+  if (rename(str, name) < 0) {
+    fprintf(stderr, "Could not rename %s into %s.\n", str, name);
+    exit(EXIT_FAILURE);
+  }
+}
+
+bool file_exists(const char *name)
+{
+  struct stat st;
+  return stat(name, &st) == 0;
+}
+
+void create_empty(const char *name)
+{
+  int fd = creat(name, 0666);
+  if (fd >= 0)
+    close(fd);
 }
 
 static size_t compress(struct CompressState *state, void *dst, void *src,
@@ -525,6 +570,11 @@ static void read_data_worker(int t)
       for (size_t i = 0; i < chunk / 2; i++)
         dst[idx / 2 + i] = v8[buf16[i]];
       break;
+    case U8_OR:
+      buf = state->buffer;
+      for (size_t i = 0; i < chunk; i++)
+        dst[idx + i] |= buf[i];
+      break;
     }
   }
 }
@@ -576,9 +626,20 @@ void read_data_transform_to_u8_u16(FILE *F, void *dst, size_t size, uint8_t *v)
   run_compression(read_data_worker);
 }
 
+void read_data_or(FILE *F, void *dst, uint64_t size)
+{
+  init();
+
+  cmprs_F = F;
+  cmprs_ptr = dst;
+  cmprs_size = size;
+  cmprs_type = U8_OR;
+  run_compression(read_data_worker);
+}
+
 void create_dir(int n, int stm, const char *name)
 {
-  char pathname[128];
+  char pathname[64];
 
   if (n >= 0)
     sprintf(pathname, "%d/%s/%c/", n, name, "wb"[stm]);
@@ -590,6 +651,17 @@ void create_dir(int n, int stm, const char *name)
       make_dir(pathname);
       *p = '/';
     }
+}
+
+bool dir_exists(int n, int stm, const char *name)
+{
+  char pathname[64];
+
+  if (n >= 0)
+    sprintf(pathname, "%d/%s/%c/", n, name, "wb"[stm]);
+  else
+    sprintf(pathname, "%s/%c/", name, "wb"[stm]);
+  return file_exists(pathname);
 }
 
 #ifndef HAS_PAWNS

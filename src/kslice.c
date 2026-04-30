@@ -350,34 +350,31 @@ void kslice_nor(int s1, int s2)
   run_threaded(nor_worker, work_cl, 0);
 }
 
-void kslice_write_addr(void *p, int slice, int stm, const char *name, int n,
+uint64_t kslice_write_addr(void *p, int slice, int stm, const char *name, int n,
     uint64_t num)
 {
-  char str[128], tmp[128];
+  char str[64];
   create_name(str, slice, stm, name, n);
-  strcat(strcpy(tmp, str), ".tmp");
-  FILE *F = fopen(tmp, "wb");
-  if (!F) {
-    fprintf(stderr, "Could not open %s for writing.\n", tmp);
-    exit(EXIT_FAILURE);
-  }
+  FILE *F = file_open_write(str);
   if (num > 0) {
-    file_write(&num, sizeof(num), F);
+    file_write(&num, sizeof num, F);
     write_data(F, p, kslice_cache_lines << 6);
   }
+  uint64_t bytes = ftell(F);
   fclose(F);
-  rename(tmp, str);
+  file_rename(str);
+  return bytes;
 }
 
-void kslice_write(int s, int slice, int stm, const char *name, int n,
+uint64_t kslice_write(int s, int slice, int stm, const char *name, int n,
     uint64_t num)
 {
-  kslice_write_addr(kslice_get_address(s), slice, stm, name, n, num);
+  return kslice_write_addr(kslice_get_address(s), slice, stm, name, n, num);
 }
 
 bool kslice_test(int slice, int stm, const char *name, int n)
 {
-  char str[128];
+  char str[64];
   create_name(str, slice, stm, name, n);
   struct stat st;
   if (stat(str, &st) < 0) {
@@ -391,7 +388,7 @@ bool kslice_test(int slice, int stm, const char *name, int n)
 
 bool kslice_read(int s, int slice, int stm, const char *name, int n)
 {
-  char str[128];
+  char str[64];
   create_name(str, slice, stm, name, n);
 
   FILE *F = fopen(str, "rb");
@@ -414,9 +411,32 @@ bool kslice_read(int s, int slice, int stm, const char *name, int n)
   return non_empty;
 }
 
+void kslice_read_or(int s, int slice, int stm, const char *name, int n)
+{
+  char str[64];
+  create_name(str, slice, stm, name, n);
+
+  FILE *F = fopen(str, "rb");
+  if (!F && errno != ENOENT) {
+    fprintf(stderr, "Could not open %s for reading.\n", str);
+    exit(EXIT_FAILURE);
+  }
+  if (!F)
+    return;
+  struct stat st;
+  fstat(fileno(F), &st);
+  if (st.st_size > 0) {
+    uint64_t num;
+    file_read(&num, sizeof(uint64_t), F);
+    kslice_read_count += num;
+    read_data_or(F, kslice_get_address(s), kslice_cache_lines << 6);
+  }
+  fclose(F);
+}
+
 void kslice_delete(int slice, int stm, const char *name, int n)
 {
-  char str[128];
+  char str[64];
   create_name(str, slice, stm, name, n);
   remove(str);
 }
@@ -437,36 +457,63 @@ void kslice_sub_clear(int s, int stm)
 void kslice_sub_write_addr(void *p, int slice, int stm, const char *name,
     uint64_t num)
 {
-  char str[128], tmp[128];
+  char str[64];
   create_name(str, slice, stm, name, -1);
-  strcat(strcpy(tmp, str), ".tmp");
-  FILE *F = fopen(tmp, "wb");
-  if (!F) {
-    fprintf(stderr, "Could not open %s for writing.\n", tmp);
-    exit(EXIT_FAILURE);
-  }
-  if (num > 0)
+  FILE *F = file_open_write(str);
+  if (num > 0) {
+    file_write(&num, sizeof num, F);
     write_data(F, p, sub_size[stm]);
+  }
   fclose(F);
-  rename(tmp, str);
+  file_rename(str);
 }
 
 void kslice_sub_read(int s, int slice, int stm, const char *name)
 {
-  char str[128];
+  char str[64];
   create_name(str, slice, stm, name, -1);
+  FILE *F = file_open_read(str);
+  struct stat st;
+  fstat(fileno(F), &st);
+  if (st.st_size > 0) {
+    file_read(&kslice_read_count, sizeof(uint64_t), F);
+    read_data(F, kslice_sub_get_base(s), sub_size[stm]);
+  } else
+    kslice_sub_clear(s, stm);
+  fclose(F);
+}
+
+bool kslice_test_count(int s, int stm, const char *name, int n, uint64_t *num)
+{
+  char str[64];
+  create_name(str, s, stm, name, n);
   FILE *F = fopen(str, "rb");
-  if (!F) {
-    fprintf(stderr, "Could not open %s for reading.\n", str);
-    exit(EXIT_FAILURE);
-  }
+  if (!F)
+    return false;
   struct stat st;
   fstat(fileno(F), &st);
   if (st.st_size > 0)
-    read_data(F, kslice_sub_get_base(s), sub_size[stm]);
+    file_read(num, sizeof(uint64_t), F);
   else
-    kslice_sub_clear(s, stm);
+    *num = 0;
   fclose(F);
+  return true;
+}
+
+uint64_t kslice_size_count(int s, int stm, const char *name, int n,
+    uint64_t *num)
+{
+  char str[64];
+  create_name(str, s, stm, name, n);
+  FILE *F = file_open_read(str);
+  struct stat st;
+  fstat(fileno(F), &st);
+  if (st.st_size > 0)
+    file_read(num, sizeof(uint64_t), F);
+  else
+    *num = 0;
+  fclose(F);
+  return st.st_size;
 }
 
 void kslice_sub_and_not(int s1, int s2, int stm)
@@ -475,6 +522,29 @@ void kslice_sub_and_not(int s1, int s2, int stm)
   work_q = kslice_sub_get_base(s2);
 
   run_threaded(and_not_worker, work_sub_cl[stm], 0);
+}
+
+INLINE void clear_tail(void *p, size_t num_bits, size_t num_words)
+{
+  uint64_t *restrict q = p;
+  size_t idx = num_bits >> 6;
+  int r = num_bits & 63;
+  if (r)
+    q[idx++] &= (1ULL << r) - 1;
+
+  for (; idx < num_words; idx++)
+    q[idx] = 0;
+}
+
+void kslice_clear_tail_addr(void *p)
+{
+  uint8_t *restrict q = p;
+  clear_tail(q, kslice_size, kslice_cache_lines << 3);
+}
+
+void kslice_clear_tail(int s)
+{
+  kslice_clear_tail_addr(kslice_get_address(s));
 }
 
 static void count_worker(struct ThreadData *thread)
@@ -490,22 +560,16 @@ static void count_worker(struct ThreadData *thread)
 
 uint64_t kslice_count_addr(void *p)
 {
+  kslice_clear_tail_addr(p);
+
   work_p = p;
 
   for (int t = 0; t < g_num_threads; t++)
     g_thread_data[t].cnt = 0;
 
-  run_threaded(count_worker, work_clc, 0);
+  run_threaded(count_worker, work_cl, 0);
 
-  // Count 1s in the last cache line up to kslice_size.
-  uint64_t *restrict q = p;
-  uint64_t cnt = 0, idx = (kslice_cache_lines - 1) << 3;
-  for (; idx < (kslice_size >> 6); idx++)
-    cnt += popcnt(q[idx]);
-  uint64_t last = q[idx];
-  last &= (1ULL << (kslice_size & 0x3f)) - 1;
-  cnt += popcnt(last);
-
+  uint64_t cnt = 0;
   for (int t = 0; t < g_num_threads; t++)
     cnt += g_thread_data[t].cnt;
 

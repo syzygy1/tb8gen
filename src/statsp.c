@@ -40,11 +40,7 @@ void collect_stats(int stm)
         continue;
 
       create_name_sq(str, g_pos.sq[0], g_pos.sq[1], stm, "stats", -1);
-      FILE *F = fopen(str, "rb");
-      if (!F) {
-        fprintf(stderr, "Could not open %s.\n", str);
-        exit(EXIT_FAILURE);
-      }
+      FILE *F = file_open_read(str);
       read_data(F, tmp, sizeof tmp);
       fclose(F);
       for (int i = 0; i < MAX_STATS; i++)

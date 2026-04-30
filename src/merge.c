@@ -4,9 +4,11 @@
   This file is distributed under the terms of the GNU GPL, version 2.
 */
 
+#include <fcntl.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <sys/stat.h>
 
 #include "defs.h"
 #include "index.h"
@@ -88,6 +90,7 @@ static uint64_t stat_count(int stm, int s)
 
 void merge(int stm)
 {
+  // FIXME: test for merge_info.stm and skip if it exists?
   uint64_t *stats = g_stats[stm];
 
   create_dir(-1, stm, "stats");
@@ -244,15 +247,10 @@ void merge(int stm)
 
   }
 
-  char str[128], tmp[128];
+  char str[128];
   sprintf(str, "merge_info.%c", "wb"[stm]);
-  strcat(strcpy(tmp, str), ".tmp");
-  FILE *F = fopen(tmp, "wb");
-  if (!F) {
-    fprintf(stderr, "Could not open %s.\n", tmp);
-    exit(EXIT_FAILURE);
-  }
+  FILE *F = file_open_write(str);
   file_write(&mi, sizeof mi, F);
   fclose(F);
-  rename(tmp, str);
+  file_rename(str);
 }

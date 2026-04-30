@@ -29,11 +29,7 @@ void collect_stats(int stm)
 
   for (int s = 0; s < 462; s++) {
     create_name(str, s, stm, "stats", -1);
-    FILE *F = fopen(str, "rb");
-    if (!F) {
-      fprintf(stderr, "Could not open %s.\n", str);
-      exit(EXIT_FAILURE);
-    }
+    FILE *F = file_open_read(str);
     read_data(F, tmp, sizeof tmp);
     fclose(F);
     for (int i = 0; i < MAX_STATS; i++)
@@ -73,9 +69,8 @@ void print_stats(int stm)
     tot += stats[i];
   if (tot)
     printf("%lu positions are cursed wins.\n", tot);
-  if (stats[MAX_STATS / 2] + stats[MAX_STATS / 2 + 1])
-    printf("%lu (%lu) positions are draws.\n",
-        stats[MAX_STATS / 2] + stats[MAX_STATS / 2 + 1], stats[MAX_STATS / 2]);
+  printf("%lu (%lu) positions are draws.\n",
+      stats[MAX_STATS / 2] + stats[MAX_STATS / 2 + 1], stats[MAX_STATS / 2]);
   tot = 0;
   for (int i = DRAW_RULE + 1; i < MAX_STATS / 2 - 2; i++)
     tot += stats[MAX_STATS - 1 - i];
