@@ -248,12 +248,11 @@ static void add_wins(int s, int stm, int n, uint64_t num, uint64_t cost)
 {
   wins_cnt[stm][s] += num;
 
-  replay_cost[stm][s] += cost;
-  if (replay_cost[stm][s] * 1.0 <= write_cost[stm][s])
+  if ((replay_cost[stm][s] + cost) * 1.0 <= write_cost[stm][s])
     return;
 
   kslice_or(-1, s);
-  write_cost[stm][s] = kslice_write(-1, s, stm, "wins", n, 1 + wins_cnt[stm][s]);
+  kslice_write(-1, s, stm, "wins", n, 1 + wins_cnt[stm][s]);
   replay_cost[stm][s] = 0;
 
   kslice_delete(s, stm, "wins", wins_full[stm][s]);
@@ -283,9 +282,12 @@ static void read_wins(int s, int slice, int stm, int n)
   }
 
   kslice_read(s, slice, stm, "wins", wins_full[stm][slice]);
+  write_cost[stm][slice] = kslice_read_cost;
+  kslice_read_cost = 0;
   for (int i = wins_full[stm][slice] + 1; i <= n; i++)
     if (g_stats[stm][stats_n(i)])
       kslice_read_or(s, slice, stm, "W", i);
+  replay_cost[stm][slice] += kslice_read_cost;
   wins_cnt[stm][slice] = kslice_read_count;
 }
 
@@ -303,10 +305,11 @@ static void calc_capt(int stm, int wdl, int n)
   FILE *F = fopen(str, "rb");
   if (F) {
     file_read(&g_stats[stm][n], 8, F);
-    printf("capt_%s_%c = %lu\n", wdl_name[2 + wdl], "wb"[stm], g_stats[stm][n]);
     fclose(F);
     return;
   }
+
+  bool partial = dir_exists(-1, stm, capt_name), done = partial;
 
   create_dir(-1, stm, capt_name);
 
@@ -318,21 +321,28 @@ static void calc_capt(int stm, int wdl, int n)
   while (kslice_iter_next(&iter, &s)) {
 
     if (kslice_test(s, stm ^ 1, sub_name, -1)) {
-      while (kslice_iter_in(&iter, &s1))
-        kslice_clear(s1);
+      while (kslice_iter_in(&iter, &s1)) {
+        if (partial && kslice_test_count(s1, stm, capt_name, -1, &num)) {
+          cnt += num;
+        } else {
+          done = false;
+          kslice_clear(s1);
+        }
+      }
 
-      kslice_sub_read(s, s, stm ^ 1, sub_name);
-      predecessors_sub(stm, s, false);
+      if (!done) {
+        kslice_sub_read(s, s, stm ^ 1, sub_name);
+        predecessors_sub(stm, s, false);
+      }
     }
 
     while (kslice_iter_out(&iter, &s)) {
-      if (!kslice_test_count(s, stm, capt_name, -1, &num)) {
+      if (!partial || !kslice_test_count(s, stm, capt_name, -1, &num)) {
         read_wins(-1, s, stm, -1); // most recent "wins".
         kslice_and_not(s, -1); // Remove illegal positions from capt/win.
-        num = kslice_count(s);
+        cnt += num = kslice_count(s);
         kslice_write(s, s, stm, capt_name, -1, num);
       }
-      cnt += num;
     }
   }
 
@@ -655,11 +665,10 @@ static void calc_illegal_and_mate(void)
       create_name(str, s, BLACK, "L", 0);
       if (file_exists(str)) {
         for (int stm = 0; stm < 2; stm++) {
-          write_cost[stm][s] = kslice_size_count(s, stm, "wins", 0, &num);
-          wins_cnt[stm][s] = num;
-          broken[stm] += num;
-          kslice_size_count(s, stm, "L", 0, &num);
-          loss0[stm] += num;
+          if (kslice_test_count(s, stm, "wins", 0, &num))
+            broken[stm] += wins_cnt[stm][s] = num;
+          if (kslice_test_count(s, stm, "L", 0, &num))
+            loss0[stm] += num;
         }
         continue;
       }
@@ -678,8 +687,7 @@ static void calc_illegal_and_mate(void)
 
     for (int stm = 0; stm < 2; stm++) {
       broken[stm] += num = kslice_count_addr(kslice_buf[stm]);
-      write_cost[stm][s] =
-        kslice_write_addr(kslice_buf[stm], s, stm, "wins", 0, num);
+      kslice_write_addr(kslice_buf[stm], s, stm, "wins", 0, num);
       wins_cnt[stm][s] = num;
     }
 

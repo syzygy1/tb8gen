@@ -28,6 +28,7 @@ size_t sub_offset[MAX_SETS];
 size_t sub_size[2];
 int8_t kslice_slot[463];
 uint64_t kslice_cache_lines;
+uint64_t kslice_read_cost;
 uint64_t kslice_read_count;
 
 static uint64_t *work_cl, *work_clc;
@@ -396,10 +397,12 @@ bool kslice_read(int s, int slice, int stm, const char *name, int n)
     fprintf(stderr, "Could not open %s for reading.\n", str);
     exit(EXIT_FAILURE);
   }
-  bool non_empty = F != 0;
+  bool non_empty = false;
+  kslice_read_cost = 0;
   if (F) {
     struct stat st;
     fstat(fileno(F), &st);
+    kslice_read_cost = st.st_size;
     non_empty = st.st_size != 0;
   }
   if (non_empty) {
@@ -429,6 +432,7 @@ void kslice_read_or(int s, int slice, int stm, const char *name, int n)
     uint64_t num;
     file_read(&num, sizeof(uint64_t), F);
     kslice_read_count += num;
+    kslice_read_cost += st.st_size;
     read_data_or(F, kslice_get_address(s), kslice_cache_lines << 6);
   }
   fclose(F);
