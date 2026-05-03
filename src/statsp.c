@@ -50,7 +50,7 @@ void collect_stats(int stm)
 
 void print_stats(int stm)
 {
-  uint64_t *stats = g_stats[stm];
+  uint64_t *stats = g_stats[stm ^ flipped];
 
   printf("\n%s to move:\n\n", stm == WHITE ? "White" : "Black");
 

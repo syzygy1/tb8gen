@@ -293,6 +293,11 @@ int main(int argc, char **argv)
     print_stats(BLACK);
     printf("\n");
 
+    FILE *F = file_open_write("statistics");
+    write_data(F, g_stats, sizeof g_stats);
+    fclose(F);
+    file_rename("statistics");
+
     kslice_cleanup();
 
     // only compress wdl/dtz wtm/btm slices.
@@ -316,6 +321,25 @@ int main(int argc, char **argv)
     join_slices_pk();
     break;
   }
+
+  memset(g_stats, 0, sizeof g_stats);
+  uint64_t tmp[2][MAX_STATS];
+  for (int p = 0; p < 24; p++) {
+    g_pos.sq[2] = InvPawnFlip[0][p];
+    char str[64];
+    sprintf(str, "%c%c/statistics", 'a' + (g_pos.sq[2] & 7),
+        '1' + (g_pos.sq[2] >> 3));
+    FILE *F = file_open_read(str);
+    read_data(F, tmp, sizeof tmp);
+    fclose(F);
+    for (int stm = 0; stm < 2; stm++)
+      for (int i = 0; i < MAX_STATS; i++)
+        g_stats[stm][i] += tmp[stm][i];
+  }
+  printf("\n########## %s ##########\n", g_tablename);
+  print_stats(WHITE);
+  print_stats(BLACK);
+  printf("\n");
 
   report_io();
 

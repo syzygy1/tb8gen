@@ -17,6 +17,7 @@ extern bool one_sided, wins_only;
 extern int one_sided_stm;
 
 extern char *g_tablename;
+extern bool flipped;
 extern bool symmetric;
 extern Position g_pos;
 extern uint64_t *work_g, *work_g16, *work_capt[MAX_SETS];
