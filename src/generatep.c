@@ -880,8 +880,10 @@ static void calc_pawn_double_push(void)
   read_data(F, merged_table, kslice_size);
   fclose(F);
 
-  if (g_pos.sq[2] - 16 == g_pos.sq[0] || g_pos.sq[2] - 16 == g_pos.sq[1])
+  if (g_pos.sq[2] - 16 == g_pos.sq[0] || g_pos.sq[2] - 16 == g_pos.sq[1]) {
+    run_threaded(calc_pawn_push_worker, work_g, 0);
     return;
+  }
 
   sprintf(str, "../%c%c/merged/wdl/w/%c%c%c%c", fl(g_pos.sq[2]),
       rk(g_pos.sq[2] - 16), fl(g_pos.sq[0]), rk(g_pos.sq[0]),
@@ -1430,8 +1432,6 @@ static bool calc_W(int stm, int n, bool more_w)
           else
             k16slice_clear(s1);
         }
-      // FIXME: how to get the cnt_w and cnt_pw numbers
-      // (only an issue for n==1 and n==DRAW_RULE+1)
 
       if (pred && !done) {
         k16slice_read(-1, s, stm ^ 1, "L", n - 1);
