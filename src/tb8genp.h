@@ -23,7 +23,7 @@ extern uint64_t *work_g, *work_g16, *work_capt[MAX_SETS];
 extern uint64_t g_stats[2][MAX_STATS];
 extern bool g_use_rans;
 extern bool used_rans;
-extern const char *name[3];
+extern const char *typename[3];
 
 static constexpr int g_num_pawns = 0;
 

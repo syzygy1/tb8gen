@@ -34,9 +34,10 @@ size_t sub_size[2];
 int8_t k16slice_slot[241];
 uint64_t kslice_cache_lines, k16slice_cache_lines;
 uint64_t k16slice_read_count[16];
+uint64_t k16slice_read_cost;
 
-static uint64_t *work_cl, *work_clc;
-static uint64_t *work_cl16, *work_clc16;
+static uint64_t *work_cl; //, *work_clc;
+static uint64_t *work_cl16; //, *work_clc16;
 static uint64_t *work_sub_cl[2];
 static bool k16slice_in_use[11];
 
@@ -199,9 +200,7 @@ void kslice_setup(void)
   kslice_cache_lines = bits_to_aligned(kslice_size) >> 6;
   k16slice_cache_lines = 16 * kslice_cache_lines;
   work_cl = create_work(g_total_work, kslice_cache_lines, 0);
-  work_clc = create_work(g_total_work, kslice_cache_lines - 1, 0);
   work_cl16 = create_work(g_total_work, k16slice_cache_lines, 0);
-  work_clc16 = create_work(g_total_work, k16slice_cache_lines - 1, 0);
 
   sub_size[0] = sub_size[1] = 0;
   for (int i = 0; i < ii.numsets; i++) {
@@ -423,10 +422,10 @@ void k16slice_nor(int s1, int s2)
   run_threaded(nor_worker, work_cl16, 0);
 }
 
-void k16slice_write_addr(void *p, int slice, int stm, const char *name, int n,
-    uint64_t num[16])
+uint64_t k16slice_write_addr(void *p, int slice, int stm, const char *name,
+    int n, uint64_t num[16])
 {
-  char str[128];
+  char str[64];
   create_name(str, slice, stm, name, n);
   FILE *F = file_open_write(str);
   uint64_t cnt = 0;
@@ -434,28 +433,30 @@ void k16slice_write_addr(void *p, int slice, int stm, const char *name, int n,
     for (int r = 0; r < 16; r++)
       cnt += num[r];
     if (cnt > 0) {
-      file_write(num, 16 * sizeof(uint64_t), F);
+      file_write(num, 16 * 8, F);
       write_data(F, p, k16slice_cache_lines << 6);
     }
   }
   else {
     uint64_t tmp[16] = { 0 };
-    file_write(tmp, 16 * sizeof(uint64_t), F);
+    file_write(tmp, 16 * 8, F);
     write_data(F, p, k16slice_cache_lines << 6);
   }
+  uint64_t bytes = ftell(F);
   fclose(F);
   file_rename(str);
+  return bytes;
 }
 
-void k16slice_write(int s, int slice, int stm, const char *name, int n,
+uint64_t k16slice_write(int s, int slice, int stm, const char *name, int n,
     uint64_t num[16])
 {
-  k16slice_write_addr(k16slice_get_address(s), slice, stm, name, n, num);
+  return k16slice_write_addr(k16slice_get_address(s), slice, stm, name, n, num);
 }
 
 bool k16slice_test(int slice, int stm, const char *name, int n)
 {
-  char str[128];
+  char str[64];
   create_name(str, slice, stm, name, n);
   struct stat st;
   if (stat(str, &st) < 0) {
@@ -467,9 +468,27 @@ bool k16slice_test(int slice, int stm, const char *name, int n)
   return st.st_size != 0;
 }
 
+bool k16slice_test_count(int s, int stm, const char *name, int n,
+    uint64_t num[16])
+{
+  char str[64];
+  create_name(str, s, stm, name, n);
+  FILE *F = fopen(str, "rb");
+  if (!F)
+    return false;
+  struct stat st;
+  fstat(fileno(F), &st);
+  if (st.st_size > 0)
+    file_read(num, 16 * 8, F);
+  else
+    memset(num, 0, 16 * 8);
+  fclose(F);
+  return true;
+}
+
 bool k16slice_read(int s, int slice, int stm, const char *name, int n)
 {
-  char str[128];
+  char str[64];
   create_name(str, slice, stm, name, n);
 
   FILE *F = fopen(str, "rb");
@@ -477,14 +496,15 @@ bool k16slice_read(int s, int slice, int stm, const char *name, int n)
     fprintf(stderr, "Could not open %s for reading.\n", str);
     exit(EXIT_FAILURE);
   }
-  bool non_empty = F != 0;
+  bool non_empty = false;
   if (F) {
     struct stat st;
     fstat(fileno(F), &st);
+    k16slice_read_cost = st.st_size;
     non_empty = st.st_size != 0;
   }
   if (non_empty) {
-    file_read(k16slice_read_count, 16 * sizeof(uint64_t), F);
+    file_read(k16slice_read_count, sizeof k16slice_read_count, F);
     read_data(F, k16slice_get_address(s), k16slice_cache_lines << 6);
   } else {
     for (int r = 0; r < 16; r++)
@@ -495,9 +515,38 @@ bool k16slice_read(int s, int slice, int stm, const char *name, int n)
   return non_empty;
 }
 
+void k16slice_read_or(int s, int slice, int stm, const char *name, int n)
+{
+  char str[64];
+  create_name(str, slice, stm, name, n);
+
+  FILE *F = fopen(str, "rb");
+  if (!F && errno != ENOENT) {
+    fprintf(stderr, "Could not open %s for reading.\n", str);
+    exit(EXIT_FAILURE);
+  }
+  if (!F)
+    return;
+  struct stat st;
+  fstat(fileno(F), &st);
+  if (st.st_size > 0) {
+//    uint64_t num[16];
+//    file_read(&num, sizeof num, F);
+//    for (int r = 0; r < 16; r++)
+//      k16slice_read_count[r] += num[r];
+    if (fseek(F, 16 * 8, SEEK_SET) != 0) {
+      fprintf(stderr, "fseek() failed.\n");
+      exit(EXIT_FAILURE);
+    }
+    k16slice_read_cost += st.st_size;
+    read_data_or(F, k16slice_get_address(s), k16slice_cache_lines << 6);
+  }
+  fclose(F);
+}
+
 void k16slice_delete(int slice, int stm, const char *name, int n)
 {
-  char str[128];
+  char str[64];
   create_name(str, slice, stm, name, n);
   remove(str);
 }
@@ -521,27 +570,49 @@ void k16slice_sub_clear(int s, int stm)
 void k16slice_sub_write_addr(void *p, int slice, int stm, const char *name,
     uint64_t num)
 {
-  char str[128];
+  char str[64];
   create_name(str, slice, stm, name, -1);
   FILE *F = file_open_write(str);
-  if (num > 0)
+  if (num > 0) {
+    file_write(&num, sizeof num, F);
     write_data(F, p, sub_size[stm]);
+  }
   fclose(F);
   file_rename(str);
 }
 
 void k16slice_sub_read(int s, int slice, int stm, const char *name)
 {
-  char str[128];
+  char str[64];
   create_name(str, slice, stm, name, -1);
   FILE *F = file_open_read(str);
   struct stat st;
   fstat(fileno(F), &st);
-  if (st.st_size > 0)
+  if (st.st_size > 0) {
+    uint64_t dummy;
+    file_read(&dummy, 8, F);
     read_data(F, k16slice_sub_get_base(s), sub_size[stm]);
-  else
+  } else
     k16slice_sub_clear(s, stm);
   fclose(F);
+}
+
+bool k16slice_sub_test_count(int s, int stm, const char *name, int n,
+    uint64_t *num)
+{
+  char str[64];
+  create_name(str, s, stm, name, n);
+  FILE *F = fopen(str, "rb");
+  if (!F)
+    return false;
+  struct stat st;
+  fstat(fileno(F), &st);
+  if (st.st_size > 0)
+    file_read(num, sizeof(uint64_t), F);
+  else
+    *num = 0;
+  fclose(F);
+  return true;
 }
 
 void k16slice_sub_or_addr(void *p, void *q, int stm)

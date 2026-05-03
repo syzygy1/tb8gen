@@ -1367,7 +1367,7 @@ NOINLINE struct Tbase *init_tbase(struct TbEntry *entry, const char *str,
     int num = entry->has_pawns ? type == DTM ? 6 : 4 : 1;
     if (type != DTZ && !entry->symmetric)
       num *= 2;
-    struct Tbase *tb = malloc(sizeof(struct Tbase) + num * sizeof(void *));
+    struct Tbase *tb = calloc(1, sizeof(struct Tbase) + num * sizeof(void *));
     tb->data = data;
     tb->mapping = mapping;
     tb->layout = !entry->has_pawns ? LT_PIECE : LT_PAWN_FILE;
@@ -1379,7 +1379,7 @@ NOINLINE struct Tbase *init_tbase(struct TbEntry *entry, const char *str,
       int num = entry->has_pawns ? type == DTM ? 6 : 4 : 1;
       if (!entry->symmetric && (type == WDL || (data[5] & TWO_SIDED)))
         num *= 2;
-      struct Tbase *tb = malloc(sizeof(struct Tbase) + num * sizeof(void *));
+      struct Tbase *tb = calloc(1, sizeof(struct Tbase) + num * sizeof(void *));
       tb->data = data;
       tb->mapping = mapping;
       tb->layout =  !entry->has_pawns ? LT_PIECE
@@ -1403,7 +1403,7 @@ NOINLINE struct Tbase *init_tbase(struct TbEntry *entry, const char *str,
     p = (uint8_t *)(((uintptr_t)p + 7) & ~(uintptr_t)7);
     if (!entry->symmetric) {
       if (type != WDL && layout <= LT_PIECE_KK)
-        num *= (dist_format & TWO_SIDED) ? 1 : 2;
+        num *= (dist_format & TWO_SIDED) ? 2 : 1;
       else
         num *= 2;
     }

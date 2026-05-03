@@ -37,6 +37,7 @@ extern size_t kslice_sub_alloc_size[MAX_SETS];
 extern size_t k16slice_cache_lines;
 
 extern uint64_t k16slice_read_count[16];
+extern uint64_t k16slice_read_cost;
 
 void k16slice_iter_init(struct K16SliceIterator *iter, int stm);
 bool k16slice_iter_next(struct K16SliceIterator *iter, int *s);
@@ -145,16 +146,21 @@ void k16slice_and(int s1, int s2);
 void k16slice_and_not(int s1, int s2);
 void k16slice_not_and(int s1, int s2);
 void k16slice_nor(int s1, int s2);
-void k16slice_write(int s, int slice, int stm, const char *name, int n,
+uint64_t k16slice_write(int s, int slice, int stm, const char *name, int n,
     uint64_t num[16]);
-void k16slice_write_addr(void *p, int slice, int stm, const char *name, int n,
-    uint64_t num[16]);
+uint64_t k16slice_write_addr(void *p, int slice, int stm, const char *name,
+    int n, uint64_t num[16]);
 bool k16slice_test(int slice, int stm, const char *name, int n);
+bool k16slice_test_count(int slice, int stm, const char *name, int n,
+    uint64_t num[16]);
 bool k16slice_read(int s, int slice, int stm, const char *name, int n);
+void k16slice_read_or(int s, int slice, int stm, const char *name, int n);
 void k16slice_delete(int slice, int stm, const char *name, int n);
 void k16slice_sub_write_addr(void *p, int slice, int stm, const char *name,
     uint64_t cnt);
 void k16slice_sub_read(int s, int slice, int stm, const char *name);
+bool k16slice_sub_test_count(int s, int stm, const char *name, int n,
+    uint64_t *num);
 void k16slice_sub_or_addr(void *p, void *q, int stm);
 void k16slice_sub_and_not(int s1, int s2, int stm);
 void k16slice_clear_tail(int s);

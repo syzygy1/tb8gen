@@ -1320,7 +1320,7 @@ void compress_data_single_valued(struct tb_handle *F, int num)
 void compress_tb(struct tb_handle *F, int num, void *data, uint64_t tb_size,
     uint8_t *perm, int minfreq, bool wide)
 {
-  char name[128];
+  char name[64];
   char ext[16];
 
   if (num < 0)
@@ -1347,7 +1347,7 @@ void compress_tb(struct tb_handle *F, int num, void *data, uint64_t tb_size,
 
 void merge_tb(struct tb_handle *F)
 {
-  char name[128], str[128];
+  char name[64], str[64];
   char ext[32];
 
   sprintf(name, "../%s%s", F->name, suffix[F->type]);
@@ -1371,7 +1371,7 @@ void merge_tb(struct tb_handle *F)
 
   fclose(G);
 
-  char tmp[128];
+  char tmp[64];
   strcat(strcpy(tmp, name), ".tmp");
   add_checksum(tmp);
   file_rename(name);
@@ -1399,26 +1399,10 @@ void merge_tb(struct tb_handle *F)
 
 static constexpr int default_blocksize[3] = { 6, 6, 10 };
 
-void compress_data_slice(int s, int stm, int type, void *data, uint64_t tb_size,
-    uint8_t *perm, int minfreq, bool wide, bool big)
+void compress_data_slice(const char *name, int stm, int type, void *data,
+    uint64_t tb_size, uint8_t *perm, int minfreq, bool wide, bool big)
 {
-  char str[128];
-
-#ifndef HAS_PAWNS
-  if (big)
-    create_name_10(str, s, stm, name[type]);
-  else
-    create_name(str, s, stm, name[type], -1);
-#else
-  char tmp[128];
-  if (big)
-    create_name_p(tmp, s, stm, name[type]);
-  else
-    create_name_sq(tmp, s / 64, s % 64, stm, name[type], -1);
-  strcat(strcpy(str, "../"), tmp);
-#endif
-
-  FILE *F = file_open_write(str);
+  FILE *F = file_open_write(name);
 
   if (g_compress_type == 1) {
     write_u8(F, 0xff);
@@ -1653,5 +1637,5 @@ void compress_data_slice(int s, int stm, int type, void *data, uint64_t tb_size,
 
 finished:
   fclose(F);
-  file_rename(str);
+  file_rename(name);
 }

@@ -24,7 +24,7 @@ uint64_t g_stats[2][MAX_STATS];
 
 void collect_stats(int stm)
 {
-  char str[128];
+  char str[64];
   uint64_t tmp[MAX_STATS];
 
   uint64_t *stats = g_stats[stm];

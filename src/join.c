@@ -133,7 +133,7 @@ static void prepare_dtz_map(uint16_t *v, struct DtzMap *map)
 
 static void read_merge_info(int stm)
 {
-  char str[128];
+  char str[64];
   sprintf(str, "merge_info.%c", "wb"[stm]);
   FILE *F = file_open_read(str);
   file_read(&mi, sizeof mi, F);
@@ -143,7 +143,7 @@ static void read_merge_info(int stm)
 // Join everything in one table per side.
 static void join_wdl(int stm, struct tb_handle *G)
 {
-  char str[128];
+  char str[64];
   uint8_t *table = join_table;
 
   // Broken positions with adjacent kings are mapped to the index one
@@ -170,7 +170,7 @@ static void join_wdl(int stm, struct tb_handle *G)
 static void join_dtz(int stm, struct tb_handle *G)
 {
   uint16_t v[MAX_STATS];
-  char str[128];
+  char str[64];
 
   read_merge_info(stm);
 
@@ -301,12 +301,17 @@ void join_slices(uint8_t *pcs, uint8_t *pt)
 static void join_wdl_462(int stm)
 {
   uint64_t stats[MAX_STATS];
-  char str[128];
+  char str[64];
   uint8_t *table = join_table;
 
   create_dir(-1, stm, "wdl");
 
   for (int s = 0; s < 462; s++) {
+    char name[64];
+    create_name(name, s, stm, "wdl", -1);
+    if (file_exists(name))
+      continue;
+
     g_pos.sq[0] = KKSquare[s][0];
     g_pos.sq[1] = KKSquare[s][1];
     g_pos.stm = stm;
@@ -351,7 +356,7 @@ static void join_wdl_462(int stm)
         s);
     permute_piece_462(tb_table, table, best, WDL, false);
     printf("Compressing data for %ctm/wdl, slice = %d.\n", "wb"[stm], s);
-    compress_data_slice(s, stm, WDL, tb_table, kslice_size, best, minfreq,
+    compress_data_slice(name, stm, WDL, tb_table, kslice_size, best, minfreq,
         false, false);
   }
 }
@@ -360,7 +365,7 @@ static void join_dtz_462(int stm)
 {
   uint64_t stats[MAX_STATS];
   uint16_t v[MAX_STATS];
-  char str[128];
+  char str[64];
 
   create_dir(-1, stm, "dtz");
 
@@ -392,6 +397,11 @@ static void join_dtz_462(int stm)
   compress_alloc_dtz(tb_wide);
 
   for (int s = 0; s < 462; s++) {
+    char name[64];
+    create_name(name, s, stm, "dtz", -1);
+    if (file_exists(name))
+      continue;
+
     g_pos.sq[0] = KKSquare[s][0];
     g_pos.sq[1] = KKSquare[s][1];
     g_pos.stm = stm;
@@ -448,7 +458,7 @@ static void join_dtz_462(int stm)
         s);
     permute_piece_462(tb_table, join_table, best, DTZ, tb_wide);
     printf("Compressing data for %ctm/dtz, slice = %d.\n", "wb"[stm], s);
-    compress_data_slice(s, stm, DTZ, tb_table, kslice_size, best, minfreq,
+    compress_data_slice(name, stm, DTZ, tb_table, kslice_size, best, minfreq,
         tb_wide, false);
   }
 
@@ -457,7 +467,7 @@ static void join_dtz_462(int stm)
 
 void join_final_462(int type)
 {
-  char str[128];
+  char str[64];
   struct stat st;
   uint64_t slice_size[924], size_small = 0;
   bool has_stm[2] = {
@@ -491,7 +501,7 @@ void join_final_462(int type)
   for (int s = 0; s < 462; s++)
     for (int stm = 0; stm < 2; stm++) {
       if (!has_stm[stm]) continue;
-      create_name(str, s, stm, name[type], -1);
+      create_name(str, s, stm, typename[type], -1);
       if (stat(str, &st) < 0) {
         fprintf(stderr, "Could not access %s.\n", str);
         exit(EXIT_FAILURE);
@@ -517,7 +527,7 @@ void join_final_462(int type)
       offset += slice_size[i];
     }
 
-  char fname[128], tmp[128];
+  char fname[64], tmp[64];
   sprintf(fname, "../%s%s", g_tablename, suffix[type]);
   strcat(strcpy(tmp, fname), ".tmp");
   int fd = creat(tmp, 0666);
@@ -535,7 +545,7 @@ void join_final_462(int type)
     for (int stm = 0; stm < 2; stm++) {
       if (!has_stm[stm]) continue;
       if (slice_size[n] < 64) {
-        create_name(str, s, stm, name[type], -1);
+        create_name(str, s, stm, typename[type], -1);
         int slice_fd = open(str, O_RDONLY);
         if (slice_fd < 0) {
           fprintf(stderr, "Could not open %s.\n", str);
@@ -562,7 +572,7 @@ void join_final_462(int type)
     for (int stm = 0; stm < 2; stm++) {
       if (!has_stm[stm]) continue;
       if (slice_size[n] >= 64) {
-        create_name(str, s, stm, name[type], -1);
+        create_name(str, s, stm, typename[type], -1);
         int slice_fd = open(str, O_RDONLY);
         if (slice_fd < 0) {
           fprintf(stderr, "Could not open %s.\n", str);
@@ -615,12 +625,17 @@ void join_slices_462(void)
 // Join everything in 10 tables per side.
 static void join_wdl_10(int stm)
 {
-  char str[128];
+  char str[64];
   uint8_t *table = join_table;
 
   create_dir(-1, stm, "wdl");
 
   for (int k = 0; k < 10; k++) {
+    char name[64];
+    create_name_10(name, k, stm, "wdl");
+    if (file_exists(name))
+      continue;
+
     init_permute_piece_10(k);
     int num = 0;
     uint64_t stats[MAX_STATS] = { 0 };
@@ -680,15 +695,15 @@ static void join_wdl_10(int stm)
         k);
     permute_piece_10(tb_table, table, best, WDL, false);
     printf("Compressing data for %ctm/wdl, slice = %d.\n", "wb"[stm], k);
-    compress_data_slice(k, stm, WDL, tb_table, num * kslice_size, best, minfreq,
-        false, true);
+    compress_data_slice(name, stm, WDL, tb_table, num * kslice_size, best,
+        minfreq, false, true);
   }
 }
 
 static void join_dtz_10(int stm)
 {
   uint16_t v[MAX_STATS];
-  char str[128];
+  char str[64];
 
   create_dir(-1, stm, "dtz");
 
@@ -722,6 +737,11 @@ static void join_dtz_10(int stm)
   g_pos.stm = stm;
 
   for (int k = 0; k < 10; k++) {
+    char name[64];
+    create_name_10(name, k, stm, "dtz");
+    if (file_exists(name))
+      continue;
+
     init_permute_piece_10(k);
     int num = 0;
     uint64_t stats[MAX_STATS] = { 0 };
@@ -825,8 +845,8 @@ static void join_dtz_10(int stm)
         k);
     permute_piece_10(tb_table, join_table, best, DTZ, tb_wide);
     printf("Compressing data for %ctm/dtz, slice = %d.\n", "wb"[stm], k);
-    compress_data_slice(k, stm, DTZ, tb_table, num * kslice_size, best, minfreq,
-        tb_wide, true);
+    compress_data_slice(name, stm, DTZ, tb_table, num * kslice_size, best,
+        minfreq, tb_wide, true);
   }
 
   compress_free_dtz();
@@ -834,7 +854,7 @@ static void join_dtz_10(int stm)
 
 static void join_final_10(int type)
 {
-  char str[128];
+  char str[64];
   struct stat st;
   uint64_t slice_size[20], size_small = 0;
   bool has_stm[2] = {
@@ -868,7 +888,7 @@ static void join_final_10(int type)
   for (int k = 0; k < 10; k++)
     for (int stm = 0; stm < 2; stm++) {
       if (!has_stm[stm]) continue;
-      create_name_10(str, k, stm, name[type]);
+      create_name_10(str, k, stm, typename[type]);
       if (stat(str, &st) < 0) {
         fprintf(stderr, "Could not access %s.\n", str);
         exit(EXIT_FAILURE);
@@ -894,7 +914,7 @@ static void join_final_10(int type)
       offset += slice_size[i];
     }
 
-  char fname[128], tmp[128];
+  char fname[64], tmp[64];
   sprintf(fname, "../%s%s", g_tablename, suffix[type]);
   strcat(strcpy(tmp, fname), ".tmp");
   int fd = creat(tmp, 0666);
@@ -912,7 +932,7 @@ static void join_final_10(int type)
     for (int stm = 0; stm < 2; stm++) {
       if (!has_stm[stm]) continue;
       if (slice_size[n] < 64) {
-        create_name_10(str, k, stm, name[type]);
+        create_name_10(str, k, stm, typename[type]);
         int slice_fd = open(str, O_RDONLY);
         if (slice_fd < 0) {
           fprintf(stderr, "Could not open %s.\n", str);
@@ -939,7 +959,7 @@ static void join_final_10(int type)
     for (int stm = 0; stm < 2; stm++) {
       if (!has_stm[stm]) continue;
       if (slice_size[n] >= 64) {
-        create_name_10(str, k, stm, name[type]);
+        create_name_10(str, k, stm, typename[type]);
         int slice_fd = open(str, O_RDONLY);
         if (slice_fd < 0) {
           fprintf(stderr, "Could not open %s.\n", str);

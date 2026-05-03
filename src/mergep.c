@@ -48,6 +48,14 @@ static void stat_count(uint64_t stats[16][MAX_STATS], int n)
 
 void merge(int stm)
 {
+  char str[64];
+  sprintf(str, "merge_info.%c", "wb"[stm]);
+  if (file_exists(str))
+    return;
+
+  if (!k16slice_get_address(-1))
+    k16slice_buf[11] = alloc_k16slice();
+
   uint64_t *stats = g_stats[stm];
 
   create_dir(-1, stm, "stats");
@@ -210,8 +218,6 @@ void merge(int stm)
 
   }
 
-  char str[128];
-  sprintf(str, "merge_info.%c", "wb"[stm]);
   FILE *F = file_open_write(str);
   file_write(&mi, sizeof mi, F);
   fclose(F);

@@ -31,7 +31,7 @@ uint64_t kslice_cache_lines;
 uint64_t kslice_read_cost;
 uint64_t kslice_read_count;
 
-static uint64_t *work_cl, *work_clc;
+static uint64_t *work_cl;
 static uint64_t *work_sub_cl[2];
 static bool kslice_in_use[19];
 
@@ -143,7 +143,6 @@ void kslice_setup(void)
     kslice_slot[i + 1] = -1;
   kslice_cache_lines = bits_to_aligned(kslice_size) >> 6;
   work_cl = create_work(g_total_work, kslice_cache_lines, 0);
-  work_clc = create_work(g_total_work, kslice_cache_lines - 1, 0);
   sub_size[0] = sub_size[1] = 0;
   for (int i = 0; i < ii.numsets; i++) {
     int stm = g_pos.pt[ii.first[i]] >> 3;
@@ -431,7 +430,7 @@ void kslice_read_or(int s, int slice, int stm, const char *name, int n)
   if (st.st_size > 0) {
     uint64_t num;
     file_read(&num, sizeof(uint64_t), F);
-    kslice_read_count += num;
+//    kslice_read_count += num;
     kslice_read_cost += st.st_size;
     read_data_or(F, kslice_get_address(s), kslice_cache_lines << 6);
   }
@@ -480,7 +479,7 @@ void kslice_sub_read(int s, int slice, int stm, const char *name)
   struct stat st;
   fstat(fileno(F), &st);
   if (st.st_size > 0) {
-    file_read(&kslice_read_count, sizeof(uint64_t), F);
+    file_read(&kslice_read_count, 8, F);
     read_data(F, kslice_sub_get_base(s), sub_size[stm]);
   } else
     kslice_sub_clear(s, stm);
@@ -497,7 +496,7 @@ bool kslice_test_count(int s, int stm, const char *name, int n, uint64_t *num)
   struct stat st;
   fstat(fileno(F), &st);
   if (st.st_size > 0)
-    file_read(num, sizeof(uint64_t), F);
+    file_read(num, 8, F);
   else
     *num = 0;
   fclose(F);
@@ -513,7 +512,7 @@ uint64_t kslice_size_count(int s, int stm, const char *name, int n,
   struct stat st;
   fstat(fileno(F), &st);
   if (st.st_size > 0)
-    file_read(num, sizeof(uint64_t), F);
+    file_read(num, 8, F);
   else
     *num = 0;
   fclose(F);

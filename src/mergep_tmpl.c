@@ -138,8 +138,13 @@ static void NAME(merge_statistics_worker)(struct ThreadData *thread)
 
 static void NAME(merge_bitmaps)(int stm, int s)
 {
+  char str[64];
+
+  create_name_r(str, s, 15, stm, "merged/wdl", -1);
+  if (file_exists(str))
+    return;
+
   uint64_t stats[16][MAX_STATS] = { 0 };
-  char str[128];
 
   g_pos.stm = stm;
 

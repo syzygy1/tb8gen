@@ -17,12 +17,16 @@
 #include "threads.h"
 #include "types.h"
 
+const char *wdl_name[7] = {
+  "loss", "bloss", "draw", "cwin", "win", "nobloss", "noloss"
+};
+
 uint64_t capt_cnt[2][5], sub_cnt[2][5];
-uint64_t psub_cnt[5];
-uint64_t pawn_cnt[5];
+uint64_t psub_cnt[5], pcapt_cnt[5], pawn_cnt[5];
 int max_iteration;
 static uint8_t *merged_table, *merged_table2;
 
+#if 0
 void list_positions(int s, uint8_t *restrict q)
 {
   uint32_t sub[MAX_SETS];
@@ -43,6 +47,20 @@ void list_positions(int s, uint8_t *restrict q)
       }
     }
   }
+}
+#endif
+
+INLINE uint64_t sum16(uint64_t *num)
+{
+  uint64_t cnt = 0;
+  for (int r = 0; r < 16; r++)
+    cnt += num[r];
+  return cnt;
+}
+
+INLINE int stats_n(int n)
+{
+  return 2 + n + 2 * (n > DRAW_RULE);
 }
 
 INLINE void mark_king_unmoves(int stm, Bitboard occ, const uint8_t *restrict sq)
@@ -102,71 +120,77 @@ static void calc_sub_worker(struct ThreadData *thread)
 // Calculate aggregate bitmaps for subtables, one per loss/bloss/draw/cwin/win.
 static void calc_sub_kslices(int stm)
 {
-  create_dir(-1, stm, "sub/loss");
-  create_dir(-1, stm, "sub/bloss");
-  create_dir(-1, stm, "sub/draw");
-  create_dir(-1, stm, "sub/cwin");
-  create_dir(-1, stm, "sub/win");
-  create_dir(-1, stm, "sub/noloss");
-  create_dir(-1, stm, "sub/nobloss");
+  char done[16];
+  sprintf(done, "sub/done_%c", "wb"[stm]);
+  FILE *F = fopen(done, "rb");
+  if (F) {
+    for (int i = 0; i < 5; i++)
+      file_read(&sub_cnt[stm][i], 8, F);
+    fclose(F);
+    return;
+  }
+
+  char name[7][16];
+  for (int i = 0; i < 7; i++) {
+    strcat(strcpy(name[i], "sub/"), wdl_name[i]);
+    create_dir(-1, stm, name[i]);
+  }
 
   g_pos.stm = stm;
 
   for (int s = 0; s < 240; s++) {
-    for (int i = 0; i < 5; i++)
-      k16slice_sub_clear_addr(k16slice_sub_buf[i], stm);
+    uint64_t c[5];
 
-    for (int t = 0; t < g_num_threads; t++)
-      g_thread_data[t].cnt = 0;
+    if (k16slice_sub_test_count(s, stm, name[6], -1, &c[0])) {
+      for (int i = 0; i < 5; i++)
+        k16slice_sub_test_count(s, stm, name[i], -1, &c[i]);
+    } else {
+      for (int i = 0; i < 5; i++)
+        k16slice_sub_clear_addr(k16slice_sub_buf[i], stm);
 
-    for (int r = 0; r < 16; r++) {
-      g_pos.sq[0] = KK16Square[s][r][0];
-      g_pos.sq[1] = KK16Square[s][r][1];
-      work_r = r;
+      for (int t = 0; t < g_num_threads; t++)
+        g_thread_data[t].cnt = 0;
 
-      if (is_broken(&g_pos))
-        continue;
+      for (int r = 0; r < 16; r++) {
+        g_pos.sq[0] = KK16Square[s][r][0];
+        g_pos.sq[1] = KK16Square[s][r][1];
+        work_r = r;
 
-      for (int k = 0; k < ii.numsets; k++) {
-        if ((g_pos.pt[ii.first[k]] >> 3) != stm)
+        if (is_broken(&g_pos))
           continue;
-        work_set = k;
-        run_threaded(calc_sub_worker, work_capt[k], 0);
+
+        for (int k = 0; k < ii.numsets; k++) {
+          if ((g_pos.pt[ii.first[k]] >> 3) != stm)
+            continue;
+          work_set = k;
+          run_threaded(calc_sub_worker, work_capt[k], 0);
+        }
       }
+
+      for (int i = 0; i < 5; i++) {
+        c[i] = k16slice_sub_count_addr(k16slice_sub_buf[i], stm);
+        k16slice_sub_write_addr(k16slice_sub_buf[i], s, stm, name[i], c[i]);
+      }
+
+      k16slice_sub_or_addr(k16slice_sub_buf[0], k16slice_sub_buf[1], stm);
+      k16slice_sub_or_addr(k16slice_sub_buf[0], k16slice_sub_buf[2], stm);
+      k16slice_sub_write_addr(k16slice_sub_buf[0], s, stm, name[5],
+          c[0] + c[1] + c[2]);
+
+      k16slice_sub_or_addr(k16slice_sub_buf[0], k16slice_sub_buf[3], stm);
+      k16slice_sub_write_addr(k16slice_sub_buf[0], s, stm, name[6],
+          c[0] + c[1] + c[2] + c[3]);
     }
 
-    uint64_t cnt_l, cnt_bl, cnt_d, cnt_cw, cnt_w;
-
-    cnt_l = k16slice_sub_count_addr(k16slice_sub_buf[0], stm);
-    k16slice_sub_write_addr(k16slice_sub_buf[0], s, stm, "sub/loss", cnt_l);
-
-    cnt_bl = k16slice_sub_count_addr(k16slice_sub_buf[1], stm);
-    k16slice_sub_write_addr(k16slice_sub_buf[1], s, stm, "sub/bloss", cnt_bl);
-
-    cnt_d = k16slice_sub_count_addr(k16slice_sub_buf[2], stm);
-    k16slice_sub_write_addr(k16slice_sub_buf[2], s, stm, "sub/draw", cnt_d);
-
-    cnt_cw = k16slice_sub_count_addr(k16slice_sub_buf[3], stm);
-    k16slice_sub_write_addr(k16slice_sub_buf[3], s, stm, "sub/cwin", cnt_cw);
-
-    cnt_w = k16slice_sub_count_addr(k16slice_sub_buf[4], stm);
-    k16slice_sub_write_addr(k16slice_sub_buf[4], s, stm, "sub/win", cnt_w);
-
-    sub_cnt[stm][0] += cnt_l;
-    sub_cnt[stm][1] += cnt_bl;
-    sub_cnt[stm][2] += cnt_d;
-    sub_cnt[stm][3] += cnt_cw;
-    sub_cnt[stm][4] += cnt_w;
-
-    k16slice_sub_or_addr(k16slice_sub_buf[0], k16slice_sub_buf[1], stm);
-    k16slice_sub_or_addr(k16slice_sub_buf[0], k16slice_sub_buf[2], stm);
-    k16slice_sub_write_addr(k16slice_sub_buf[0], s, stm, "sub/nobloss",
-        UINT64_MAX);
-
-    k16slice_sub_or_addr(k16slice_sub_buf[0], k16slice_sub_buf[3], stm);
-    k16slice_sub_write_addr(k16slice_sub_buf[0], s, stm, "sub/noloss",
-        UINT64_MAX);
+    for (int i = 0; i < 5; i++)
+      sub_cnt[stm][i] += c[i];
   }
+
+  F = file_open_write(done);
+  for (int i = 0; i < 5; i++)
+    file_write(&sub_cnt[stm][i], 8, F);
+  fclose(F);
+  file_rename(done);
 }
 
 static void calc_psub_worker(struct ThreadData *thread)
@@ -201,72 +225,74 @@ static void calc_psub_worker(struct ThreadData *thread)
 // the black pawn by a white piece (non-king).
 static void calc_psub_kslices(void)
 {
-  create_dir(-1, WHITE, "psub/loss");
-  create_dir(-1, WHITE, "psub/bloss");
-  create_dir(-1, WHITE, "psub/draw");
-  create_dir(-1, WHITE, "psub/cwin");
-  create_dir(-1, WHITE, "psub/win");
-  create_dir(-1, WHITE, "psub/noloss");
-  create_dir(-1, WHITE, "psub/nobloss");
+  char done[16];
+  sprintf(done, "psub/done");
+  FILE *F = fopen(done, "rb");
+  if (F) {
+    for (int i = 0; i < 5; i++)
+      file_read(&psub_cnt[i], 8, F);
+    fclose(F);
+    return;
+  }
+
+  char name[7][16];
+  for (int i = 0; i < 7; i++) {
+    strcat(strcpy(name[i], "psub/"), wdl_name[i]);
+    create_dir(-1, WHITE, name[i]);
+  }
 
   g_pos.stm = BLACK;
 
   for (int s = 0; s < 240; s++) {
-    for (int i = 0; i < 5; i++)
-      k16slice_sub_clear_addr(k16slice_sub_buf[i], WHITE);
+    uint64_t c[5];
 
-    for (int t = 0; t < g_num_threads; t++)
-      g_thread_data[t].cnt = 0;
+    if (k16slice_sub_test_count(s, WHITE, name[6], -1, &c[0])) {
+      for (int i = 0; i < 5; i++)
+        k16slice_sub_test_count(s, WHITE, name[i], -1, &c[i]);
+    } else {
+      for (int i = 0; i < 5; i++)
+        k16slice_sub_clear_addr(k16slice_sub_buf[i], WHITE);
 
-    for (int r = 0; r < 16; r++) {
-      g_pos.sq[0] = KK16Square[s][r][0];
-      g_pos.sq[1] = KK16Square[s][r][1];
-      work_r = r;
+      for (int r = 0; r < 16; r++) {
+        g_pos.sq[0] = KK16Square[s][r][0];
+        g_pos.sq[1] = KK16Square[s][r][1];
+        work_r = r;
 
-      if (is_broken(&g_pos))
-        continue;
-
-      for (int k = 0; k < ii.numsets; k++) {
-        if ((g_pos.pt[ii.first[k]] >> 3) != WHITE)
+        if (is_broken(&g_pos))
           continue;
-        work_set = k;
-        run_threaded(calc_psub_worker, work_capt[k], 0);
+
+        for (int k = 0; k < ii.numsets; k++) {
+          if ((g_pos.pt[ii.first[k]] >> 3) != WHITE)
+            continue;
+          work_set = k;
+          run_threaded(calc_psub_worker, work_capt[k], 0);
+        }
       }
+
+      for (int i = 0; i < 5; i++) {
+        c[i] = k16slice_sub_count_addr(k16slice_sub_buf[i], WHITE);
+        k16slice_sub_write_addr(k16slice_sub_buf[i], s, WHITE, name[i], c[i]);
+      }
+
+      k16slice_sub_or_addr(k16slice_sub_buf[0], k16slice_sub_buf[1], WHITE);
+      k16slice_sub_or_addr(k16slice_sub_buf[0], k16slice_sub_buf[2], WHITE);
+      k16slice_sub_write_addr(k16slice_sub_buf[0], s, WHITE, name[5],
+          c[0] + c[1] + c[2]);
+
+      k16slice_sub_or_addr(k16slice_sub_buf[0], k16slice_sub_buf[3], WHITE);
+      k16slice_sub_write_addr(k16slice_sub_buf[0], s, WHITE, name[6],
+          c[0] + c[1] + c[2] + c[3]);
     }
 
-    uint64_t cnt_l, cnt_bl, cnt_d, cnt_cw, cnt_w;
-
-    cnt_l = k16slice_sub_count_addr(k16slice_sub_buf[0], WHITE);
-    k16slice_sub_write_addr(k16slice_sub_buf[0], s, WHITE, "psub/loss", cnt_l);
-
-    cnt_bl = k16slice_sub_count_addr(k16slice_sub_buf[1], WHITE);
-    k16slice_sub_write_addr(k16slice_sub_buf[1], s, WHITE, "psub/bloss",
-        cnt_bl);
-
-    cnt_d = k16slice_sub_count_addr(k16slice_sub_buf[2], WHITE);
-    k16slice_sub_write_addr(k16slice_sub_buf[2], s, WHITE, "psub/draw", cnt_d);
-
-    cnt_cw = k16slice_sub_count_addr(k16slice_sub_buf[3], WHITE);
-    k16slice_sub_write_addr(k16slice_sub_buf[3], s, WHITE, "psub/cwin", cnt_cw);
-
-    cnt_w = k16slice_sub_count_addr(k16slice_sub_buf[4], WHITE);
-    k16slice_sub_write_addr(k16slice_sub_buf[4], s, WHITE, "psub/win", cnt_w);
-
-    psub_cnt[0] += cnt_l;
-    psub_cnt[1] += cnt_bl;
-    psub_cnt[2] += cnt_d;
-    psub_cnt[3] += cnt_cw;
-    psub_cnt[4] += cnt_w;
-  
-    k16slice_sub_or_addr(k16slice_sub_buf[0], k16slice_sub_buf[1], WHITE);
-    k16slice_sub_or_addr(k16slice_sub_buf[0], k16slice_sub_buf[2], WHITE);
-    k16slice_sub_write_addr(k16slice_sub_buf[0], s, WHITE, "psub/nobloss",
-        UINT64_MAX);
-
-    k16slice_sub_or_addr(k16slice_sub_buf[0], k16slice_sub_buf[3], WHITE);
-    k16slice_sub_write_addr(k16slice_sub_buf[0], s, WHITE, "psub/noloss",
-        UINT64_MAX);
+    for (int i = 0; i < 5; i++)
+      psub_cnt[i] += c[i];
   }
+
+  F = file_open_write(done);
+  for (int i = 0; i < 5; i++)
+    file_write(&psub_cnt[i], 8, F);
+  fclose(F);
+  file_rename(done);
 
   for (int i = 0; i < 5; i++)
     printf("psub_cnt[%d] = %lu\n", i, psub_cnt[i]);
@@ -423,48 +449,119 @@ static void calc_king_captures_pawn(int s, int lower, int upper)
   }
 }
 
-const char *wdl_name[5] = { "loss", "bloss", "draw", "cwin", "win" };
+static int wins_full[2][240];
+static int wins_checked[2][240];
+static uint64_t replay_cost[2][240];
+static uint64_t write_cost[2][240];
+
+static void add_wins(int s, int stm, int n, uint64_t cost)
+{
+  if ((replay_cost[stm][s] + cost) * 1.0 <= write_cost[stm][s])
+    return;
+
+  k16slice_or(-1, s);
+  k16slice_write(-1, s, stm, "wins", n, nullptr);
+  replay_cost[stm][s] = 0;
+
+  k16slice_delete(s, stm, "wins", wins_full[stm][s]);
+  for (int i = max(wins_full[stm][s] + 1, wins_checked[stm][s]); i < n; i++)
+    k16slice_delete(s, stm, "wins", i);
+  wins_full[stm][s] = wins_checked[stm][s] = n;
+}
+
+static void read_wins(int s, int slice, int stm, int n)
+{
+  if (n < 0)
+    for (n = MAX_STATS / 2 - 3; n > 0; n--)
+      if (g_stats[stm][stats_n(n)])
+        break;
+
+  if (wins_checked[stm][slice] < n) {
+    int i;
+    for (i = n; i > wins_checked[stm][slice]; i--)
+      if (k16slice_test(slice, stm, "wins", i))
+        break;
+    if (i > wins_checked[stm][slice]) {
+      for (int j = i - 1; j >= wins_full[stm][slice]; j--)
+        k16slice_delete(slice, stm, "wins", j);
+      wins_full[stm][slice] = i;
+    }
+    wins_checked[stm][slice] = n;
+  }
+
+  k16slice_read(s, slice, stm, "wins", wins_full[stm][slice]);
+  write_cost[stm][slice] = k16slice_read_cost;
+  k16slice_read_cost = 0;
+  for (int i = wins_full[stm][slice] + 1; i <= n; i++)
+    if (g_stats[stm][stats_n(i)])
+      k16slice_read_or(s, slice, stm, "W", i);
+  replay_cost[stm][slice] += k16slice_read_cost;
+}
 
 static void calc_capt(int stm, int wdl)
 {
-  struct K16SliceIterator iter;
-  uint64_t num[16], cnt = 0;
-
-  char capt_name[128], pcapt_name[128], sub_name[128], psub_name[128];
+  char capt_name[64], pcapt_name[64], sub_name[64], psub_name[64];
   strcat(strcpy(capt_name , "capt/" ), wdl_name[2 + wdl]);
   strcat(strcpy(pcapt_name, "pcapt/"), wdl_name[2 + wdl]);
   strcat(strcpy(sub_name  , "sub/"  ), wdl_name[2 - wdl]);
   strcat(strcpy(psub_name , "psub/" ), wdl_name[2 - wdl]);
 
+  char str[64];
+  sprintf(str, "%s/%c/done", capt_name, "wb"[stm]);
+  FILE *F = fopen(str, "rb");
+  if (F) {
+    file_read(&capt_cnt[stm][2 + wdl], 8, F);
+    fclose(F);
+    return;
+  }
+
+  bool partial = dir_exists(-1, stm, capt_name), done = partial;
+
   create_dir(-1, stm, capt_name);
+
+  struct K16SliceIterator iter;
+  uint64_t num[16], cnt = 0;
 
   k16slice_iter_init(&iter, stm);
   int s, s1;
   while (k16slice_iter_next(&iter, &s)) {
 
-    while (k16slice_iter_in(&iter, &s1)) {
-      if (stm == WHITE)
-        k16slice_clear(s1);
-      else
-        k16slice_read(s1, s1, BLACK, pcapt_name, -1);
+    while (k16slice_iter_in(&iter, &s1))
+      if (partial && k16slice_test_count(s1, stm, capt_name, -1, num)) {
+        cnt += sum16(num);
+      } else {
+        done = false;
+        if (stm == WHITE)
+          k16slice_clear(s1);
+        else
+          k16slice_read(s1, s1, BLACK, pcapt_name, -1);
+      }
+
+    if (!done) {
+      k16slice_sub_read(s, s, stm ^ 1, sub_name);
+      predecessors_sub(stm, s);
+
+      if (stm == WHITE) {
+        k16slice_sub_read(s, s, stm, psub_name);
+        predecessors_psub(s);
+        calc_king_captures_pawn(s, wdl, wdl);
+      }
     }
 
-    k16slice_sub_read(s, s, stm ^ 1, sub_name);
-    predecessors_sub(stm, s);
-
-    if (stm == WHITE) {
-      k16slice_sub_read(s, s, stm, psub_name);
-      predecessors_psub(s);
-      calc_king_captures_pawn(s, wdl, wdl);
-    }
-
-    while (k16slice_iter_out(&iter, &s)) {
-      cnt += k16slice_count(s, num);
-      k16slice_write(s, s, stm, capt_name, -1, num);
-    }
+    while (k16slice_iter_out(&iter, &s))
+      if (!partial || !k16slice_test_count(s, stm, capt_name, -1, num)) {
+        cnt += k16slice_count(s, num);
+        k16slice_write(s, s, stm, capt_name, -1, num);
+      }
   }
 
   capt_cnt[stm][2 + wdl] = cnt;
+
+  F = file_open_write(str);
+  file_write(&capt_cnt[stm][2 + wdl], 8, F);
+  fclose(F);
+  file_rename(str);
+
   printf("capt_cnt[%d][%d] = %lu\n", stm, 2 + wdl, cnt);
 }
 
@@ -473,51 +570,60 @@ static void calc_capt(int stm, int wdl)
 // captures and pawn moves in check_successors().
 static void calc_noloss(int stm, int wdl)
 {
-  uint64_t num[16];
-  struct K16SliceIterator iter;
+//  if (file_exists("capt/nobloss/done"))
+//    return;
 
   const char *noloss = wdl == 0 ? "nobloss" : "noloss";
 
-  create_dir(-1, stm, noloss);
-
-  char pawn_name[128], pcapt_name[128], sub_name[128], psub_name[128];
+  char pawn_name[64], pcapt_name[64], sub_name[64], psub_name[64];
   strcat(strcpy(pawn_name , "pawn/" ), noloss);
   strcat(strcpy(pcapt_name, "pcapt/"), noloss);
   strcat(strcpy(sub_name  , "sub/"  ), noloss);
   strcat(strcpy(psub_name , "psub/" ), noloss);
 
+  bool partial = dir_exists(-1, stm, noloss), done = partial;
+
+  create_dir(-1, stm, noloss);
+
+  uint64_t num[16];
+  struct K16SliceIterator iter;
+
   k16slice_iter_init(&iter, stm);
   int s, s1;
   while (k16slice_iter_next(&iter, &s)) {
 
-    while (k16slice_iter_in(&iter, &s1)) {
-      k16slice_clear(s1);
-      if (stm == WHITE)
-        k16slice_clear(s1);
-      else {
-        k16slice_read(s1, s1, BLACK, pcapt_name, -1);
-        k16slice_read(-1, s1, BLACK, pawn_name, -1);
-        k16slice_or(s1, -1);
+    while (k16slice_iter_in(&iter, &s1))
+      if (!partial || !k16slice_test_count(s1, stm, noloss, -1, num)) {
+        done = false;
+        if (stm == WHITE)
+          k16slice_clear(s1);
+        else {
+          k16slice_read(s1, s1, BLACK, pcapt_name, -1);
+          k16slice_read(-1, s1, BLACK, pawn_name, -1);
+          k16slice_or(s1, -1);
+        }
+      }
+
+    if (!done) {
+      k16slice_sub_read(s, s, stm ^ 1, sub_name);
+      predecessors_sub(stm, s);
+
+      if (stm == WHITE) {
+        k16slice_sub_read(s, s, stm, psub_name);
+        predecessors_psub(s);
+        calc_king_captures_pawn(s, wdl, 2);
       }
     }
 
-    k16slice_sub_read(s, s, stm ^ 1, sub_name);
-    predecessors_sub(stm, s);
-
-    if (stm == WHITE) {
-      k16slice_sub_read(s, s, stm, psub_name);
-      predecessors_psub(s);
-      calc_king_captures_pawn(s, wdl, 2);
-    }
-
-    while (k16slice_iter_out(&iter, &s)) {
-      // Add illegal positions to avoid having to check legality later.
-      // As a bonus, add any faster wins already found to increase efficiency.
-      k16slice_read(-1, s, stm, "wins", 0);
-      k16slice_or(s, -1);
-      k16slice_count(s, num);
-      k16slice_write(s, s, stm, noloss, -1, num);
-    }
+    while (k16slice_iter_out(&iter, &s))
+      if (!partial || !k16slice_test_count(s, stm, noloss, -1, num)) {
+        // Add illegal positions to avoid having to check legality later. As
+        // a bonus, add any faster wins already found to increase efficiency.
+        read_wins(-1, s, stm, -1); // most recent "wins"
+        k16slice_or(s, -1);
+        k16slice_count(s, num);
+        k16slice_write(s, s, stm, noloss, -1, num);
+      }
   }
 }
 
@@ -565,62 +671,64 @@ static void calc_pawn_capts_worker(struct ThreadData *thread)
 
 static void calc_pawn_capts(void)
 {
-  create_dir(-1, BLACK, "pcapt/loss");
-  create_dir(-1, BLACK, "pcapt/bloss");
-  create_dir(-1, BLACK, "pcapt/draw");
-  create_dir(-1, BLACK, "pcapt/cwin");
-  create_dir(-1, BLACK, "pcapt/win");
-  create_dir(-1, BLACK, "pcapt/noloss");
-  create_dir(-1, BLACK, "pcapt/nobloss");
+  char done[16];
+  sprintf(done, "pcapt/done");
+  FILE *F = fopen(done, "rb");
+  if (F) {
+    for (int i = 0; i < 5; i++)
+      file_read(&pcapt_cnt[i], 8, F);
+    fclose(F);
+    return;
+  }
+
+  char name[7][16];
+  for (int i = 0; i < 7; i++) {
+    strcat(strcpy(name[i], "pcapt/"), wdl_name[i]);
+    create_dir(-1, BLACK, name[i]);
+  }
 
   for (int s = 0; s < 240; s++) {
-    for (int i = 0; i < 5; i++)
-      k16slice_clear_addr(k16slice_buf[i]);
+    uint64_t c[5], num[16];
 
-    for (int r = 0; r < 16; r++) {
-      g_pos.sq[0] = KK16Square[s][r][0];
-      g_pos.sq[1] = KK16Square[s][r][1];
+    if (k16slice_test_count(s, BLACK, name[6], -1, num)) {
+      for (int i = 0; i < 5; i++) {
+        k16slice_test_count(s, BLACK, name[i], -1, num);
+        c[i] = sum16(num);
+      }
+    } else {
+      for (int i = 0; i < 5; i++)
+        k16slice_clear_addr(k16slice_buf[i]);
 
-      if (is_broken(&g_pos))
-        continue;
+      for (int r = 0; r < 16; r++) {
+        g_pos.sq[0] = KK16Square[s][r][0];
+        g_pos.sq[1] = KK16Square[s][r][1];
 
-      if (pawn_attacks(BLACK, g_pos.sq[2]) & bit(g_pos.sq[0]))
-        continue;
+        if (is_broken(&g_pos))
+          continue;
 
-      run_threaded(calc_pawn_capts_worker, work_g, 0);
+        if (pawn_attacks(BLACK, g_pos.sq[2]) & bit(g_pos.sq[0]))
+          continue;
+
+        run_threaded(calc_pawn_capts_worker, work_g, 0);
+      }
+
+      uint64_t num[16];
+
+      for (int i = 0; i < 5; i++) {
+        c[i] = k16slice_count_addr(k16slice_buf[i], num);
+        k16slice_write_addr(k16slice_buf[i], s, BLACK, name[i], -1, num);
+      }
+
+      k16slice_or_addr(k16slice_buf[4], k16slice_buf[3]);
+      k16slice_or_addr(k16slice_buf[4], k16slice_buf[2]);
+      k16slice_write_addr(k16slice_buf[4], s, BLACK, name[5], -1, nullptr);
+
+      k16slice_or_addr(k16slice_buf[4], k16slice_buf[1]);
+      k16slice_write_addr(k16slice_buf[4], s, BLACK, name[6], -1, nullptr);
     }
 
-    uint64_t cnt_l, cnt_bl, cnt_d, cnt_cw, cnt_w;
-    uint64_t num[16];
-
-    cnt_l = k16slice_count_addr(k16slice_buf[0], num);
-    k16slice_write_addr(k16slice_buf[0], s, BLACK, "pcapt/loss", -1, num);
-
-    cnt_bl = k16slice_count_addr(k16slice_buf[1], num);
-    k16slice_write_addr(k16slice_buf[1], s, BLACK, "pcapt/bloss", -1, num);
-
-    cnt_d = k16slice_count_addr(k16slice_buf[2], num);
-    k16slice_write_addr(k16slice_buf[2], s, BLACK, "pcapt/draw", -1, num);
-
-    cnt_cw = k16slice_count_addr(k16slice_buf[3], num);
-    k16slice_write_addr(k16slice_buf[3], s, BLACK, "pcapt/cwin", -1, num);
-
-    cnt_w = k16slice_count_addr(k16slice_buf[4], num);
-    k16slice_write_addr(k16slice_buf[4], s, BLACK, "pcapt/win", -1, num);
-
-    psub_cnt[0] += cnt_l;
-    psub_cnt[1] += cnt_bl;
-    psub_cnt[2] += cnt_d;
-    psub_cnt[3] += cnt_cw;
-    psub_cnt[4] += cnt_w;
-
-    k16slice_or_addr(k16slice_buf[4], k16slice_buf[3]);
-    k16slice_or_addr(k16slice_buf[4], k16slice_buf[2]);
-    k16slice_write_addr(k16slice_buf[4], s, BLACK, "pcapt/nobloss", -1,
-        nullptr);
-
-    k16slice_or_addr(k16slice_buf[4], k16slice_buf[1]);
-    k16slice_write_addr(k16slice_buf[4], s, BLACK, "pcapt/noloss", -1, nullptr);
+    for (int i = 0; i < 5; i++)
+      pcapt_cnt[i] += c[i];
   }
 }
 
@@ -703,7 +811,7 @@ INLINE char rk(int sq)
 
 static void calc_pawn_push(void)
 {
-  char str[128];
+  char str[64];
 
   if (g_pos.sq[2] - 8 == g_pos.sq[0] || g_pos.sq[2] - 8 == g_pos.sq[1])
     return;
@@ -760,7 +868,7 @@ static void calc_pawn_double_push_worker(struct ThreadData *thread)
 
 static void calc_pawn_double_push(void)
 {
-  char str[128];
+  char str[64];
 
   if (g_pos.sq[2] - 8 == g_pos.sq[0] || g_pos.sq[2] - 8 == g_pos.sq[1])
     return;
@@ -1009,21 +1117,50 @@ static void calc_mate_worker(struct ThreadData *thread)
 // Calc illegal, mate (L0) and pawn-push positions.
 static void calc_illegal_and_mate_and_pawn_push(void)
 {
-  uint64_t broken_w = 0, broken_b = 0, loss0_w = 0, loss0_b = 0, num[16];
+  FILE *F = fopen("0/done", "rb");
+  if (F) {
+    for (int stm = 0; stm < 2; stm++) {
+      file_read(&g_stats[stm][0], 8, F);
+      file_read(&g_stats[stm][MAX_STATS - 1], 8, F);
+    }
+    file_read(&pawn_cnt, sizeof pawn_cnt, F);
+    fclose(F);
+    return;
+  }
 
-  create_dir(0, WHITE, "wins");
-  create_dir(0, BLACK, "wins");
-  create_dir(0, WHITE, "L");
-  create_dir(0, BLACK, "L");
-  create_dir(-1, BLACK, "pawn/loss");
-  create_dir(-1, BLACK, "pawn/bloss");
-  create_dir(-1, BLACK, "pawn/draw");
-  create_dir(-1, BLACK, "pawn/cwin");
-  create_dir(-1, BLACK, "pawn/win");
-  create_dir(-1, BLACK, "pawn/noloss");
-  create_dir(-1, BLACK, "pawn/nobloss");
+  bool partial = file_exists("0");
+
+  for (int stm = 0; stm < 2; stm++) {
+    create_dir(0, stm, "wins");
+    create_dir(0, stm, "L");
+  }
+
+  char name[7][16];
+  for (int i = 0; i < 7; i++) {
+    strcat(strcpy(name[i], "pawn/"), wdl_name[i]);
+    create_dir(-1, BLACK, name[i]);
+  }
+
+  uint64_t broken[2] = { 0 }, loss0[2] = { 0 }, num[16];
 
   for (int s = 0; s < 240; s++) {
+    if (partial) {
+      char str[64];
+      create_name(str, s, BLACK, name[6], -1);
+      if (file_exists(str)) {
+        for (int stm = 0; stm < 2; stm++) {
+          if (k16slice_test_count(s, stm, "wins", 0, num))
+            broken[stm] += sum16(num);
+          if (k16slice_test_count(s, stm, "L", 0, num))
+            loss0[stm] += sum16(num);
+        }
+        for (int i = 0; i < 5; i++)
+          if (k16slice_test_count(s, BLACK, name[i], -1, num))
+            pawn_cnt[i] += sum16(num);
+        continue;
+      }
+    }
+
     k16slice_clear_addr(k16slice_buf[0]); // wtm illegal
     k16slice_clear_addr(k16slice_buf[1]); // btm illegal
 
@@ -1046,11 +1183,10 @@ static void calc_illegal_and_mate_and_pawn_push(void)
       }
     }
 
-    broken_w += k16slice_count_addr(k16slice_buf[0], num);
-    k16slice_write_addr(k16slice_buf[0], s, WHITE, "wins", 0, num);
-
-    broken_b += k16slice_count_addr(k16slice_buf[1], num);
-    k16slice_write_addr(k16slice_buf[1], s, BLACK, "wins", 0, num);
+    for (int stm = 0; stm < 2; stm++) {
+      broken[stm] += k16slice_count_addr(k16slice_buf[stm], num);
+      k16slice_write_addr(k16slice_buf[stm], s, stm, "wins", 0, num);
+    }
 
     k16slice_clear_addr(k16slice_buf[2]); // wtm mate
     k16slice_clear_addr(k16slice_buf[3]); // btm mate
@@ -1065,11 +1201,10 @@ static void calc_illegal_and_mate_and_pawn_push(void)
       run_threaded(calc_mate_worker, work_g, 0);
     }
 
-    loss0_w += k16slice_count_addr(k16slice_buf[2], num);
-    k16slice_write_addr(k16slice_buf[2], s, WHITE, "L", 0, num);
-
-    loss0_b += k16slice_count_addr(k16slice_buf[3], num);
-    k16slice_write_addr(k16slice_buf[3], s, BLACK, "L", 0, num);
+    for (int stm = 0; stm < 2; stm++) {
+      loss0[stm] += k16slice_count_addr(k16slice_buf[2 + stm], num);
+      k16slice_write_addr(k16slice_buf[2 + stm], s, stm, "L", 0, num);
+    }
 
     for (int i = 0; i < 5; i++)
       k16slice_clear_addr(k16slice_buf[2 + i]);
@@ -1089,33 +1224,33 @@ static void calc_illegal_and_mate_and_pawn_push(void)
         calc_pawn_double_push();
     }
 
-    pawn_cnt[0] += k16slice_count_addr(k16slice_buf[2], num);
-    k16slice_write_addr(k16slice_buf[2], s, BLACK, "pawn/loss", -1, num);
-    pawn_cnt[1] += k16slice_count_addr(k16slice_buf[3], num);
-    k16slice_write_addr(k16slice_buf[3], s, BLACK, "pawn/bloss", -1, num);
-    pawn_cnt[2] += k16slice_count_addr(k16slice_buf[4], num);
-    k16slice_write_addr(k16slice_buf[4], s, BLACK, "pawn/draw", -1, num);
-    pawn_cnt[3] += k16slice_count_addr(k16slice_buf[5], num);
-    k16slice_write_addr(k16slice_buf[5], s, BLACK, "pawn/cwin", -1, num);
-    pawn_cnt[4] += k16slice_count_addr(k16slice_buf[6], num);
-    k16slice_write_addr(k16slice_buf[6], s, BLACK, "pawn/win", -1, num);
+    for (int i = 0; i < 5; i++) {
+      pawn_cnt[i] += k16slice_count_addr(k16slice_buf[2 + i], num);
+      k16slice_write_addr(k16slice_buf[2 + i], s, BLACK, name[i], -1, num);
+    }
 
     k16slice_or_addr(k16slice_buf[6], k16slice_buf[5]);
     k16slice_or_addr(k16slice_buf[6], k16slice_buf[4]);
-    k16slice_write_addr(k16slice_buf[6], s, BLACK, "pawn/nobloss", -1, nullptr);
+    k16slice_write_addr(k16slice_buf[6], s, BLACK, name[5], -1, nullptr);
     k16slice_or_addr(k16slice_buf[6], k16slice_buf[3]);
-    k16slice_write_addr(k16slice_buf[6], s, BLACK, "pawn/noloss", -1, nullptr);
+    k16slice_write_addr(k16slice_buf[6], s, BLACK, name[6], -1, nullptr);
   }
 
-  g_stats[WHITE][0] = broken_w;
-  g_stats[BLACK][0] = broken_b;
-  g_stats[WHITE][MAX_STATS - 1] = loss0_w;
-  g_stats[BLACK][MAX_STATS - 1] = loss0_b;
+  F = file_open_write("0/done");
+  for (int stm = 0; stm < 2; stm++) {
+    g_stats[stm][0] = broken[stm];
+    g_stats[stm][MAX_STATS - 1] = loss0[stm];
+    file_write(&g_stats[stm][0], 8, F);
+    file_write(&g_stats[stm][MAX_STATS - 1], 8, F);
+  }
+  file_write(&pawn_cnt, sizeof pawn_cnt, F);
+  fclose(F);
+  file_rename("0/done");
 
-  printf("broken_w = %lu\n", broken_w);
-  printf("broken_b = %lu\n", broken_b);
-  printf("l0_w = %lu\n", loss0_w);
-  printf("l0_b = %lu\n", loss0_b);
+  printf("broken_w = %lu\n", broken[WHITE]);
+  printf("broken_b = %lu\n", broken[BLACK]);
+  printf("l0_w = %lu\n", loss0[WHITE]);
+  printf("l0_b = %lu\n", loss0[BLACK]);
   for (int i = 0; i < 5; i++)
     printf("pawn_cnt[%d] = %lu\n", i, pawn_cnt[i]);
 }
@@ -1124,8 +1259,24 @@ static void calc_illegal_and_mate_and_pawn_push(void)
 // from stm^1 wins in sub tables reached through captures (n == 1).
 static bool calc_L(int stm, int n, bool more_l)
 {
+  char str[64];
+  sprintf(str, "%d/L/%c/done", n, "wb"[stm]);
+  FILE *F = fopen(str, "rb");
+  if (F) {
+    file_read(&g_stats[stm][MAX_STATS - 1 - n], 8, F);
+    fclose(F);
+    return g_stats[stm][MAX_STATS - 1 - n] != 0;
+  }
+
   struct K16SliceIterator iter;
-  uint64_t cnt = 0, num[16];
+  bool partial = true;
+
+  if (dir_exists(n, stm, "L"))
+    goto skip_X;
+
+  partial = dir_exists(n, stm, "X");
+  bool done = partial;
+  uint64_t num[16];
 
   create_dir(n, stm, "X");
 
@@ -1137,42 +1288,51 @@ static bool calc_L(int stm, int n, bool more_l)
 
     if (pred || n == 1 || n == DRAW_RULE + 1) {
       while (k16slice_iter_in(&iter, &s1))
-        k16slice_clear(s1);
+        if (!partial || !k16slice_test_count(s1, stm, "X", n, num)) {
+          done = false;
+          k16slice_clear(s1);
+        }
 
-      if (pred) {
+      if (pred && !done) {
         k16slice_read(-1, s, stm ^ 1, "W", n - 1);
         predecessors(stm, s);
       }
     }
 
-    while (k16slice_iter_out(&iter, &s)) {
-      // Add any potential losses by capture or pawn push.
-      if (n == 1) {
-        k16slice_read(-1, s, stm, "capt/loss", -1);
-        k16slice_or(s, -1);
-        if (stm == BLACK) {
-          k16slice_read(-1, s, stm, "pawn/loss", -1);
+    while (k16slice_iter_out(&iter, &s))
+      if (!partial || !k16slice_test_count(s, stm, "X", n, num)) {
+        // Add any potential losses by capture or pawn push.
+        if (n == 1) {
+          k16slice_read(-1, s, stm, "capt/loss", -1);
           k16slice_or(s, -1);
+          if (stm == BLACK) {
+            k16slice_read(-1, s, stm, "pawn/loss", -1);
+            k16slice_or(s, -1);
+          }
         }
-      }
-      else if (n == DRAW_RULE + 1) {
-        k16slice_read(-1, s, stm , "capt/bloss", -1);
-        k16slice_or(s, -1);
-        if (stm == BLACK) {
-          k16slice_read(-1, s, stm, "pawn/bloss", -1);
+        else if (n == DRAW_RULE + 1) {
+          k16slice_read(-1, s, stm , "capt/bloss", -1);
           k16slice_or(s, -1);
+          if (stm == BLACK) {
+            k16slice_read(-1, s, stm, "pawn/bloss", -1);
+            k16slice_or(s, -1);
+          }
         }
-      }
 
-      // Remove positions with non-losing captures or pawn moves.
-      k16slice_read(-1, s, stm, n <= DRAW_RULE ? "noloss" : "nobloss", -1);
-      k16slice_and_not(s, -1);
-      k16slice_clear_tail(s);
-      k16slice_write(s, s, stm, "X", n, nullptr); // FIXME
-    }
+        // Remove positions with non-losing captures or pawn moves.
+        k16slice_read(-1, s, stm, n <= DRAW_RULE ? "noloss" : "nobloss", -1);
+        k16slice_and_not(s, -1);
+        k16slice_clear_tail(s);
+        k16slice_write(s, s, stm, "X", n, nullptr); // FIXME
+      }
   }
 
   create_dir(n, stm, "L");
+  partial = false;
+
+skip_X:
+
+  uint64_t cnt = 0;
 
   // Verify potential losses.
   k16slice_iter_init(&iter, stm);
@@ -1180,32 +1340,58 @@ static bool calc_L(int stm, int n, bool more_l)
 
     if (k16slice_test(s, stm , "X", n)) {
       while (k16slice_iter_in(&iter, &s1))
-        k16slice_read(s1, s1, stm ^ 1, "wins", 0);
+        read_wins(s1, s1, stm ^ 1, n - 1);
 
       k16slice_read(-1, s, stm, "X", n);
       cnt += check_successors(stm, s, num);
       k16slice_write(-1, s, stm, "L", n, num);
       if (0 && stm == BLACK && n == 4) {
-        list_positions(s, k16slice_buf[11]);
+//        list_positions(s, k16slice_buf[11]);
 //        printf("s = %d, cnt = %lu\n", s, cnt);
       }
-    }
-    k16slice_delete(s, stm, "X", n);
+    } else if (partial && k16slice_test_count(s, stm, "L", n, num))
+      cnt += sum16(num);
 
-    while (k16slice_iter_out(&iter, &s));
+    while (k16slice_iter_out(&iter, &s))
+      k16slice_delete(s, stm, "X", n);
   }
 
   g_stats[stm][MAX_STATS - 1 - n] = cnt;
+
+  F = file_open_write(str);
+  file_write(&g_stats[stm][MAX_STATS - 1 - n], 8, F);
+  fclose(F);
+  file_rename(str);
+
   printf("l%d_%c = %lu\n", n, "wb"[stm], cnt);
   return cnt != 0;
 }
 
 static bool calc_W(int stm, int n, bool more_w)
 {
+  char str[64];
+  sprintf(str, "%d/W/%c/done", n, "wb"[stm]);
+  FILE *F = fopen(str, "rb");
+  if (F) {
+    if (n == 1) {
+      file_read(&g_stats[stm][1], 8, F);
+      if (stm == BLACK)
+        file_read(&g_stats[stm][2], 8, F);
+    }
+    else if (n == DRAW_RULE + 1)
+      file_read(&g_stats[stm][DRAW_RULE + 3], 8, F);
+    file_read(&g_stats[stm][stats_n(n)], 8, F);
+    fclose(F);
+    return g_stats[stm][stats_n(n)] != 0;
+  }
+
   struct K16SliceIterator iter;
   uint64_t cnt = 0, cnt_w = 0, cnt_pw = 0, num[16];
 
+  bool partial = dir_exists(n, stm, "W"), done = partial;
+
   create_dir(n, stm, "W");
+  create_dir(n, stm, "wins");
 
   // Calculate wins in n = predecessors(L(n-1))
   k16slice_iter_init(&iter, stm);
@@ -1214,73 +1400,82 @@ static bool calc_W(int stm, int n, bool more_w)
     bool pred = more_w && k16slice_test(s, stm ^ 1, "L", n - 1);
 
     if (pred || n == 1 || n == DRAW_RULE + 1) {
-      while (k16slice_iter_in(&iter, &s1)) {
-        if (n == 1) {
-          // Add any wins by capture or pawn push.
-          k16slice_read(s1, s1, stm, "capt/win", -1);
-          // Remove illegal positions to count wins by capture.
-          k16slice_read(-1, s1, stm, "wins", 0);
-          k16slice_and_not(s1, -1);
-          cnt_w += k16slice_count(s1, num);
-          if (stm == BLACK) {
-            // Count wins by pawn push. These are all legal already.
-            k16slice_read(-1, s1, stm, "pawn/win", -1);
-            k16slice_or(s1, -1);
-            cnt_pw += k16slice_count(s1, num);
+      while (k16slice_iter_in(&iter, &s1))
+        if (!partial || !k16slice_test_count(s1, stm, "W", n, num)) {
+          done = false;
+          if (n == 1) {
+            // Add any wins by capture or pawn push.
+            k16slice_read(s1, s1, stm, "capt/win", -1);
+            // Remove illegal positions to count wins by capture.
+            k16slice_read(-1, s1, stm, "wins", 0);
+            k16slice_and_not(s1, -1);
+            cnt_w += k16slice_count(s1, num);
+            if (stm == BLACK) {
+              // Count wins by pawn push. These are all legal already.
+              k16slice_read(-1, s1, stm, "pawn/win", -1);
+              k16slice_or(s1, -1);
+              cnt_pw += k16slice_count(s1, num);
+            }
           }
-        }
-        else if (n == DRAW_RULE + 1) {
-          k16slice_read(s1, s1, stm, "capt/cwin", -1);
-          if (stm == BLACK) {
-            k16slice_read(-1, s1, stm, "pawn/cwin", -1);
-            k16slice_or(s1, -1);
+          else if (n == DRAW_RULE + 1) {
+            k16slice_read(s1, s1, stm, "capt/cwin", -1);
+            if (stm == BLACK) {
+              k16slice_read(-1, s1, stm, "pawn/cwin", -1);
+              k16slice_or(s1, -1);
+            }
+            k16slice_read(-1, s1, stm, "wins", 0);
+            k16slice_and_not(s1, -1);
+            cnt_w += k16slice_count(s1, num);
           }
-          k16slice_read(-1, s1, stm, "wins", 0);
-          k16slice_and_not(s1, -1);
-          cnt_w += k16slice_count(s1, num);
+          else
+            k16slice_clear(s1);
         }
-        else
-          k16slice_clear(s1);
-      }
+      // FIXME: how to get the cnt_w and cnt_pw numbers
+      // (only an issue for n==1 and n==DRAW_RULE+1)
 
-      if (pred) {
+      if (pred && !done) {
         k16slice_read(-1, s, stm ^ 1, "L", n - 1);
         predecessors(stm, s);
       }
     }
 
-    while (k16slice_iter_out(&iter, &s)) {
-      // Remove illegal positions and known faster wins.
-      k16slice_read(-1, s, stm, "wins", 0);
-      k16slice_and_not(s, -1);
-      cnt += k16slice_count(s, num);
-      k16slice_write(s, s, stm, "W", n, num);
+    while (k16slice_iter_out(&iter, &s))
+      if (!partial || !k16slice_test_count(s, stm, "W", n, num)) {
+        // Remove illegal positions and known faster wins.
+        read_wins(-1, s, stm, n - 1);
+        k16slice_and_not(s, -1);
+        cnt += k16slice_count(s, num);
+        uint64_t cost = k16slice_write(s, s, stm, "W", n, num);
+        add_wins(s, stm, n, cost);
 
-      if (0 && stm == WHITE && n == 1) {
-        list_positions(s, k16slice_get_address(s));
+        if (0 && stm == WHITE && n == 1) {
+//        list_positions(s, k16slice_get_address(s));
 //        printf("s = %d, cnt = %lu\n", s, cnt);
+        }
       }
-
-      // TODO: do not update "wins" each iteration but work with small deltas.
-      k16slice_or(-1, s);
-      k16slice_write(-1, s, stm, "wins", 0, nullptr);
-    }
   }
 
+  F = file_open_write(str);
   if (n == 1) {
     printf("capt_win_%c = %lu\n", "wb"[stm], cnt_w);
     g_stats[stm][1] = cnt_w;
+    file_write(&g_stats[stm][1], 8, F);
     if (stm == BLACK) {
       g_stats[stm][2] = cnt_pw - cnt_w;
+      file_write(&g_stats[stm][2], 8, F);
       printf("pawn_win_%c = %lu\n", "wb"[stm], cnt_pw - cnt_w);
     }
   }
   else if (n == DRAW_RULE + 1) {
-    printf("capt/pawn_cwin_%c = %lu\n", "wb"[stm], cnt_w);
     g_stats[stm][DRAW_RULE + 3] = cnt_w;
+    file_write(&g_stats[stm][DRAW_RULE + 3], 8, F);
+    printf("capt/pawn_cwin_%c = %lu\n", "wb"[stm], cnt_w);
   }
+  g_stats[stm][stats_n(n)] = cnt;
+  file_write(&g_stats[stm][stats_n(n)], 8, F);
+  fclose(F);
+  file_rename(str);
 
-  g_stats[stm][2 + n + 2 * (n > DRAW_RULE)] = cnt;
   printf("w%d_%c = %lu\n", n, "wb"[stm], cnt);
   return cnt != 0;
 }
@@ -1294,6 +1489,18 @@ static bool calc_W(int stm, int n, bool more_w)
 
 void generate(void)
 {
+  FILE *F = fopen("generate_info", "rb");
+  if (F) {
+    read_data(F, &g_stats, sizeof g_stats);
+    file_read(&capt_cnt, sizeof capt_cnt, F);
+    file_read(&pawn_cnt, sizeof pawn_cnt, F);
+    file_read(&max_iteration, sizeof max_iteration, F);
+    fclose(F);
+    printf("Skipped generation phase for pawn slice %c%c.\n",
+        'a' + (g_pos.sq[2] & 7), '1' + (g_pos.sq[2] >> 3));
+    return;
+  }
+
   printf("Generating table for pawn slice %c%c.\n",
       'a' + (g_pos.sq[2] & 7), '1' + (g_pos.sq[2] >> 3));
 
@@ -1311,9 +1518,14 @@ void generate(void)
     }
   }
 
-  for (int i = 0; i < 5; i++)
-    pawn_cnt[i] = psub_cnt[i] = sub_cnt[WHITE][i] = sub_cnt[BLACK][i]
-      = capt_cnt[WHITE][i] = capt_cnt[BLACK][i] = 0;
+  memset( pawn_cnt, 0, sizeof  pawn_cnt);
+  memset( psub_cnt, 0, sizeof  psub_cnt);
+  memset(  sub_cnt, 0, sizeof   sub_cnt);
+  memset(pcapt_cnt, 0, sizeof pcapt_cnt);
+  memset( capt_cnt, 0, sizeof  capt_cnt);
+
+  memset(wins_full, 0, sizeof wins_full);
+  memset(wins_checked, 0, sizeof wins_checked);
 
   calc_illegal_and_mate_and_pawn_push();
 
@@ -1403,6 +1615,14 @@ void generate(void)
   calc_capt(BLACK, 0);
 
   max_iteration = n;
+
+  F = file_open_write("generate_info");
+  write_data(F, &g_stats, sizeof g_stats);
+  file_write(&capt_cnt, sizeof capt_cnt, F);
+  file_write(&pawn_cnt, sizeof pawn_cnt, F);
+  file_write(&max_iteration, sizeof max_iteration, F);
+  fclose(F);
+  file_rename("generate_info");
 
   kslice_free_buffers();
 }

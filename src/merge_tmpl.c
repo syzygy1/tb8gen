@@ -127,7 +127,7 @@ static void NAME(merge_statistics_worker)(struct ThreadData *thread)
 
 static void NAME(merge_bitmaps)(int stm, int s)
 {
-  char str[128];
+  char str[64];
 
   create_name(str, s, stm, "merged/wdl", -1);
   if (file_exists(str))

@@ -90,6 +90,11 @@ static uint64_t stat_count(int stm, int s)
 
 void merge(int stm)
 {
+  char str[64];
+  sprintf(str, "merge_info.%c", "wb"[stm]);
+  if (file_exists(str))
+    return;
+
   // FIXME: test for merge_info.stm and skip if it exists?
   uint64_t *stats = g_stats[stm];
 
@@ -247,8 +252,6 @@ void merge(int stm)
 
   }
 
-  char str[128];
-  sprintf(str, "merge_info.%c", "wb"[stm]);
   FILE *F = file_open_write(str);
   file_write(&mi, sizeof mi, F);
   fclose(F);

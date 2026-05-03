@@ -21,7 +21,8 @@ const char *wdl_name[5] = { "loss", "bloss", "draw", "cwin", "win" };
 uint64_t sub_cnt[2][5];
 int max_iteration;
 
-INLINE int stats_n(int n) {
+INLINE int stats_n(int n)
+{
   return 1 + n + (n > DRAW_RULE);
 }
 
@@ -111,22 +112,20 @@ static void calc_sub_kslices(int stm)
   }
 
   char name[5][16];
-
-  g_pos.stm = stm;
-
   for (int i = 0; i < 5; i++) {
     strcat(strcpy(name[i], "sub/"), wdl_name[i]);
     create_dir(-1, stm, name[i]);
   }
 
+  g_pos.stm = stm;
+
   for (int s = 0; s < 462; s++) {
     uint64_t c[5], cnt_ilgl = 0;
 
-    bool done = true;
-    for (int i = 0; i < 5; i++)
-      done = done && kslice_test_count(s, stm, name[i], -1, &c[i]);
-
-    if (!done) {
+    if (kslice_test_count(s, stm, name[4], -1, &c[4])) {
+      for (int i = 0; i < 4; i++)
+        kslice_test_count(s, stm, name[i], -1, &c[i]);
+    } else {
       for (int i = 0; i < 5; i++)
         kslice_sub_clear_addr(kslice_sub_buf[i], stm);
 
@@ -164,9 +163,6 @@ static void calc_sub_kslices(int stm)
     file_write(&sub_cnt[stm][i], 8, F);
   fclose(F);
   file_rename(done);
-
-  for (int i = 0; i < 5; i++)
-    printf("sub_cnt[%d][%d] = %lu\n", stm, i, sub_cnt[stm][i]);
 }
 
 static bool work_legality;
@@ -240,19 +236,16 @@ static void predecessors_sub(int stm, int s, bool legality)
 
 static int wins_full[2][462];
 static int wins_checked[2][462];
-static uint64_t wins_cnt[2][462];
 static uint64_t replay_cost[2][462];
 static uint64_t write_cost[2][462];
 
 static void add_wins(int s, int stm, int n, uint64_t num, uint64_t cost)
 {
-  wins_cnt[stm][s] += num;
-
   if ((replay_cost[stm][s] + cost) * 1.0 <= write_cost[stm][s])
     return;
 
   kslice_or(-1, s);
-  kslice_write(-1, s, stm, "wins", n, 1 + wins_cnt[stm][s]);
+  kslice_write(-1, s, stm, "wins", n, 1 + num);
   replay_cost[stm][s] = 0;
 
   kslice_delete(s, stm, "wins", wins_full[stm][s]);
@@ -288,7 +281,6 @@ static void read_wins(int s, int slice, int stm, int n)
     if (g_stats[stm][stats_n(i)])
       kslice_read_or(s, slice, stm, "W", i);
   replay_cost[stm][slice] += kslice_read_cost;
-  wins_cnt[stm][slice] = kslice_read_count;
 }
 
 static void calc_capt(int stm, int wdl, int n)
@@ -296,11 +288,11 @@ static void calc_capt(int stm, int wdl, int n)
   if (!sub_cnt[stm ^ 1][2 - wdl])
     return;
 
-  char capt_name[128], sub_name[128];
+  char capt_name[64], sub_name[64];
   strcat(strcpy(capt_name, "capt/"), wdl_name[2 + wdl]);
   strcat(strcpy(sub_name , "sub/" ), wdl_name[2 - wdl]);
 
-  char str[128];
+  char str[64];
   sprintf(str, "%s/%c/done", capt_name, "wb"[stm]);
   FILE *F = fopen(str, "rb");
   if (F) {
@@ -364,24 +356,33 @@ static void calc_capt_bloss(int stm)
   if (file_exists("capt/bloss/done"))
     return;
 
+  bool partial = dir_exists(-1, stm, "capt/bloss"), done = partial;
+
   create_dir(-1, stm, "capt/bloss");
 
   struct KSliceIterator iter;
+  uint64_t dummy;
 
   kslice_iter_init(&iter, stm);
   int s, s1;
   while (kslice_iter_next(&iter, &s)) {
     while (kslice_iter_in(&iter, &s1))
-      kslice_clear(s1);
+      if (!partial || !kslice_test_count(s1, stm, "capt/bloss", -1, &dummy)) {
+        done = false;
+        kslice_clear(s1);
+      }
 
-    kslice_sub_read(s, s, stm ^ 1, "sub/cwin");
-    predecessors_sub(stm, s, true);
-
-    while (kslice_iter_out(&iter, &s)) {
-      uint64_t num = kslice_count(s);
-      if (num && !kslice_test(s, stm, "capt/bloss", -1))
-        kslice_write(s, s, stm, "capt/bloss", -1, num);
+    if (!done) {
+      kslice_sub_read(s, s, stm ^ 1, "sub/cwin");
+      predecessors_sub(stm, s, true);
     }
+
+    while (kslice_iter_out(&iter, &s))
+      if (!partial || !kslice_test_count(s, stm, "capt/bloss", -1, &dummy)) {
+        uint64_t num = kslice_count(s);
+        if (num)
+          kslice_write(s, s, stm, "capt/bloss", -1, num);
+      }
   }
 
   create_empty("capt/bloss/done");
@@ -661,12 +662,12 @@ static void calc_illegal_and_mate(void)
 
   for (int s = 0; s < 462; s++) {
     if (partial) {
-      char str[128];
+      char str[64];
       create_name(str, s, BLACK, "L", 0);
       if (file_exists(str)) {
         for (int stm = 0; stm < 2; stm++) {
           if (kslice_test_count(s, stm, "wins", 0, &num))
-            broken[stm] += wins_cnt[stm][s] = num;
+            broken[stm] += num;
           if (kslice_test_count(s, stm, "L", 0, &num))
             loss0[stm] += num;
         }
@@ -688,7 +689,6 @@ static void calc_illegal_and_mate(void)
     for (int stm = 0; stm < 2; stm++) {
       broken[stm] += num = kslice_count_addr(kslice_buf[stm]);
       kslice_write_addr(kslice_buf[stm], s, stm, "wins", 0, num);
-      wins_cnt[stm][s] = num;
     }
 
     kslice_clear_addr(kslice_buf[2]); // wtm mate
@@ -722,7 +722,7 @@ static void calc_illegal_and_mate(void)
 // from stm^1 wins in sub tables reached through captures (n == 1).
 static bool calc_L(int stm, int n, bool more_l)
 {
-  char str[128];
+  char str[64];
   sprintf(str, "%d/L/%c/done", n, "wb"[stm]);
   FILE *F = fopen(str, "rb");
   if (F) {
@@ -777,18 +777,17 @@ static bool calc_L(int stm, int n, bool more_l)
       }
     }
 
-    while (kslice_iter_out(&iter, &s)) {
 #if 0
       // If there are many predecessors, it might be more efficient to
       // remove illegal positions and positions with non-losing captures
       // here.
       kslice_read(-1, s, stm, n <= DRAW_RULE ? "noloss" : "nobloss", -1);
 #endif
+    while (kslice_iter_out(&iter, &s))
       if (!partial || !kslice_test_count(s, stm, "X", n, &num)) {
         kslice_clear_tail(s);
         kslice_write(s, s, stm, "X", n, UINT64_MAX);
       }
-    }
   }
 
   create_dir(n, stm, "L");
@@ -834,7 +833,7 @@ skip_X:
 
 static bool calc_W(int stm, int n, bool more_w)
 {
-  char str[128];
+  char str[64];
   sprintf(str, "%d/W/%c/done", n, "wb"[stm]);
   FILE *F = fopen(str, "rb");
   if (F) {
@@ -860,14 +859,13 @@ static bool calc_W(int stm, int n, bool more_w)
     bool pred = more_w && kslice_test(s, stm ^ 1, "L", n - 1);
 
     if (pred_sub || pred) {
-      while (kslice_iter_in(&iter, &s1)) {
+      while (kslice_iter_in(&iter, &s1))
         if (partial && kslice_test_count(s1, stm, "W", n, &num)) {
           cnt += num;
         } else {
           done = false;
           kslice_clear(s1);
         }
-      }
 
       if (pred_sub && !done) {
         kslice_sub_read(s, s, stm ^ 1, n == 1 ? "sub/loss" : "sub/bloss");
@@ -887,7 +885,7 @@ static bool calc_W(int stm, int n, bool more_w)
         kslice_or(s, -1);
       }
 #endif
-      if (!(partial && kslice_test_count(s, stm, "W", n, &num))) {
+      if (!partial || !kslice_test_count(s, stm, "W", n, &num)) {
         // Remove illegal positions and known faster wins.
         read_wins(-1, s, stm, n - 1);
         kslice_and_not(s, -1);

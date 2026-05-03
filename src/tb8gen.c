@@ -37,7 +37,7 @@ int one_sided_stm;
 char *g_tablename;
 uint64_t *work_g, *work_capt[MAX_SETS];
 
-const char *name[3] = { "wdl", "dtm", "dtz" };
+const char *typename[3] = { "wdl", "dtm", "dtz" };
 
 static struct option options[] = {
   { "threads", 1, nullptr, 't' },

@@ -64,7 +64,7 @@ int64_t *construct_pairs_dtz(void *data, uint64_t size, int minfreq,
     int maxsymbols, int *nsyms, bool wide);
 int64_t *construct_pairs(void *data, uint64_t size, int minfreq,
     int maxsymbols, int *nsyms, bool wide, bool wdl);
-void compress_data_slice(int s, int stm, int type, void *data, uint64_t tb_size,
-    uint8_t *perm, int minfreq, bool wide, bool big);
+void compress_data_slice(const char *name, int stm, int type, void *data,
+    uint64_t tb_size, uint8_t *perm, int minfreq, bool wide, bool big);
 
 #endif

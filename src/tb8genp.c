@@ -39,7 +39,7 @@ char *g_tablename;
 uint64_t *work_g, *work_g16, *work_capt[MAX_SETS];
 struct DtzFormat dtz_format[24];
 
-const char *name[3] = { "wdl", "dtm", "dtz" };
+const char *typename[3] = { "wdl", "dtm", "dtz" };
 
 static struct option options[] = {
   { "threads", 1, nullptr, 't' },
@@ -211,7 +211,7 @@ int main(int argc, char **argv)
   for (int p = 0; p < 24; p++) {
 
     g_pos.sq[2] = InvPawnFlip[0][p];
-    char str[128];
+    char str[64];
     sprintf(str, "%c%c", 'a' + (g_pos.sq[2] & 7), '1' + (g_pos.sq[2] >> 3));
     make_dir(str);
     change_dir(str);
