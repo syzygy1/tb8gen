@@ -844,8 +844,8 @@ static void calc_pawn_double_push_worker(struct ThreadData *thread)
   {
     if (kslice_bit_test(ilg, idx))
       continue;
-    Bitboard occ = idx_to_sq(sub, pos.sq);
-    if (!(occ & bit(s - 8))) {
+    pos.occ = idx_to_sq(sub, pos.sq);
+    if (!(pos.occ & bit(s - 8))) {
       int v = -1;
       pos.sq[2] = s - 8;
       pos.occ ^= bit(s) ^ bit(s - 8);
@@ -853,7 +853,7 @@ static void calc_pawn_double_push_worker(struct ThreadData *thread)
         uint64_t idx2 = sq_to_idx(pos.sq);
         v = merged_to_wdl[merged_table[idx2]];
       }
-      if (!(occ & bit(s - 16))) {
+      if (!(pos.occ & bit(s - 16))) {
         pos.sq[2] = s - 16;
         pos.occ ^= bit(s - 8) ^ bit(s - 16);
         if (!opp_king_attacked(&pos)) {
