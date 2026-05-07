@@ -7,8 +7,18 @@
 #ifndef GENERATE_H
 #define GENERATE_H
 
+#include <inttypes.h>
+
+#include "defs.h"
+#include "types.h"
+
 extern uint64_t sub_cnt[2][5];
 extern int max_iteration;
+
+INLINE int stats_n(int n)
+{
+  return 1 + n + (n > DRAW_RULE);
+}
 
 void generate(void);
 

@@ -5,6 +5,8 @@
 */
 
 #include <fcntl.h>
+#include <limits.h>
+#include <stdatomic.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -27,6 +29,33 @@ static int merge_n;
 static int work_set, work_slice;
 static bool include_wins, include_losses;
 
+static void pos_to_fen(Position *pos, char *fen)
+{
+  uint8_t bd[64] = { 0 };
+
+  for (int i = 0; i < pos->num; i++)
+    bd[pos->sq[i]] = pos->pt[i];
+
+  for (int i = 56; i >= 0; i -= 8) {
+    int cnt = 0;
+    for (int j = i; j < i + 8; j++)
+      if (!bd[j])
+        cnt++;
+      else {
+        if (cnt > 0) {
+          *fen++ = '0' + cnt;
+          cnt = 0;
+        }
+        *fen++ = PieceChar[bd[j]];
+      }
+    if (cnt)
+      *fen++ = '0' + cnt;
+    if (i)
+      *fen++ = '/';
+  }
+  sprintf(fen, " %c - -", "wb"[pos->stm]);
+}
+
 alignas(64) static uint64_t thread_stats[MAX_THREADS][MAX_STATS];
 
 static void stat_count_worker(struct ThreadData *thread)
@@ -43,14 +72,13 @@ static void stat_count_worker(struct ThreadData *thread)
   for (uint64_t idx = thread->begin, end = thread->end; idx < end; idx += 64) {
     uint64_t w = *p++;
     while (w) {
-      unsigned bt = pop_lsb(&w);
-      if (idx + bt >= end) break;
-      idx_to_sq_add(idx + bt - last, sub, &ii);
-      last = idx + bt;
+      uint64_t cur = idx + pop_lsb(&w);
+      idx_to_sq_add(cur - last, sub, &ii);
+      last = cur;
       idx_to_sq(sub, pos.sq);
       mirror_diagonal(pos.sq);
       uint64_t idx2 = sq_to_idx(pos.sq);
-      cnt += (idx + bt == idx2) ? 2 : 1;
+      cnt += (cur == idx2) ? 2 : 1;
     }
   }
 
@@ -76,6 +104,61 @@ static uint64_t stat_count(int stm, int s)
   return cnt;
 }
 
+static _Atomic uint64_t found_idx;
+
+static void find_position_worker(struct ThreadData *thread)
+{
+  uint64_t cur = atomic_load_explicit(&found_idx, memory_order_relaxed);
+  if (thread->begin >= cur)
+    return;
+
+  uint64_t *restrict p =
+    (uint64_t *)kslice_get_address(-1) + (thread->begin >> 6);
+
+  uint64_t idx, end;
+  for (idx = thread->begin, end = thread->end; idx < end; idx += 64) {
+    uint64_t w = *p++;
+    if (w) {
+      idx += pop_lsb(&w);
+      break;
+    }
+  }
+  if (idx >= end)
+    return;
+
+  uint64_t old = atomic_load_explicit(&found_idx, memory_order_relaxed);
+  while (idx < old) {
+    if (atomic_compare_exchange_weak_explicit(&found_idx, &old, idx,
+          memory_order_relaxed, memory_order_relaxed))
+      break;
+  }
+}
+
+static void find_position(int stm, bool loss, bool cursed)
+{
+  atomic_store_explicit(&found_idx, UINT64_MAX, memory_order_relaxed);
+
+  run_threaded(find_position_worker, work_g, 0);
+
+  uint64_t idx = atomic_load_explicit(&found_idx, memory_order_relaxed);
+  if (idx >= kslice_size)
+    return;
+
+  uint32_t sub[MAX_SETS];
+  Position pos = g_pos;
+  pos.stm = stm ^ loss;
+  idx_to_sq_init(idx, sub, &ii);
+  idx_to_sq(sub, pos.sq);
+  pos_to_fen(&pos, max_fen[stm][cursed]);
+  fen_found[stm][cursed] = true;
+
+  FILE *F = file_open_write("maxfens");
+  file_write(max_fen, sizeof max_fen, F);
+  file_write(fen_found, sizeof fen_found, F);
+  fclose(F);
+  file_rename("maxfens");
+}
+
 #define T u8
 #define MAX 256
 #include "merge_tmpl.c"
@@ -95,7 +178,6 @@ void merge(int stm)
   if (file_exists(str))
     return;
 
-  // FIXME: test for merge_info.stm and skip if it exists?
   uint64_t *stats = g_stats[stm];
 
   create_dir(-1, stm, "stats");
