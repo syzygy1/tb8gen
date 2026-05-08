@@ -38,6 +38,10 @@ int one_sided_stm;
 char *g_tablename;
 uint64_t *work_g, *work_g16, *work_capt[MAX_SETS];
 struct DtzFormat dtz_format[24];
+int max_dtz[2], maxmax_dtz[2] = { -1, -1 };
+int cmax_dtz[2], cmaxmax_dtz[2] = { -1, -1 };
+char max_fen[2][2][48], maxmax_fen[2][2][48];
+bool fen_found[2][2];
 
 const char *typename[3] = { "wdl", "dtm", "dtz" };
 
@@ -239,9 +243,11 @@ int main(int argc, char **argv)
       g_stats[stm][MAX_STATS / 2 + 2] = num_kslices * kslice_size - total;
     }
 
+#if 0
     printf("\n########## %s - %d ##########\n", g_tablename, p);
     print_stats(WHITE);
     print_stats(BLACK);
+#endif
     printf("\n");
 
     // Estimate sizes of different DTZ formats.
@@ -278,6 +284,37 @@ int main(int argc, char **argv)
       .one_sided_stm = one_sided_stm
     };
 
+    memset(max_fen, 0, sizeof max_fen);
+    memset(fen_found, 0, sizeof fen_found);
+
+    for (int stm = 0; stm < 2; stm++) {
+      cmax_dtz[stm] = max_dtz[stm] = -1;
+      int n;
+      for (n = MAX_STATS / 2 - 3; n > DRAW_RULE; n--)
+        if (g_stats[stm][stats_n(n)])
+          break;
+      if (n > DRAW_RULE && g_stats[stm ^ 1][MAX_STATS - 1 - (n + 1)])
+        cmax_dtz[stm] = 2 * (n + 1);
+      else if (n > DRAW_RULE)
+        cmax_dtz[stm] = 2 * n + 1;
+      else if (n == DRAW_RULE && g_stats[stm ^ 1][MAX_STATS - 1 - DRAW_RULE - 1])
+        cmax_dtz[stm] = 2 * (DRAW_RULE + 1);
+      for (n = DRAW_RULE; n >= 1; n--)
+        if (g_stats[stm][stats_n(n)])
+          break;
+      if (n < DRAW_RULE && g_stats[stm ^ 1][MAX_STATS - 1 - (n + 1)])
+        max_dtz[stm] = 2 * (n + 1);
+      else if (n >= 1)
+        max_dtz[stm] = 2 * n + 1;
+    }
+
+    if (file_exists("maxfens")) {
+      FILE *F = file_open_read("maxfens");
+      file_read(max_fen, sizeof max_fen, F);
+      file_read(fen_found, sizeof fen_found, F);
+      fclose(F);
+    }
+
     merge(WHITE);
     merge(BLACK);
 
@@ -292,6 +329,32 @@ int main(int argc, char **argv)
     print_stats(WHITE);
     print_stats(BLACK);
     printf("\n");
+
+    int w = WHITE ^ flipped, b = BLACK ^ flipped;
+    if (max_dtz[w] > 0)
+      printf("Longest win for white: %d ply; %s\n", max_dtz[w] / 2,
+          max_fen[w][0]);
+    if (cmax_dtz[w] > 0)
+      printf("Longest cursed win for white: %d ply; %s\n", cmax_dtz[w] / 2,
+          max_fen[w][1]);
+    if (cmax_dtz[b] > 0)
+      printf("Longest cursed win for black: %d ply; %s\n", cmax_dtz[b] / 2,
+          max_fen[b][1]);
+    if (max_dtz[b] > 0)
+      printf("Longest win for black: %d ply; %s\n", max_dtz[b] / 2,
+          max_fen[b][0]);
+    printf("\n");
+
+    for (int stm = 0; stm < 2; stm++) {
+      if (cmax_dtz[stm] > cmaxmax_dtz[stm]) {
+        cmaxmax_dtz[stm] = cmax_dtz[stm];
+        strcpy(maxmax_fen[stm][1], max_fen[stm][1]);
+      }
+      if (max_dtz[stm] > maxmax_dtz[stm]) {
+        maxmax_dtz[stm] = max_dtz[stm];
+        strcpy(maxmax_fen[stm][0], max_fen[stm][0]);
+      }
+    }
 
     FILE *F = file_open_write("statistics");
     write_data(F, g_stats, sizeof g_stats);
@@ -339,6 +402,21 @@ int main(int argc, char **argv)
   printf("\n########## %s ##########\n", g_tablename);
   print_stats(WHITE);
   print_stats(BLACK);
+  printf("\n");
+
+  int w = WHITE ^ flipped, b = BLACK ^ flipped;
+  if (maxmax_dtz[w] > 0)
+    printf("Longest win for white: %d ply; %s\n", maxmax_dtz[w] / 2,
+        maxmax_fen[w][0]);
+  if (cmaxmax_dtz[w] > 0)
+    printf("Longest cursed win for white: %d ply; %s\n", cmaxmax_dtz[w] / 2,
+        maxmax_fen[w][1]);
+  if (cmaxmax_dtz[b] > 0)
+    printf("Longest cursed win for black: %d ply; %s\n", cmaxmax_dtz[b] / 2,
+        maxmax_fen[b][1]);
+  if (maxmax_dtz[b] > 0)
+    printf("Longest win for black: %d ply; %s\n", maxmax_dtz[b] / 2,
+        maxmax_fen[b][0]);
   printf("\n");
 
   report_io();

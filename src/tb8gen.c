@@ -212,8 +212,8 @@ int main(int argc, char **argv)
   printf("\n########## %s ##########\n", g_tablename);
   print_stats(WHITE);
   print_stats(BLACK);
-  printf("\n");
 #endif
+  printf("\n");
 
   // Estimate sizes of different DTZ formats.
   double ewh, ebl, elo, ewi;
@@ -247,7 +247,7 @@ int main(int argc, char **argv)
   for (int stm = 0; stm < 2; stm++) {
     cmax_dtz[stm] = max_dtz[stm] = -1;
     int n;
-    for (n = MAX_STATS / 2 - 3; n > DRAW_RULE; n--)
+    for (n = MAX_STATS / 2 - 5; n > DRAW_RULE; n--)
       if (g_stats[stm][stats_n(n)])
         break;
     if (n > DRAW_RULE && g_stats[stm ^ 1][MAX_STATS - 1 - (n + 1)])

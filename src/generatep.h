@@ -22,6 +22,11 @@ INLINE bool is_broken(struct Position *pos)
         || pos->sq[0] == pos->sq[2] || pos->sq[1] == pos->sq[2];
 }
 
+INLINE int stats_n(int n)
+{
+  return 2 + n + 2 * (n > DRAW_RULE);
+}
+
 void generate(void);
 
 #endif

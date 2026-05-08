@@ -25,7 +25,7 @@ struct DtzMap {
 };
 
 struct tb_handle {
-  char name[64];
+  char name[32];
   int num_tables;
   int type;
   bool split;

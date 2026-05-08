@@ -295,6 +295,7 @@ INLINE bool do_ep_capture(Position *pos, int from, int to, int i, int j)
 
 bool has_legal_moves(Position *pos);
 bool has_legal_caps(Position *pos);
+void pos_to_fen(Position *pos, char *fen, bool flipped);
 
 void init_movegen(void);
 #endif

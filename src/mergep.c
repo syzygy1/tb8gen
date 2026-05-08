@@ -34,6 +34,70 @@ static void stat_count(uint64_t stats[16][MAX_STATS], int n)
     stats[r][n] = k16slice_read_count[r];
 }
 
+static _Atomic uint64_t found_idx;
+
+static void find_position_worker(struct ThreadData *thread)
+{
+  uint64_t cur = atomic_load_explicit(&found_idx, memory_order_relaxed);
+  if (thread->begin >= cur)
+    return;
+
+  uint64_t *restrict p =
+    (uint64_t *)kslice_get_address_scratch(g_pos.sq) + (thread->begin >> 6);
+
+  uint64_t idx, end;
+  for (idx = thread->begin, end = thread->end; idx < end; idx += 64) {
+    uint64_t w = *p++;
+    if (w) {
+      idx += pop_lsb(&w);
+      break;
+    }
+  }
+  if (idx >= end)
+    return;
+
+  uint64_t old = atomic_load_explicit(&found_idx, memory_order_relaxed);
+  while (idx < old) {
+    if (atomic_compare_exchange_weak_explicit(&found_idx, &old, idx,
+          memory_order_relaxed, memory_order_relaxed))
+      break;
+  }
+}
+
+static void find_position(int stm, int s, bool loss, bool cursed)
+{
+  atomic_store_explicit(&found_idx, UINT64_MAX, memory_order_relaxed);
+
+  for (int r = 0; r < 16; r++) {
+    g_pos.sq[0] = KK16Square[s][r][0];
+    g_pos.sq[1] = KK16Square[s][r][1];
+
+    if (is_broken(&g_pos))
+      continue;
+
+    run_threaded(find_position_worker, work_g, 0);
+
+    uint64_t idx = atomic_load_explicit(&found_idx, memory_order_relaxed);
+    if (idx >= kslice_size)
+      continue;
+
+    uint32_t sub[MAX_SETS];
+    Position pos = g_pos;
+    pos.stm = stm ^ loss;
+    idx_to_sq_init(idx, sub, &ii);
+    idx_to_sq(sub, pos.sq);
+    pos_to_fen(&pos, max_fen[stm][cursed], flipped);
+    fen_found[stm][cursed] = true;
+
+    FILE *F = file_open_write("maxfens");
+    file_write(max_fen, sizeof max_fen, F);
+    file_write(fen_found, sizeof fen_found, F);
+    fclose(F);
+    file_rename("maxfens");
+    break;
+  }
+}
+
 #define T u8
 #define MAX 256
 #include "mergep_tmpl.c"

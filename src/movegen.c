@@ -4,7 +4,10 @@
   This file is distributed under the terms of the GNU GPL, version 2.
 */
 
+#include <stdio.h>
+
 #include "movegen.h"
+#include "types.h"
 
 Bitboard Bit[64];
 Bitboard KnightAttacks[64], KingAttacks[64];
@@ -109,4 +112,31 @@ bool has_legal_caps(Position *pos)
     }
   }
   return false;
+}
+
+void pos_to_fen(Position *pos, char *fen, bool flipped)
+{
+  uint8_t bd[64] = { 0 };
+
+  for (int i = 0; i < pos->num; i++)
+    bd[pos->sq[i] ^ (flipped ? 0x38 : 0)] = pos->pt[i] ^ (flipped ? 8 : 0);
+
+  for (int i = 56; i >= 0; i -= 8) {
+    int cnt = 0;
+    for (int j = i; j < i + 8; j++)
+      if (!bd[j])
+        cnt++;
+      else {
+        if (cnt > 0) {
+          *fen++ = '0' + cnt;
+          cnt = 0;
+        }
+        *fen++ = PieceChar[bd[j]];
+      }
+    if (cnt)
+      *fen++ = '0' + cnt;
+    if (i)
+      *fen++ = '/';
+  }
+  sprintf(fen, " %c - -", "wb"[pos->stm ^ flipped]);
 }

@@ -161,6 +161,10 @@ static void NAME(merge_bitmaps)(int stm, int s)
       run_threaded(NAME(merge_worker), work_g16, 0);
       if (!include_losses)
         stat_count(stats, merge_n);
+      if (2 * n == max_dtz[stm ^ 1] && !fen_found[stm ^ 1][0])
+        find_position(stm ^ 1, s, true, false);
+      else if (2 * n == cmax_dtz[stm ^ 1] && !fen_found[stm ^ 1][1])
+        find_position(stm ^ 1, s, true, true);
     }
 
   // wins
@@ -174,6 +178,10 @@ static void NAME(merge_bitmaps)(int stm, int s)
       run_threaded(NAME(merge_worker), work_g16, 0);
       if (!include_wins)
         stat_count(stats, merge_n);
+      if (2 * n + 1 == max_dtz[stm] && !fen_found[stm][0])
+        find_position(stm, s, false, false);
+      if (2 * n + 1 == cmax_dtz[stm] && !fen_found[stm][1])
+        find_position(stm, s, false, true);
     }
 
   // CAPT_WIN

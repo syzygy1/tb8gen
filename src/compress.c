@@ -985,7 +985,7 @@ void write_final(struct tb_handle *F, FILE *G)
     // For pawnful DTZ, this can vary per pawn slice/file/rank
     // -> to be looked into later.
     if (F->type != WDL) {
-      uint8_t dist_format = F->split ? TWO_SIDED : 0;
+      uint8_t dist_format = !symmetric && !one_sided ? TWO_SIDED : 0;
       if (one_sided)
         dist_format |= WTM_OR_BTM | (one_sided_stm == WHITE ? WTM_ONLY : 0);
       else

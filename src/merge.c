@@ -29,33 +29,6 @@ static int merge_n;
 static int work_set, work_slice;
 static bool include_wins, include_losses;
 
-static void pos_to_fen(Position *pos, char *fen)
-{
-  uint8_t bd[64] = { 0 };
-
-  for (int i = 0; i < pos->num; i++)
-    bd[pos->sq[i]] = pos->pt[i];
-
-  for (int i = 56; i >= 0; i -= 8) {
-    int cnt = 0;
-    for (int j = i; j < i + 8; j++)
-      if (!bd[j])
-        cnt++;
-      else {
-        if (cnt > 0) {
-          *fen++ = '0' + cnt;
-          cnt = 0;
-        }
-        *fen++ = PieceChar[bd[j]];
-      }
-    if (cnt)
-      *fen++ = '0' + cnt;
-    if (i)
-      *fen++ = '/';
-  }
-  sprintf(fen, " %c - -", "wb"[pos->stm]);
-}
-
 alignas(64) static uint64_t thread_stats[MAX_THREADS][MAX_STATS];
 
 static void stat_count_worker(struct ThreadData *thread)
@@ -149,7 +122,7 @@ static void find_position(int stm, bool loss, bool cursed)
   pos.stm = stm ^ loss;
   idx_to_sq_init(idx, sub, &ii);
   idx_to_sq(sub, pos.sq);
-  pos_to_fen(&pos, max_fen[stm][cursed]);
+  pos_to_fen(&pos, max_fen[stm][cursed], false);
   fen_found[stm][cursed] = true;
 
   FILE *F = file_open_write("maxfens");

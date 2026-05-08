@@ -58,11 +58,6 @@ INLINE uint64_t sum16(uint64_t *num)
   return cnt;
 }
 
-INLINE int stats_n(int n)
-{
-  return 2 + n + 2 * (n > DRAW_RULE);
-}
-
 INLINE void mark_king_unmoves(int stm, Bitboard occ, const uint8_t *restrict sq)
 {
   uint8_t sq2[MAX_PIECES];
