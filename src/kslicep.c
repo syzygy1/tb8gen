@@ -36,8 +36,8 @@ uint64_t kslice_cache_lines, k16slice_cache_lines;
 uint64_t k16slice_read_count[16];
 uint64_t k16slice_read_cost;
 
-static uint64_t *work_cl; //, *work_clc;
-static uint64_t *work_cl16; //, *work_clc16;
+static uint64_t *work_cl;
+static uint64_t *work_cl16;
 static uint64_t *work_sub_cl[2];
 static bool k16slice_in_use[11];
 
@@ -530,10 +530,6 @@ void k16slice_read_or(int s, int slice, int stm, const char *name, int n)
   struct stat st;
   fstat(fileno(F), &st);
   if (st.st_size > 0) {
-//    uint64_t num[16];
-//    file_read(&num, sizeof num, F);
-//    for (int r = 0; r < 16; r++)
-//      k16slice_read_count[r] += num[r];
     if (fseek(F, 16 * 8, SEEK_SET) != 0) {
       fprintf(stderr, "fseek() failed.\n");
       exit(EXIT_FAILURE);

@@ -912,7 +912,7 @@ void generate(void)
 {
   FILE *F = fopen("generate_info", "rb");
   if (F) {
-    file_read(&g_stats, sizeof g_stats, F);
+    read_data(F, &g_stats, sizeof g_stats);
     file_read(&sub_cnt, sizeof sub_cnt, F);
     file_read(&max_iteration, sizeof max_iteration, F);
     fclose(F);
@@ -993,9 +993,56 @@ void generate(void)
   }
 
   F = file_open_write("generate_info");
-  file_write(&g_stats, sizeof g_stats, F);
+  write_data(F, &g_stats, sizeof g_stats);
   file_write(&sub_cnt, sizeof sub_cnt, F);
   file_write(&max_iteration, sizeof max_iteration, F);
   fclose(F);
   file_rename("generate_info");
+}
+
+void delete_intermediate_slices(void)
+{
+  if (file_exists("0/wins")) {
+    for (int stm = 0; stm < 2; stm++)
+      for (int s = 0; s < 462; s++)
+        kslice_delete(s, stm, "wins", wins_full[stm][s]);
+    for (int n = max_iteration - 1; n >= 0; n--)
+      delete_dir(n, "wins");
+  }
+
+  if (file_exists("sub")) {
+    for (int i = 0; i < 5; i++) {
+      char name[64];
+      sprintf(name, "sub/%s", wdl_name[i]);
+      for (int stm = 0; stm < 2; stm++)
+        for (int s = 0; s < 462; s++)
+          kslice_delete(s, stm, name, -1);
+      delete_dir(-1, name);
+    }
+    unlink("sub/done_w");
+    unlink("sub/done_b");
+    rmdir("sub");
+  }
+}
+
+// Cleanup the files that remain after merge()ing.
+void cleanup_generation(void)
+{
+  char dir[64], file[64];
+  for (int n = 0; n < max_iteration; n++) {
+    sprintf(dir, "%d", n);
+    if (!file_exists(dir)) continue;
+    delete_dir(n, "L");
+    delete_dir(n, "X");
+    delete_dir(n, "W");
+    delete_dir(n, "wins");
+    sprintf(file, "%d/done", n);
+    unlink(file);
+    rmdir(dir);
+  }
+  for (int i = 0; i < 5; i++) {
+    sprintf(dir, "capt/%s", wdl_name[i]);
+    delete_dir(-1, dir);
+  }
+  delete_dir(-1, "capt");
 }

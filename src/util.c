@@ -664,6 +664,27 @@ bool dir_exists(int n, int stm, const char *name)
   return file_exists(pathname);
 }
 
+void delete_dir(int n, const char *name)
+{
+  char dir[32];
+  if (n >= 0)
+    sprintf(dir, "%d/%s", n, name);
+  else
+    strcpy(dir, name);
+
+  if (!file_exists(dir))
+    return;
+
+  char str[64];
+  for (int stm = 0; stm < 2; stm++) {
+    sprintf(str, "%s/%c/done", dir, "wb"[stm]);
+    unlink(str);
+    sprintf(str, "%s/%c", dir, "wb"[stm]);
+    rmdir(str);
+  }
+  rmdir(dir);
+}
+
 #ifndef HAS_PAWNS
 void create_name(char *str, int s, int stm, const char *name, int n)
 {

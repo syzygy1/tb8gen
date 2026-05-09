@@ -48,58 +48,77 @@ void collect_stats(int stm)
     }
 }
 
-void print_stats(int stm)
+void print_stats(FILE *F, int stm)
 {
   uint64_t *stats = g_stats[stm ^ flipped];
 
-  printf("\n%s to move:\n\n", stm == WHITE ? "White" : "Black");
+  fprintf(F, "\n%s to move:\n\n", stm == WHITE ? "White" : "Black");
 
   if (stats[1] + stats[2] + stats[3])
-    printf("%lu (%lu,%lu) positions win in %d ply.\n",
+    fprintf(F, "%lu (%lu,%lu) positions win in %d ply.\n",
         stats[1] + stats[2] + stats[3], stats[1], stats[2], 1);
   for (int i = 4; i <= DRAW_RULE + 2; i++)
     if (stats[i])
-      printf("%lu positions win in %d ply.\n", stats[i], i - 2);
+      fprintf(F, "%lu positions win in %d ply.\n", stats[i], i - 2);
   if (stats[DRAW_RULE + 3] + stats[DRAW_RULE + 4] + stats[DRAW_RULE + 5])
-    printf("%lu (%lu,%lu) positions win in %d ply.\n",
+    fprintf(F, "%lu (%lu,%lu) positions win in %d ply.\n",
         stats[DRAW_RULE + 3] + stats[DRAW_RULE + 4] + stats[DRAW_RULE + 5],
         stats[DRAW_RULE + 3], stats[DRAW_RULE + 4], DRAW_RULE + 1);
   for (int i = DRAW_RULE + 6; i < MAX_STATS / 2 + 1; i++)
     if (stats[i])
-      printf("%lu positions win in %d ply.\n", stats[i], i - 4);
-  printf("\n");
+      fprintf(F, "%lu positions win in %d ply.\n", stats[i], i - 4);
+  fprintf(F, "\n");
 
   uint64_t tot = 0;
   for (int i = 1; i <= DRAW_RULE + 2; i++)
     tot += stats[i];
-  printf("%lu positions are wins.\n", tot);
+  fprintf(F, "%lu positions are wins.\n", tot);
   tot = 0;
   for (int i = DRAW_RULE + 3; i < MAX_STATS / 2 + 1; i++)
     tot += stats[i];
   if (tot)
-    printf("%lu positions are cursed wins.\n", tot);
+    fprintf(F, "%lu positions are cursed wins.\n", tot);
   if (stats[MAX_STATS / 2 + 1] + stats[MAX_STATS / 2 + 2])
-    printf("%lu (%lu) positions are draws.\n",
+    fprintf(F, "%lu (%lu) positions are draws.\n",
         stats[MAX_STATS / 2 + 1] + stats[MAX_STATS / 2 + 2],
         stats[MAX_STATS / 2 + 1]);
   tot = 0;
   for (int i = DRAW_RULE + 1; i < MAX_STATS / 2 - 3; i++)
     tot += stats[MAX_STATS - 1 - i];
   if (tot)
-    printf("%lu positions are blessed losses.\n", tot);
+    fprintf(F, "%lu positions are blessed losses.\n", tot);
   tot = 0;
   for (int i = 0; i <= DRAW_RULE; i++)
     tot += stats[MAX_STATS - 1 -  i];
-  printf("%lu positions are losses.\n\n", tot);
+  fprintf(F, "%lu positions are losses.\n\n", tot);
 
   for (int i = 0; i < MAX_STATS / 2 - 3; i++)
     if (stats[MAX_STATS - 1 - i])
-      printf("%lu positions lose in %d ply.\n", stats[MAX_STATS - 1 - i], i);
+      fprintf(F, "%lu positions lose in %d ply.\n", stats[MAX_STATS - 1 - i], i);
 
   tot = 0;
-  for (int i = 0; i < MAX_STATS; i++)
+  for (int i = 1; i < MAX_STATS; i++)
     tot += stats[i];
-  printf("\n%lu positions out of %lu are illegal.\n", stats[0], tot);
+  fprintf(F, "\n%lu legal positions in total.\n", stats[0], tot);
+}
+
+void print_max_fens(FILE *F, struct MaxFen *mf)
+{
+  int w = WHITE ^ flipped, BLACK ^ flipped;
+
+  if (mf->dtz[w][0] > 0)
+    fprintf(F, "Longest win for white: %d ply; %s\n", mf->dtz[w][0] / 2,
+        mf->fen[w][0]);
+  if (mf->dtz[w][1] > 0)
+    fprintf(F, "Longest cursed win for white: %d ply; %s\n",
+        mf->dtz[w][1] / 2, mf->fen[w][1]);
+  if (mf->dtz[b][1] > 0)
+    fprintf(F, "Longest cursed win for black: %d ply; %s\n",
+        mf->dtz[b][1] / 2, mf->fen[b][1]);
+  if (mf->dtz[b][0] > 0)
+    fprintf(F, "Longest win for black: %d ply; %s\n", mf->dtz[b][0] / 2,
+        mf->fen[b][0]);
+  fprintf(F, "\n");
 }
 
 // calculate DTZ entropy

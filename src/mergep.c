@@ -66,8 +66,6 @@ static void find_position_worker(struct ThreadData *thread)
 
 static void find_position(int stm, int s, bool loss, bool cursed)
 {
-  atomic_store_explicit(&found_idx, UINT64_MAX, memory_order_relaxed);
-
   for (int r = 0; r < 16; r++) {
     g_pos.sq[0] = KK16Square[s][r][0];
     g_pos.sq[1] = KK16Square[s][r][1];
@@ -75,8 +73,8 @@ static void find_position(int stm, int s, bool loss, bool cursed)
     if (is_broken(&g_pos))
       continue;
 
+    atomic_store_explicit(&found_idx, UINT64_MAX, memory_order_relaxed);
     run_threaded(find_position_worker, work_g, 0);
-
     uint64_t idx = atomic_load_explicit(&found_idx, memory_order_relaxed);
     if (idx >= kslice_size)
       continue;
@@ -109,6 +107,21 @@ static void find_position(int stm, int s, bool loss, bool cursed)
 #include "mergep_tmpl.c"
 #undef MAX
 #undef T
+
+void delete_bitmaps(int stm, int s)
+{
+  for (int n = 0; n < max_iteration; n++) {
+    k16slice_delete(s, stm, "L", n);
+    k16slice_delete(s, stm, "W", n);
+    k16slice_delete(s, stm, "wins", n);
+  }
+  k16slice_delete(s, stm, "capt/win", -1);
+  k16slice_delete(s, stm, "pawn/win", -1);
+  k16slice_delete(s, stm, "capt/cwin", -1);
+  k16slice_delete(s, stm, "pawn/cwin", -1);
+  k16slice_delete(s, stm, "capt/draw", -1);
+  k16slice_delete(s, stm, "capt/bloss", -1);
+}
 
 void merge(int stm)
 {
@@ -259,8 +272,10 @@ void merge(int stm)
     if (!merge_table)
       out_of_mem();
 
-    for (int s = 0; s < 240; s++)
+    for (int s = 0; s < 240; s++) {
       merge_bitmaps_u8(stm, s);
+      delete_bitmaps(stm, s);
+    }
 
     free(merge_table);
 
@@ -275,8 +290,10 @@ void merge(int stm)
     if (!merge_table)
       out_of_mem();
 
-    for (int s = 0; s < 240; s++)
+    for (int s = 0; s < 240; s++) {
       merge_bitmaps_u16(stm, s);
+      delete_bitmaps(stm, s);
+    }
 
     free(merge_table);
 

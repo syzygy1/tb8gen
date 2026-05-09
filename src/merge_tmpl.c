@@ -158,9 +158,9 @@ static void NAME(merge_bitmaps)(int stm, int s)
       run_threaded(NAME(merge_worker), work_g, 0);
       if (!include_losses)
         stats[merge_n] = stat_count(stm, s);
-      if (2 * n == max_dtz[stm ^ 1] && !fen_found[stm ^ 1][0])
+      if (2 * n == mf.dtz[stm ^ 1][0] && !mf.found[stm ^ 1][0])
         find_position(stm ^ 1, true, false);
-      else if (2 * n == cmax_dtz[stm ^ 1] && !fen_found[stm ^ 1][1])
+      else if (2 * n == mf.dtz[stm ^ 1][1] && !mf.found[stm ^ 1][1])
         find_position(stm ^ 1, true, true);
     }
 
@@ -172,9 +172,9 @@ static void NAME(merge_bitmaps)(int stm, int s)
       run_threaded(NAME(merge_worker), work_g, 0);
       if (!include_wins)
         stats[merge_n] = stat_count(stm, s);
-      if (2 * n + 1 == max_dtz[stm] && !fen_found[stm][0])
+      if (2 * n + 1 == mf.dtz[stm][0] && !mf.found[stm][0])
         find_position(stm, false, false);
-      if (2 * n + 1 == cmax_dtz[stm] && !fen_found[stm][1])
+      if (2 * n + 1 == mf.dtz[stm][1] && !mf.found[stm][1])
         find_position(stm, false, true);
     }
 

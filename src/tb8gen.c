@@ -32,14 +32,12 @@
 
 Position g_pos;
 bool g_only_generate, g_use_rans, symmetric, used_rans = false;
+bool g_cleanup;
 bool one_sided, wins_only;
 int one_sided_stm;
 char *g_tablename;
 uint64_t *work_g, *work_capt[MAX_SETS];
-int max_dtz[2];
-int cmax_dtz[2];
-char max_fen[2][2][48];
-bool fen_found[2][2];
+struct MaxFen mf;
 
 const char *typename[3] = { "wdl", "dtm", "dtz" };
 
@@ -62,7 +60,7 @@ int main(int argc, char **argv)
   const char *path = getenv(TBPATH);
   g_num_threads = 1;
 
-  while ((val = getopt_long(argc, argv, "at:gp:rl:", options, &lindex)) != -1)
+  while ((val = getopt_long(argc, argv, "at:gp:rl:c", options, &lindex)) != -1)
     switch (val) {
     case 'a':
       g_thread_affinity = true;
@@ -81,6 +79,9 @@ int main(int argc, char **argv)
       break;
     case 'l':
       layout = atoi(optarg);
+      break;
+    case 'c':
+      g_cleanup = true;
       break;
     }
 
@@ -206,6 +207,8 @@ int main(int argc, char **argv)
 
   generate();
 
+  delete_intermediate_slices();
+
   kslice_free_buffers(); // Free memory but keep slice "-1".
 
 #if 0
@@ -244,76 +247,81 @@ int main(int argc, char **argv)
         one_sided ? one_sided_stm == WHITE ? "white" : "black"
       : wins_only ? "wins" : "losses");
 
-  for (int stm = 0; stm < 2; stm++) {
-    cmax_dtz[stm] = max_dtz[stm] = -1;
-    int n;
-    for (n = MAX_STATS / 2 - 5; n > DRAW_RULE; n--)
-      if (g_stats[stm][stats_n(n)])
-        break;
-    if (n > DRAW_RULE && g_stats[stm ^ 1][MAX_STATS - 1 - (n + 1)])
-      cmax_dtz[stm] = 2 * (n + 1);
-    else if (n > DRAW_RULE)
-      cmax_dtz[stm] = 2 * n + 1;
-    else if (n == DRAW_RULE && g_stats[stm ^ 1][MAX_STATS - 1 - DRAW_RULE - 1])
-      cmax_dtz[stm] = 2 * (DRAW_RULE + 1);
-    for (n = DRAW_RULE; n >= 1; n--)
-      if (g_stats[stm][stats_n(n)])
-        break;
-    if (n < DRAW_RULE && g_stats[stm ^ 1][MAX_STATS - 1 - (n + 1)])
-      max_dtz[stm] = 2 * (n + 1);
-    else if (n >= 1)
-      max_dtz[stm] = 2 * n + 1;
-  }
-
   if (file_exists("maxfens")) {
     FILE *F = file_open_read("maxfens");
-    file_read(max_fen, sizeof max_fen, F);
-    file_read(fen_found, sizeof fen_found, F);
+    file_read(&mf, sizeof mf, F);
     fclose(F);
+  } else {
+    for (int stm = 0; stm < 2; stm++) {
+      mf.dtz[stm][0] = mf.dtz[stm][1] = -1;
+      int n;
+      for (n = MAX_STATS / 2 - 3; n > DRAW_RULE; n--)
+        if (g_stats[stm][stats_n(n)])
+          break;
+      if (n > DRAW_RULE && g_stats[stm ^ 1][MAX_STATS - 1 - (n + 1)])
+        mf.dtz[stm][1] = 2 * (n + 1);
+      else if (n > DRAW_RULE)
+        mf.dtz[stm][1] = 2 * n + 1;
+      else if (n == DRAW_RULE && g_stats[stm ^ 1][MAX_STATS - 2 - DRAW_RULE])
+        mf.dtz[stm][1] = 2 * (DRAW_RULE + 1);
+      for (n = DRAW_RULE; n >= 1; n--)
+        if (g_stats[stm][stats_n(n)])
+          break;
+      if (n < DRAW_RULE && g_stats[stm ^ 1][MAX_STATS - 1 - (n + 1)])
+        mf.dtz[stm][0] = 2 * (n + 1);
+      else if (n >= 1)
+        mf.dtz[stm][0] = 2 * n + 1;
+    }
   }
 
   merge(WHITE);
   merge(BLACK);
 
-  // We could now delete all files except those in stats/ and merged/,
-  // or let merge() delete those.
+  cleanup_generation();
 
   // Read out the files in "stats".
   collect_stats(WHITE);
   collect_stats(BLACK);
 
-  printf("\n########## %s ##########\n", g_tablename);
-  print_stats(WHITE);
-  print_stats(BLACK);
-  printf("\n");
+  char stats_file[64];
+  sprintf(stats_file, "../%s.txt", g_tablename);
+  if (!file_exists(stats_file)) {
+    FILE *F = file_open_write(stats_file);
+    fprintf(F, "########## %s ##########\n", g_tablename);
+    print_stats(F, WHITE);
+    print_stats(F, BLACK);
+    fprintf(F, "\n");
+    print_max_fens(F, &mf);
+    fclose(F);
+    file_rename(stats_file);
+  }
 
-  if (max_dtz[WHITE] > 0)
-    printf("Longest win for white: %d ply; %s\n", max_dtz[WHITE] / 2,
-        max_fen[WHITE][0]);
-  if (cmax_dtz[WHITE] > 0)
-    printf("Longest cursed win for white: %d ply; %s\n", cmax_dtz[WHITE] / 2,
-        max_fen[WHITE][1]);
-  if (cmax_dtz[BLACK] > 0)
-    printf("Longest cursed win for black: %d ply; %s\n", cmax_dtz[BLACK] / 2,
-        max_fen[BLACK][1]);
-  if (max_dtz[BLACK] > 0)
-    printf("Longest win for black: %d ply; %s\n", max_dtz[BLACK] / 2,
-        max_fen[BLACK][0]);
-  printf("\n");
+  fprintf(stdout, "\n########## %s ##########\n", g_tablename);
+  print_stats(stdout, WHITE);
+  print_stats(stdout, BLACK);
+  fprintf(stdout, "\n");
+  print_max_fens(stdout, &mf);
 
   kslice_cleanup();
 
-  switch (layout) {
-  case 0:
-    join_slices(pcs, pt);
-    break;
-  case 1:
-    join_slices_10();
-    break;
-  case 2:
-    join_slices_462();
-    break;
+  if (!g_only_generate) {
+
+    switch (layout) {
+      case 0:
+        join_slices(pcs, pt);
+        break;
+      case 1:
+        join_slices_10();
+        break;
+      case 2:
+        join_slices_462();
+        break;
+    }
+
   }
+
+  change_dir("..");
+  rmdir(g_tablename);
 
   report_io();
 

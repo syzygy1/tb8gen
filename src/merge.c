@@ -18,6 +18,7 @@
 #include "kslice.h"
 #include "merge.h"
 #include "movegen.h"
+#include "stats.h"
 #include "tb8gen.h"
 #include "threads.h"
 #include "types.h"
@@ -122,12 +123,11 @@ static void find_position(int stm, bool loss, bool cursed)
   pos.stm = stm ^ loss;
   idx_to_sq_init(idx, sub, &ii);
   idx_to_sq(sub, pos.sq);
-  pos_to_fen(&pos, max_fen[stm][cursed], false);
-  fen_found[stm][cursed] = true;
+  pos_to_fen(&pos, mf.fen[stm][cursed], false);
+  mf.found[stm][cursed] = true;
 
   FILE *F = file_open_write("maxfens");
-  file_write(max_fen, sizeof max_fen, F);
-  file_write(fen_found, sizeof fen_found, F);
+  file_write(&mf, sizeof mf, F);
   fclose(F);
   file_rename("maxfens");
 }
@@ -143,6 +143,19 @@ static void find_position(int stm, bool loss, bool cursed)
 #include "merge_tmpl.c"
 #undef MAX
 #undef T
+
+void delete_bitmaps(int stm, int s)
+{
+  for (int n = 0; n < max_iteration; n++) {
+    kslice_delete(s, stm, "L", n);
+    kslice_delete(s, stm, "W", n);
+    kslice_delete(s, stm, "wins", n);
+  }
+  kslice_delete(s, stm, "capt/win", -1);
+  kslice_delete(s, stm, "capt/cwin", -1);
+  kslice_delete(s, stm, "capt/draw", -1);
+  kslice_delete(s, stm, "capt/bloss", -1);
+}
 
 void merge(int stm)
 {
@@ -284,8 +297,10 @@ void merge(int stm)
     if (!merge_table)
       out_of_mem();
 
-    for (int s = 0; s < 462; s++)
+    for (int s = 0; s < 462; s++) {
       merge_bitmaps_u8(stm, s);
+      delete_bitmaps(stm, s);
+    }
 
     free(merge_table);
 
@@ -300,8 +315,10 @@ void merge(int stm)
     if (!merge_table)
       out_of_mem();
 
-    for (int s = 0; s < 462; s++)
+    for (int s = 0; s < 462; s++) {
       merge_bitmaps_u16(stm, s);
+      delete_bitmaps(stm, s);
+    }
 
     free(merge_table);
 

@@ -140,6 +140,22 @@ static void read_merge_info(int stm)
   fclose(F);
 }
 
+void delete_stats(int stm)
+{
+  if (!g_cleanup) return;
+
+  for (int s = 0; s < 462; s++)
+    kslice_delete(s, stm, "stats", -1);
+}
+
+void final_cleanup(void)
+{
+  unlink("generate_info");
+  unlink("merge_info.w");
+  unlink("merge_info.b");
+  unlink("maxfens");
+}
+
 // Join everything in one table per side.
 static void join_wdl(int stm, struct tb_handle *G)
 {
@@ -165,6 +181,11 @@ static void join_wdl(int stm, struct tb_handle *G)
   permute_piece_wdl(tb_table, join_pcs, join_pt, table, best);
   printf("Compressing data for %ctm/wdl.\n", "wb"[stm]);
   compress_tb(G, -1, tb_table, tb_size, best, minfreq, false);
+
+  if (!g_cleanup) return;
+
+  for (int s = 0; s < 462; s++)
+    kslice_delete(s, stm, "merged/wdl", -1);
 }
 
 static void join_dtz(int stm, struct tb_handle *G)
@@ -257,6 +278,13 @@ static void join_dtz(int stm, struct tb_handle *G)
   compress_tb(G, -1, tb_table, tb_size, best, minfreq, tb_wide);
 
   compress_free_dtz();
+
+  if (!g_cleanup) return;
+
+  for (int s = 0; s < 462; s++) {
+    kslice_delete(s, stm, "merged/dtz", -1);
+    kslice_delete(s, stm, "stats", -1);
+  }
 }
 
 void join_slices(uint8_t *pcs, uint8_t *pt)
@@ -282,19 +310,37 @@ void join_slices(uint8_t *pcs, uint8_t *pt)
   merge_tb(G);
   compress_free_wdl();
 
+  rmdir("merged/wdl/w");
+  rmdir("merged/wdl/b");
+  rmdir("merged/wdl");
+
   G = create_tb(g_tablename, DTZ, 10);
 
   if (!one_sided || one_sided_stm == WHITE)
     join_dtz(WHITE, G);
+  else
+    delete_stats(WHITE);
 
   if (   (one_sided && one_sided_stm == BLACK)
       || (!one_sided && !symmetric))
     join_dtz(BLACK, G);
+  else
+    delete_stats(BLACK);
 
   free(join_table);
   free(tb_table);
 
+  rmdir("merged/dtz/w");
+  rmdir("merged/dtz/b");
+  rmdir("merged/dtz");
+  rmdir("merged");
+  rmdir("stats/w");
+  rmdir("stats/b");
+  rmdir("stats");
+
   merge_tb(G);
+
+  final_cleanup();
 }
 
 // Compress each of the 462 K-slices per side individually.
@@ -358,6 +404,10 @@ static void join_wdl_462(int stm)
     printf("Compressing data for %ctm/wdl, slice = %d.\n", "wb"[stm], s);
     compress_data_slice(name, stm, WDL, tb_table, kslice_size, best, minfreq,
         false, false);
+
+    if (!g_cleanup) continue;
+
+    kslice_delete(s, stm, "merged/wdl", -1);
   }
 }
 
@@ -460,6 +510,11 @@ static void join_dtz_462(int stm)
     printf("Compressing data for %ctm/dtz, slice = %d.\n", "wb"[stm], s);
     compress_data_slice(name, stm, DTZ, tb_table, kslice_size, best, minfreq,
         tb_wide, false);
+
+    if (!g_cleanup) continue;
+
+    kslice_delete(s, stm, "merged/dtz", -1);
+    kslice_delete(s, stm, "stats", -1);
   }
 
   compress_free_dtz();
@@ -587,6 +642,16 @@ void join_final_462(int type)
   close(fd);
   add_checksum(tmp);
   rename(tmp, fname);
+
+  if (!g_cleanup) return;
+
+  for (int s = 0; s < 462; s++)
+    for (int stm = 0; stm < 2; stm++) {
+      if (!has_stm[stm]) continue;
+        kslice_delete(s, stm, typename[type], -1);
+    }
+
+  delete_dir(-1, typename[type]);
 }
 
 void join_slices_462(void)
@@ -607,19 +672,37 @@ void join_slices_462(void)
 
   compress_free_wdl();
 
+  rmdir("merged/wdl/w");
+  rmdir("merged/wdl/b");
+  rmdir("merged/wdl");
+
   join_final_462(WDL);
 
   if (!one_sided || one_sided_stm == WHITE)
     join_dtz_462(WHITE);
+  else
+    delete_stats(WHITE);
 
   if (   (one_sided && one_sided_stm == BLACK)
       || (!one_sided && !symmetric))
     join_dtz_462(BLACK);
+  else
+    delete_stats(BLACK);
 
   free(join_table);
   free(tb_table);
 
+  rmdir("merged/dtz/w");
+  rmdir("merged/dtz/b");
+  rmdir("merged/dtz");
+  rmdir("merged");
+  rmdir("stats/w");
+  rmdir("stats/b");
+  rmdir("stats");
+
   join_final_462(DTZ);
+
+  final_cleanup();
 }
 
 // Join everything in 10 tables per side.
@@ -629,6 +712,7 @@ static void join_wdl_10(int stm)
   uint8_t *table = join_table;
 
   create_dir(-1, stm, "wdl");
+  g_pos.stm = stm;
 
   for (int k = 0; k < 10; k++) {
     char name[64];
@@ -640,13 +724,13 @@ static void join_wdl_10(int stm)
     int num = 0;
     uint64_t stats[MAX_STATS] = { 0 };
 
+    g_pos.sq[stm] = InvTriangle[k];
+
     for (int l = 0; l < 64; l++) {
       if (KKIdx[k][l] < 0)
         continue;
 
-      g_pos.sq[stm] = InvTriangle[k];
       g_pos.sq[stm ^ 1] = l;
-      g_pos.stm = stm;
 
       int s = KKMap[g_pos.sq[0]][g_pos.sq[1]];
       create_name(str, s, stm, "merged/wdl", -1);
@@ -697,6 +781,19 @@ static void join_wdl_10(int stm)
     printf("Compressing data for %ctm/wdl, slice = %d.\n", "wb"[stm], k);
     compress_data_slice(name, stm, WDL, tb_table, num * kslice_size, best,
         minfreq, false, true);
+
+    if (!g_cleanup) continue;
+
+    // Delete merged slices which are no longer needed.
+    for (int l = 0; l < 64; l++) {
+      if (KKIdx[k][l] < 0)
+        continue;
+
+      g_pos.sq[stm ^ 1] = l;
+      int s = KKMap[g_pos.sq[0]][g_pos.sq[1]];
+
+      kslice_delete(s, stm, "merged/wdl", -1);
+    }
   }
 }
 
@@ -847,6 +944,20 @@ static void join_dtz_10(int stm)
     printf("Compressing data for %ctm/dtz, slice = %d.\n", "wb"[stm], k);
     compress_data_slice(name, stm, DTZ, tb_table, num * kslice_size, best,
         minfreq, tb_wide, true);
+
+    if (!g_cleanup) continue;
+
+    // Delete slices which are no longer needed.
+    for (int l = 0; l < 64; l++) {
+      if (KKIdx[k][l] < 0)
+        continue;
+
+      g_pos.sq[stm ^ 1] = l;
+      int s = KKMap[g_pos.sq[0]][g_pos.sq[1]];
+
+      kslice_delete(s, stm, "merged/dtz", -1);
+      kslice_delete(s, stm, "stats", -1);
+    }
   }
 
   compress_free_dtz();
@@ -974,6 +1085,17 @@ static void join_final_10(int type)
   close(fd);
   add_checksum(tmp);
   rename(tmp, fname);
+
+  if (!g_cleanup) return;
+
+  for (int k = 0; k < 10; k++)
+    for (int stm = 0; stm < 2; stm++) {
+      if (!has_stm[stm]) continue;
+      create_name_10(str, k, stm, typename[type]);
+      unlink(str);
+    }
+
+  delete_dir(-1, typename[type]);
 }
 
 void join_slices_10(void)
@@ -992,17 +1114,35 @@ void join_slices_10(void)
 
   compress_free_wdl();
 
+  rmdir("merged/wdl/w");
+  rmdir("merged/wdl/b");
+  rmdir("merged/wdl");
+
   join_final_10(WDL);
 
   if (!one_sided || one_sided_stm == WHITE)
     join_dtz_10(WHITE);
+  else
+    delete_stats(WHITE);
 
   if (   (one_sided && one_sided_stm == BLACK)
       || (!one_sided && !symmetric))
     join_dtz_10(BLACK);
+  else
+    delete_stats(BLACK);
 
   free(join_table);
   free(tb_table);
 
+  rmdir("merged/dtz/w");
+  rmdir("merged/dtz/b");
+  rmdir("merged/dtz");
+  rmdir("merged");
+  rmdir("stats/w");
+  rmdir("stats/b");
+  rmdir("stats");
+
   join_final_10(DTZ);
+
+  final_cleanup();
 }
