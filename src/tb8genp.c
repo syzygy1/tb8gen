@@ -33,6 +33,7 @@
 Position g_pos;
 bool flipped = false;
 bool g_only_generate, g_use_rans, symmetric, used_rans = false;
+bool g_cleanup;
 bool one_sided, wins_only;
 int one_sided_stm;
 char *g_tablename;
@@ -61,7 +62,7 @@ int main(int argc, char **argv)
   const char *path = getenv(TBPATH);
   g_num_threads = 1;
 
-  while ((val = getopt_long(argc, argv, "at:gp:rl:", options, &lindex)) != -1)
+  while ((val = getopt_long(argc, argv, "at:gp:rl:c", options, &lindex)) != -1)
     switch (val) {
     case 'a':
       g_thread_affinity = true;
@@ -80,6 +81,9 @@ int main(int argc, char **argv)
       break;
     case 'l':
       layout = atoi(optarg);
+      break;
+    case 'c':
+      g_cleanup = true;
       break;
     }
 
@@ -210,12 +214,11 @@ int main(int argc, char **argv)
   change_dir(g_tablename);
 
   for (int p = 0; p < 24; p++) {
-
     g_pos.sq[2] = InvPawnFlip[0][p];
-    char str[64];
-    sprintf(str, "%c%c", 'a' + (g_pos.sq[2] & 7), '1' + (g_pos.sq[2] >> 3));
-    make_dir(str);
-    change_dir(str);
+    char pawnstr[3];
+    sprintf(pawnstr, "%c%c", 'a' + (g_pos.sq[2] & 7), '1' + (g_pos.sq[2] >> 3));
+    make_dir(pawnstr);
+    change_dir(pawnstr);
 
     memset(g_stats, 0, sizeof g_stats);
 
@@ -281,8 +284,7 @@ int main(int argc, char **argv)
       .one_sided_stm = one_sided_stm
     };
 
-    memset(max_fen, 0, sizeof max_fen);
-    memset(fen_found, 0, sizeof fen_found);
+    memset(&mf, 0, sizeof mf);
 
     if (file_exists("maxfens")) {
       FILE *F = file_open_read("maxfens");
@@ -318,24 +320,11 @@ int main(int argc, char **argv)
     collect_stats(WHITE);
     collect_stats(BLACK);
 
-    char stats_file[64];
-    sprintf(stats_file, "../%s.txt", g_tablename);
-    if (!file_exists(stats_file)) {
-      FILE *F = file_open_write(stats_file);
-      fprintf(F, "########## %s ##########\n", g_tablename);
-      print_stats(F, WHITE);
-      print_stats(F, BLACK);
-      fprintf(F, "\n");
-      print_max_fens(F, &mf);
-      fclose(F);
-      file_rename(stats_file);
-    }
-
-    printf(stdout, "\n########## %s ##########\n", g_tablename);
+    fprintf(stdout, "\n########## %s - %s ##########\n", g_tablename, pawnstr);
     print_stats(stdout, WHITE);
     print_stats(stdout, BLACK);
-    printf(stdout, "\n");
-    print_max_fens(F, &mf);
+    fprintf(stdout, "\n");
+    print_max_fens(stdout, &mf);
 
     // Keep track of max DTZ and corresponding FENs across pawn slices.
     for (int stm = 0; stm < 2; stm++)
@@ -376,6 +365,7 @@ int main(int argc, char **argv)
     break;
   }
 
+#if 0
   memset(g_stats, 0, sizeof g_stats);
   uint64_t tmp[2][MAX_STATS];
   for (int p = 0; p < 24; p++) {
@@ -390,25 +380,31 @@ int main(int argc, char **argv)
       for (int i = 0; i < MAX_STATS; i++)
         g_stats[stm][i] += tmp[stm][i];
   }
-  printf("\n########## %s ##########\n", g_tablename);
-  print_stats(WHITE);
-  print_stats(BLACK);
-  printf("\n");
+#endif
 
-  int w = WHITE ^ flipped, b = BLACK ^ flipped;
-  if (maxmax_dtz[w] > 0)
-    printf("Longest win for white: %d ply; %s\n", maxmax_dtz[w] / 2,
-        maxmax_fen[w][0]);
-  if (cmaxmax_dtz[w] > 0)
-    printf("Longest cursed win for white: %d ply; %s\n", cmaxmax_dtz[w] / 2,
-        maxmax_fen[w][1]);
-  if (cmaxmax_dtz[b] > 0)
-    printf("Longest cursed win for black: %d ply; %s\n", cmaxmax_dtz[b] / 2,
-        maxmax_fen[b][1]);
-  if (maxmax_dtz[b] > 0)
-    printf("Longest win for black: %d ply; %s\n", maxmax_dtz[b] / 2,
-        maxmax_fen[b][0]);
+  char stats_file[64];
+  sprintf(stats_file, "../%s.txt", g_tablename);
+  if (!file_exists(stats_file)) {
+    FILE *F = file_open_write(stats_file);
+    fprintf(F, "########## %s ##########\n", g_tablename);
+    print_stats(F, WHITE);
+    print_stats(F, BLACK);
+    fprintf(F, "\n");
+    print_max_fens(F, &mmf);
+    fclose(F);
+    file_rename(stats_file);
+  }
+
+  printf("\n########## %s ##########\n", g_tablename);
+  print_stats(stdout, WHITE);
+  print_stats(stdout, BLACK);
   printf("\n");
+  print_max_fens(stdout, &mmf);
+
+  if (g_cleanup) {
+    change_dir("..");
+    rmdir(g_tablename);
+  }
 
   report_io();
 

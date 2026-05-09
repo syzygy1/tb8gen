@@ -14,6 +14,7 @@
 #include "kslicep.h"
 #include "merge.h"
 #include "movegen.h"
+#include "stats.h"
 #include "tb8genp.h"
 #include "threads.h"
 #include "types.h"
@@ -84,12 +85,11 @@ static void find_position(int stm, int s, bool loss, bool cursed)
     pos.stm = stm ^ loss;
     idx_to_sq_init(idx, sub, &ii);
     idx_to_sq(sub, pos.sq);
-    pos_to_fen(&pos, max_fen[stm][cursed], flipped);
-    fen_found[stm][cursed] = true;
+    pos_to_fen(&pos, mf.fen[stm][cursed], flipped);
+    mf.found[stm][cursed] = true;
 
     FILE *F = file_open_write("maxfens");
-    file_write(max_fen, sizeof max_fen, F);
-    file_write(fen_found, sizeof fen_found, F);
+    file_write(&mf, sizeof mf, F);
     fclose(F);
     file_rename("maxfens");
     break;

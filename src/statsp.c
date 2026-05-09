@@ -99,12 +99,12 @@ void print_stats(FILE *F, int stm)
   tot = 0;
   for (int i = 1; i < MAX_STATS; i++)
     tot += stats[i];
-  fprintf(F, "\n%lu legal positions in total.\n", stats[0], tot);
+  fprintf(F, "\n%lu legal positions in total.\n", tot);
 }
 
 void print_max_fens(FILE *F, struct MaxFen *mf)
 {
-  int w = WHITE ^ flipped, BLACK ^ flipped;
+  int w = WHITE ^ flipped, b = BLACK ^ flipped;
 
   if (mf->dtz[w][0] > 0)
     fprintf(F, "Longest win for white: %d ply; %s\n", mf->dtz[w][0] / 2,

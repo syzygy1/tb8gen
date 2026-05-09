@@ -15,10 +15,8 @@ struct DtzFormat {
 extern struct DtzFormat dtz_format[24];
 extern bool one_sided, wins_only;
 extern int one_sided_stm;
-extern int max_dtz[2];
-extern int cmax_dtz[2];
-extern char max_fen[2][2][48];
-extern bool fen_found[2][2];
+
+extern struct MaxFen mf;
 
 extern char *g_tablename;
 extern bool flipped;

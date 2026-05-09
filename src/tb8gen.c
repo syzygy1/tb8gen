@@ -296,10 +296,10 @@ int main(int argc, char **argv)
     file_rename(stats_file);
   }
 
-  fprintf(stdout, "\n########## %s ##########\n", g_tablename);
+  printf("\n########## %s ##########\n", g_tablename);
   print_stats(stdout, WHITE);
   print_stats(stdout, BLACK);
-  fprintf(stdout, "\n");
+  printf("\n");
   print_max_fens(stdout, &mf);
 
   kslice_cleanup();
@@ -320,8 +320,10 @@ int main(int argc, char **argv)
 
   }
 
-  change_dir("..");
-  rmdir(g_tablename);
+  if (g_cleanup) {
+    change_dir("..");
+    rmdir(g_tablename);
+  }
 
   report_io();
 
