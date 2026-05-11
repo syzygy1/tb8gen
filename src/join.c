@@ -140,18 +140,25 @@ static void read_merge_info(int stm)
   fclose(F);
 }
 
-void delete_stats(int stm)
+void delete_slices_dir(int stm, const char *name)
 {
   if (!g_cleanup) return;
 
   for (int s = 0; s < 462; s++)
-    kslice_delete(s, stm, "stats", -1);
+    kslice_delete(s, stm, name, -1);
+  char str[64];
+  sprintf(str, "%s/%c", name, "wb"[stm]);
+  rmdir(str);
 }
 
 void final_cleanup(void)
 {
   if (!g_cleanup) return;
 
+  delete_slices_dir(WHITE, "stats");
+  delete_slices_dir(BLACK, "stats");
+  rmdir("stats");
+  unlink("done_wdl");
   unlink("generate_info");
   unlink("merge_info.w");
   unlink("merge_info.b");
@@ -183,11 +190,6 @@ static void join_wdl(int stm, struct tb_handle *G)
   permute_piece_wdl(tb_table, join_pcs, join_pt, table, best);
   printf("Compressing data for %ctm/wdl.\n", "wb"[stm]);
   compress_tb(G, -1, tb_table, tb_size, best, minfreq, false);
-
-  if (!g_cleanup) return;
-
-  for (int s = 0; s < 462; s++)
-    kslice_delete(s, stm, "merged/wdl", -1);
 }
 
 static void join_dtz(int stm, struct tb_handle *G)
@@ -280,13 +282,6 @@ static void join_dtz(int stm, struct tb_handle *G)
   compress_tb(G, -1, tb_table, tb_size, best, minfreq, tb_wide);
 
   compress_free_dtz();
-
-  if (!g_cleanup) return;
-
-  for (int s = 0; s < 462; s++) {
-    kslice_delete(s, stm, "merged/dtz", -1);
-    kslice_delete(s, stm, "stats", -1);
-  }
 }
 
 void join_slices(uint8_t *pcs, uint8_t *pt)
@@ -302,45 +297,51 @@ void join_slices(uint8_t *pcs, uint8_t *pt)
     out_of_mem();
   join_wide = tb_wide = false;
 
-  compress_alloc_wdl();
-  struct tb_handle *G = create_tb(g_tablename, WDL, 6);
+  if (!file_exists("done_wdl")) {
+    compress_alloc_wdl();
+    struct tb_handle *G = create_tb(g_tablename, WDL, 6);
 
-  join_wdl(WHITE, G);
-  if (!symmetric)
-    join_wdl(BLACK, G);
+    join_wdl(WHITE, G);
+    if (!symmetric)
+      join_wdl(BLACK, G);
 
-  merge_tb(G);
-  compress_free_wdl();
+    merge_tb(G);
 
-  rmdir("merged/wdl/w");
-  rmdir("merged/wdl/b");
-  rmdir("merged/wdl");
+    compress_free_wdl();
 
-  G = create_tb(g_tablename, DTZ, 10);
+    create_empty("done_wdl");
+
+    if (g_cleanup) {
+      delete_slices_dir(WHITE, "merged/wdl");
+      if (!symmetric)
+        delete_slices_dir(BLACK, "merged/wdl");
+      rmdir("merged/wdl");
+    }
+  }
+
+  struct tb_handle *G = create_tb(g_tablename, DTZ, 10);
 
   if (!one_sided || one_sided_stm == WHITE)
     join_dtz(WHITE, G);
-  else
-    delete_stats(WHITE);
 
   if (   (one_sided && one_sided_stm == BLACK)
       || (!one_sided && !symmetric))
     join_dtz(BLACK, G);
-  else
-    delete_stats(BLACK);
 
   free(join_table);
   free(tb_table);
 
-  rmdir("merged/dtz/w");
-  rmdir("merged/dtz/b");
+  merge_tb(G);
+
+  if (!g_cleanup) return;
+
+  if (!one_sided || one_sided_stm == WHITE)
+    delete_slices_dir(WHITE, "merged/dtz");
+  if (   (one_sided && one_sided_stm == BLACK)
+      || (!one_sided && !symmetric))
+    delete_slices_dir(BLACK, "merged/dtz");
   rmdir("merged/dtz");
   rmdir("merged");
-  rmdir("stats/w");
-  rmdir("stats/b");
-  rmdir("stats");
-
-  merge_tb(G);
 
   final_cleanup();
 }
@@ -516,7 +517,6 @@ static void join_dtz_462(int stm)
     if (!g_cleanup) continue;
 
     kslice_delete(s, stm, "merged/dtz", -1);
-    kslice_delete(s, stm, "stats", -1);
   }
 
   compress_free_dtz();
@@ -645,6 +645,9 @@ void join_final_462(int type)
   add_checksum(tmp);
   rename(tmp, fname);
 
+  if (type == WDL)
+    create_empty("done_wdl");
+
   if (!g_cleanup) return;
 
   for (int s = 0; s < 462; s++)
@@ -666,42 +669,41 @@ void join_slices_462(void)
     out_of_mem();
   join_wide = tb_wide = false;
 
-  compress_alloc_wdl();
+  if (!file_exists("done_wdl")) {
+    compress_alloc_wdl();
 
-  join_wdl_462(WHITE);
-  if (!symmetric)
-    join_wdl_462(BLACK);
+    join_wdl_462(WHITE);
+    if (!symmetric)
+      join_wdl_462(BLACK);
 
-  compress_free_wdl();
+    compress_free_wdl();
 
-  rmdir("merged/wdl/w");
-  rmdir("merged/wdl/b");
-  rmdir("merged/wdl");
+    join_final_462(WDL);
 
-  join_final_462(WDL);
+    if (g_cleanup) {
+      rmdir("merged/wdl/w");
+      rmdir("merged/wdl/b");
+      rmdir("merged/wdl");
+    }
+  }
 
   if (!one_sided || one_sided_stm == WHITE)
     join_dtz_462(WHITE);
-  else
-    delete_stats(WHITE);
 
   if ((one_sided && one_sided_stm == BLACK) || (!one_sided && !symmetric))
     join_dtz_462(BLACK);
-  else
-    delete_stats(BLACK);
 
   free(join_table);
   free(tb_table);
+
+  join_final_462(DTZ);
+
+  if (!g_cleanup) return;
 
   rmdir("merged/dtz/w");
   rmdir("merged/dtz/b");
   rmdir("merged/dtz");
   rmdir("merged");
-  rmdir("stats/w");
-  rmdir("stats/b");
-  rmdir("stats");
-
-  join_final_462(DTZ);
 
   final_cleanup();
 }
@@ -957,7 +959,6 @@ static void join_dtz_10(int stm)
       int s = KKMap[g_pos.sq[0]][g_pos.sq[1]];
 
       kslice_delete(s, stm, "merged/dtz", -1);
-      kslice_delete(s, stm, "stats", -1);
     }
   }
 
@@ -1087,6 +1088,8 @@ static void join_final_10(int type)
   add_checksum(tmp);
   rename(tmp, fname);
 
+  create_empty("done_wdl");
+
   if (!g_cleanup) return;
 
   for (int k = 0; k < 10; k++)
@@ -1107,42 +1110,41 @@ void join_slices_10(void)
     out_of_mem();
   join_wide = tb_wide = false;
 
-  compress_alloc_wdl();
+  if (!file_exists("done_wdl")) {
+    compress_alloc_wdl();
 
-  join_wdl_10(WHITE);
-  if (!symmetric)
-    join_wdl_10(BLACK);
+    join_wdl_10(WHITE);
+    if (!symmetric)
+      join_wdl_10(BLACK);
 
-  compress_free_wdl();
+    compress_free_wdl();
 
-  rmdir("merged/wdl/w");
-  rmdir("merged/wdl/b");
-  rmdir("merged/wdl");
+    join_final_10(WDL);
 
-  join_final_10(WDL);
+    if (g_cleanup) {
+      rmdir("merged/wdl/w");
+      rmdir("merged/wdl/b");
+      rmdir("merged/wdl");
+    }
+  }
 
   if (!one_sided || one_sided_stm == WHITE)
     join_dtz_10(WHITE);
-  else
-    delete_stats(WHITE);
 
   if ((one_sided && one_sided_stm == BLACK) || (!one_sided && !symmetric))
     join_dtz_10(BLACK);
-  else
-    delete_stats(BLACK);
 
   free(join_table);
   free(tb_table);
+
+  join_final_10(DTZ);
+
+  if (!g_cleanup) return;
 
   rmdir("merged/dtz/w");
   rmdir("merged/dtz/b");
   rmdir("merged/dtz");
   rmdir("merged");
-  rmdir("stats/w");
-  rmdir("stats/b");
-  rmdir("stats");
-
-  join_final_10(DTZ);
 
   final_cleanup();
 }
