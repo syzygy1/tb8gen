@@ -307,6 +307,9 @@ static void NAME(merge_bitmaps)(int stm, int s)
       g_pos.sq[0] = KK16Square[s][r][0];
       g_pos.sq[1] = KK16Square[s][r][1];
 
+      if (is_broken(&g_pos))
+        continue;
+
       create_name_r(str, s, r, stm, "merged/dtz", -1);
       FILE *F = file_open_write(str);
       NAME(write_data_transform)(F,

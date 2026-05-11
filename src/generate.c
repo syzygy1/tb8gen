@@ -239,13 +239,13 @@ static int wins_checked[2][462];
 static uint64_t replay_cost[2][462];
 static uint64_t write_cost[2][462];
 
-static void add_wins(int s, int stm, int n, uint64_t num, uint64_t cost)
+static void add_wins(int s, int stm, int n, uint64_t cost)
 {
   if ((replay_cost[stm][s] + cost) * 1.0 <= write_cost[stm][s])
     return;
 
   kslice_or(-1, s);
-  kslice_write(-1, s, stm, "wins", n, 1 + num);
+  kslice_write(-1, s, stm, "wins", n, UINT64_MAX);
   replay_cost[stm][s] = 0;
 
   kslice_delete(s, stm, "wins", wins_full[stm][s]);
@@ -891,7 +891,7 @@ static bool calc_W(int stm, int n, bool more_w)
         kslice_and_not(s, -1);
         num = kslice_count(s);
         uint64_t cost = kslice_write(s, s, stm, "W", n, num);
-        add_wins(s, stm, n, num, cost);
+        add_wins(s, stm, n, cost);
         cnt += num;
       }
     }

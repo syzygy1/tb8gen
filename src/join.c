@@ -150,6 +150,8 @@ void delete_stats(int stm)
 
 void final_cleanup(void)
 {
+  if (!g_cleanup) return;
+
   unlink("generate_info");
   unlink("merge_info.w");
   unlink("merge_info.b");
@@ -683,8 +685,7 @@ void join_slices_462(void)
   else
     delete_stats(WHITE);
 
-  if (   (one_sided && one_sided_stm == BLACK)
-      || (!one_sided && !symmetric))
+  if ((one_sided && one_sided_stm == BLACK) || (!one_sided && !symmetric))
     join_dtz_462(BLACK);
   else
     delete_stats(BLACK);
@@ -1125,8 +1126,7 @@ void join_slices_10(void)
   else
     delete_stats(WHITE);
 
-  if (   (one_sided && one_sided_stm == BLACK)
-      || (!one_sided && !symmetric))
+  if ((one_sided && one_sided_stm == BLACK) || (!one_sided && !symmetric))
     join_dtz_10(BLACK);
   else
     delete_stats(BLACK);

@@ -666,7 +666,7 @@ bool dir_exists(int n, int stm, const char *name)
 
 void delete_dir(int n, const char *name)
 {
-  char dir[32];
+  char dir[64];
   if (n >= 0)
     sprintf(dir, "%d/%s", n, name);
   else
@@ -675,7 +675,7 @@ void delete_dir(int n, const char *name)
   if (!file_exists(dir))
     return;
 
-  char str[64];
+  char str[80];
   for (int stm = 0; stm < 2; stm++) {
     sprintf(str, "%s/%c/done", dir, "wb"[stm]);
     unlink(str);

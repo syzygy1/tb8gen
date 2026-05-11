@@ -467,7 +467,7 @@ static void add_wins(int s, int stm, int n, uint64_t cost)
 static void read_wins(int s, int slice, int stm, int n)
 {
   if (n < 0)
-    for (n = MAX_STATS / 2 - 3; n > 0; n--)
+    for (n = MAX_STATS / 2 - 4; n > 0; n--)
       if (g_stats[stm][stats_n(n)])
         break;
 
@@ -811,9 +811,9 @@ static void calc_pawn_push(void)
   if (g_pos.sq[2] - 8 == g_pos.sq[0] || g_pos.sq[2] - 8 == g_pos.sq[1])
     return;
 
-  sprintf(str, "../%c%c/merged/wdl/w/%c%c%c%c", fl(g_pos.sq[2]),
-      rk(g_pos.sq[2] - 8), fl(g_pos.sq[0]), rk(g_pos.sq[0]),
-      fl(g_pos.sq[1]), rk(g_pos.sq[1]));
+  int q = PawnFlip[0][g_pos.sq[2] - 8];
+  sprintf(str, "../%s/merged/wdl/w/%c%c%c%c", pawnstr[q],
+      fl(g_pos.sq[0]), rk(g_pos.sq[0]), fl(g_pos.sq[1]), rk(g_pos.sq[1]));
   FILE *F = file_open_read(str);
   read_data(F, merged_table, kslice_size);
   fclose(F);
@@ -870,9 +870,9 @@ static void calc_pawn_double_push(void)
   if (g_pos.sq[2] - 8 == g_pos.sq[0] || g_pos.sq[2] - 8 == g_pos.sq[1])
     return;
 
-  sprintf(str, "../%c%c/merged/wdl/w/%c%c%c%c", fl(g_pos.sq[2]),
-      rk(g_pos.sq[2] - 8), fl(g_pos.sq[0]), rk(g_pos.sq[0]),
-      fl(g_pos.sq[1]), rk(g_pos.sq[1]));
+  int q = PawnFlip[0][g_pos.sq[2] - 8];
+  sprintf(str, "../%s/merged/wdl/w/%c%c%c%c", pawnstr[q],
+      fl(g_pos.sq[0]), rk(g_pos.sq[0]), fl(g_pos.sq[1]), rk(g_pos.sq[1]));
   FILE *F = file_open_read(str);
   read_data(F, merged_table, kslice_size);
   fclose(F);
@@ -882,9 +882,9 @@ static void calc_pawn_double_push(void)
     return;
   }
 
-  sprintf(str, "../%c%c/merged/wdl/w/%c%c%c%c", fl(g_pos.sq[2]),
-      rk(g_pos.sq[2] - 16), fl(g_pos.sq[0]), rk(g_pos.sq[0]),
-      fl(g_pos.sq[1]), rk(g_pos.sq[1]));
+  q = PawnFlip[0][g_pos.sq[2] - 16];
+  sprintf(str, "../%s/merged/wdl/w/%c%c%c%c", pawnstr[q],
+      fl(g_pos.sq[0]), rk(g_pos.sq[0]), fl(g_pos.sq[1]), rk(g_pos.sq[1]));
   F = file_open_read(str);
   read_data(F, merged_table2, kslice_size);
   fclose(F);
@@ -1136,6 +1136,7 @@ static void calc_illegal_and_mate_and_pawn_push(void)
 
   char name[7][16];
   for (int i = 0; i < 7; i++) {
+    if (i == 2) continue;
     strcat(strcpy(name[i], "pawn/"), wdl_name[i]);
     create_dir(-1, BLACK, name[i]);
   }
@@ -1224,6 +1225,7 @@ static void calc_illegal_and_mate_and_pawn_push(void)
     }
 
     for (int i = 0; i < 5; i++) {
+      if (i == 2) continue;
       pawn_cnt[i] += k16slice_count_addr(k16slice_buf[2 + i], num);
       k16slice_write_addr(k16slice_buf[2 + i], s, BLACK, name[i], -1, num);
     }
@@ -1322,7 +1324,15 @@ static bool calc_L(int stm, int n, bool more_l)
         k16slice_read(-1, s, stm, n <= DRAW_RULE ? "noloss" : "nobloss", -1);
         k16slice_and_not(s, -1);
         k16slice_clear_tail(s);
-        k16slice_write(s, s, stm, "X", n, nullptr); // FIXME
+        k16slice_write(s, s, stm, "X", n, nullptr);
+
+        if (n == 1) {
+          k16slice_delete(s, stm, "capt/loss", -1);
+          if (stm == BLACK)
+            k16slice_delete(s, stm, "pawn/loss", -1);
+        }
+        else if (n == DRAW_RULE + 1 && stm == BLACK)
+          k16slice_delete(s, stm, "pawn/bloss", -1);
       }
   }
 
@@ -1493,13 +1503,13 @@ void generate(void)
     file_read(&pawn_cnt, sizeof pawn_cnt, F);
     file_read(&max_iteration, sizeof max_iteration, F);
     fclose(F);
-    printf("Skipped generation phase for pawn slice %c%c.\n",
-        'a' + (g_pos.sq[2] & 7), '1' + (g_pos.sq[2] >> 3));
+    printf("Table for pawn slice %s was already generated.\n",
+        pawnstr[PawnFlip[0][g_pos.sq[2]]]);
     return;
   }
 
-  printf("Generating table for pawn slice %c%c.\n",
-      'a' + (g_pos.sq[2] & 7), '1' + (g_pos.sq[2] >> 3));
+  printf("Generating table for pawn slice %s.\n",
+      pawnstr[PawnFlip[0][g_pos.sq[2]]]);
 
   for (int i = 0; i < 7; i++)
     k16slice_buf[i] = alloc_k16slice();
@@ -1515,11 +1525,11 @@ void generate(void)
     }
   }
 
-  memset( pawn_cnt, 0, sizeof  pawn_cnt);
-  memset( psub_cnt, 0, sizeof  psub_cnt);
-  memset(  sub_cnt, 0, sizeof   sub_cnt);
+  memset(pawn_cnt, 0, sizeof pawn_cnt);
+  memset(psub_cnt, 0, sizeof psub_cnt);
+  memset(sub_cnt, 0, sizeof sub_cnt);
   memset(pcapt_cnt, 0, sizeof pcapt_cnt);
-  memset( capt_cnt, 0, sizeof  capt_cnt);
+  memset(capt_cnt, 0, sizeof capt_cnt);
 
   memset(wins_full, 0, sizeof wins_full);
   memset(wins_checked, 0, sizeof wins_checked);
@@ -1613,6 +1623,25 @@ void generate(void)
 
   max_iteration = n;
 
+  uint64_t num_kslices = 0;
+  for (int s = 0; s < 240; s++)
+    for (int r = 0; r < 16; r++) {
+      g_pos.sq[0] = KK16Square[s][r][0];
+      g_pos.sq[1] = KK16Square[s][r][1];
+      num_kslices += !is_broken(&g_pos);
+    }
+
+  for (int stm = 0; stm < 2; stm++) {
+    // Remove some double counting.
+    g_stats[stm][3] -= g_stats[stm][1] + g_stats[stm][2];
+    g_stats[stm][DRAW_RULE + 5] -=
+      g_stats[stm][DRAW_RULE + 3] - g_stats[stm][DRAW_RULE + 4];
+    uint64_t total = 0;
+    for (int i = 0; i < MAX_STATS; i++)
+      total += g_stats[stm][i];
+    g_stats[stm][MAX_STATS / 2 + 2] = num_kslices * kslice_size - total;
+  }
+
   F = file_open_write("generate_info");
   write_data(F, &g_stats, sizeof g_stats);
   file_write(&capt_cnt, sizeof capt_cnt, F);
@@ -1622,4 +1651,81 @@ void generate(void)
   file_rename("generate_info");
 
   kslice_free_buffers();
+}
+
+void delete_intermediate_slices(void)
+{
+  if (file_exists("0/wins")) {
+    for (int stm = 0; stm < 2; stm++)
+      for (int s = 0; s < 240; s++) {
+        k16slice_delete(s, stm, "wins", wins_full[stm][s]);
+        k16slice_delete(s, stm, "nobloss", -1);
+        k16slice_delete(s, stm, "noloss", -1);
+      }
+    for (int n = max_iteration - 1; n >= 0; n--)
+      delete_dir(n, "wins");
+    delete_dir(-1, "nobloss");
+    delete_dir(-1, "noloss");
+  }
+
+  if (file_exists("sub")) {
+    for (int i = 0; i < 7; i++) {
+      char name[64];
+      sprintf(name, "sub/%s", wdl_name[i]);
+      for (int stm = 0; stm < 2; stm++)
+        for (int s = 0; s < 240; s++)
+          k16slice_delete(s, stm, name, -1);
+      delete_dir(-1, name);
+      sprintf(name, "psub/%s", wdl_name[i]);
+      for (int s = 0; s < 240; s++)
+        k16slice_delete(s, WHITE, name, -1);
+      delete_dir(-1, name);
+      sprintf(name, "pcapt/%s", wdl_name[i]);
+      for (int s = 0; s < 240; s++)
+        k16slice_delete(s, BLACK, name, -1);
+      delete_dir(-1, name);
+    }
+    unlink("sub/done_w");
+    unlink("sub/done_b");
+    rmdir("sub");
+    unlink("psub/done");
+    rmdir("psub");
+    rmdir("pcapt");
+  }
+
+  if (file_exists("pawn/loss")) {
+    for (int s = 0; s < 240; s++) {
+      k16slice_delete(s, BLACK, "pawn/nobloss", -1);
+      k16slice_delete(s, BLACK, "pawn/noloss", -1);
+    }
+    delete_dir(-1, "pawn/nobloss");
+    delete_dir(-1, "pawn/noloss");
+  }
+}
+
+// Cleanup the files that remain after merge()ing.
+void cleanup_generation(void)
+{
+  char dir[64], file[64];
+  for (int n = 0; n < max_iteration; n++) {
+    sprintf(dir, "%d", n);
+    if (!file_exists(dir)) continue;
+    delete_dir(n, "L");
+    delete_dir(n, "X");
+    delete_dir(n, "W");
+    delete_dir(n, "wins");
+    sprintf(file, "%d/done", n);
+    unlink(file);
+    rmdir(dir);
+  }
+  for (int i = 0; i < 5; i++) {
+    sprintf(dir, "capt/%s", wdl_name[i]);
+    delete_dir(-1, dir);
+  }
+  delete_dir(-1, "capt");
+  for (int i = 0; i < 5; i++) {
+    sprintf(dir, "pawn/%s", wdl_name[i]);
+    delete_dir(-1, dir);
+  }
+  delete_dir(-1, "pawn");
 }

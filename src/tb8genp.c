@@ -43,6 +43,8 @@ struct MaxFen mf, mmf;
 
 const char *typename[3] = { "wdl", "dtm", "dtz" };
 
+char pawnstr[24][3];
+
 static struct option options[] = {
   { "threads", 1, nullptr, 't' },
   { "stats", 0, nullptr, 's' },
@@ -210,45 +212,25 @@ int main(int argc, char **argv)
   for (int i = 0; i < ii.numsets; i++)
     work_capt[i] = create_work(g_total_work, capt_ii[i].size, 0x1ff);
 
+  for (int i = 0; i < 24; i++) {
+    pawnstr[i][0] = 'a' + (i / 6);
+    pawnstr[i][1] = '1' + (((i % 6) + 1) ^ (flipped ? 7 : 0));
+  }
+
   make_dir(g_tablename);
   change_dir(g_tablename);
+  make_dir("stats");
 
   for (int p = 0; p < 24; p++) {
     g_pos.sq[2] = InvPawnFlip[0][p];
-    char pawnstr[3];
-    sprintf(pawnstr, "%c%c", 'a' + (g_pos.sq[2] & 7), '1' + (g_pos.sq[2] >> 3));
-    make_dir(pawnstr);
-    change_dir(pawnstr);
+    make_dir(pawnstr[p]);
+    change_dir(pawnstr[p]);
 
     memset(g_stats, 0, sizeof g_stats);
 
     generate();
 
-    uint64_t num_kslices = 0;
-    for (int s = 0; s < 240; s++)
-      for (int r = 0; r < 16; r++) {
-        g_pos.sq[0] = KK16Square[s][r][0];
-        g_pos.sq[1] = KK16Square[s][r][1];
-        num_kslices += !is_broken(&g_pos);
-      }
-
-    for (int stm = 0; stm < 2; stm++) {
-      // Remove some double counting.
-      g_stats[stm][3] -= g_stats[stm][1] + g_stats[stm][2];
-      g_stats[stm][DRAW_RULE + 5] -=
-        g_stats[stm][DRAW_RULE + 3] - g_stats[stm][DRAW_RULE + 4];
-      uint64_t total = 0;
-      for (int i = 0; i < MAX_STATS; i++)
-        total += g_stats[stm][i];
-      g_stats[stm][MAX_STATS / 2 + 2] = num_kslices * kslice_size - total;
-    }
-
-#if 0
-    printf("\n########## %s - %d ##########\n", g_tablename, p);
-    print_stats(WHITE);
-    print_stats(BLACK);
-#endif
-    printf("\n");
+    delete_intermediate_slices();
 
     // Estimate sizes of different DTZ formats.
     double ewh, ebl, elo, ewi;
@@ -257,7 +239,7 @@ int main(int argc, char **argv)
     elo = entropy_loss_only(WHITE) + (symmetric? 0.0 : entropy_loss_only(BLACK));
     ewi = entropy_win_only(WHITE) + (symmetric ? 0.0 : entropy_win_only(BLACK));
 
-    printf("entropy wtm  = %lf\n", ewh);
+    printf("\nentropy wtm  = %lf\n", ewh);
     printf("entropy btm  = %lf\n", ebl);
     printf("entropy loss = %lf\n", elo);
     printf("entropy win  = %lf\n\n", ewi);
@@ -271,7 +253,7 @@ int main(int argc, char **argv)
 
     // Determine the DTZ format to use.
     one_sided = !symmetric && min(ewh, ebl) <= min(elo, ewi);
-    one_sided = true;
+//    one_sided = true;
     wins_only = ewi <= elo;
     one_sided_stm = ewh <= ebl ? WHITE : BLACK;
 
@@ -294,7 +276,7 @@ int main(int argc, char **argv)
       for (int stm = 0; stm < 2; stm++) {
         mf.dtz[stm][0] = mf.dtz[stm][1] = -1;
         int n;
-        for (n = MAX_STATS / 2 - 5; n > DRAW_RULE; n--)
+        for (n = MAX_STATS / 2 - 4; n > DRAW_RULE; n--)
           if (g_stats[stm][stats_n(n)])
             break;
         if (n > DRAW_RULE && g_stats[stm ^ 1][MAX_STATS - 1 - (n + 1)])
@@ -316,11 +298,14 @@ int main(int argc, char **argv)
     merge(WHITE);
     merge(BLACK);
 
+    cleanup_generation();
+
     // Read out the files in "stats".
     collect_stats(WHITE);
     collect_stats(BLACK);
 
-    fprintf(stdout, "\n########## %s - %s ##########\n", g_tablename, pawnstr);
+    fprintf(stdout, "\n########## %s - %s ##########\n", g_tablename,
+        pawnstr[p]);
     print_stats(stdout, WHITE);
     print_stats(stdout, BLACK);
     fprintf(stdout, "\n");
@@ -334,12 +319,12 @@ int main(int argc, char **argv)
           strcpy(mmf.fen[stm][i], mf.fen[stm][i]);
         }
 
-#if 0
-    FILE *F = file_open_write("statistics");
+    char str[64];
+    sprintf(str, "../stats/%s", pawnstr[p]);
+    FILE *F = file_open_write(str);
     write_data(F, g_stats, sizeof g_stats);
     fclose(F);
-    file_rename("statistics");
-#endif
+    file_rename(str);
 
     kslice_cleanup();
 
@@ -354,6 +339,16 @@ int main(int argc, char **argv)
     }
 
     change_dir("..");
+
+    if (!g_cleanup) continue;
+
+    if (g_pos.sq[2] >= 16 && g_pos.sq[2] < 40)
+      rmdir(pawnstr[p - 1]);
+    else {
+      rmdir(pawnstr[p - 2]);
+      rmdir(pawnstr[p - 1]);
+      rmdir(pawnstr[p]);
+    }
   }
 
   switch (layout) {
@@ -365,14 +360,11 @@ int main(int argc, char **argv)
     break;
   }
 
-#if 0
   memset(g_stats, 0, sizeof g_stats);
   uint64_t tmp[2][MAX_STATS];
   for (int p = 0; p < 24; p++) {
-    g_pos.sq[2] = InvPawnFlip[0][p];
     char str[64];
-    sprintf(str, "%c%c/statistics", 'a' + (g_pos.sq[2] & 7),
-        '1' + (g_pos.sq[2] >> 3));
+    sprintf(str, "stats/%s", pawnstr[p]);
     FILE *F = file_open_read(str);
     read_data(F, tmp, sizeof tmp);
     fclose(F);
@@ -380,7 +372,6 @@ int main(int argc, char **argv)
       for (int i = 0; i < MAX_STATS; i++)
         g_stats[stm][i] += tmp[stm][i];
   }
-#endif
 
   char stats_file[64];
   sprintf(stats_file, "../%s.txt", g_tablename);
@@ -402,6 +393,12 @@ int main(int argc, char **argv)
   print_max_fens(stdout, &mmf);
 
   if (g_cleanup) {
+    for (int p = 0; p < 24; p++) {
+      char str[64];
+      sprintf(str, "stats/%s", pawnstr[p]);
+      unlink(str);
+      rmdir("stats");
+    }
     change_dir("..");
     rmdir(g_tablename);
   }
