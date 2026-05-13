@@ -353,7 +353,9 @@ static void calc_capt_bloss(int stm)
   if (!sub_cnt[stm ^ 1][3])
     return;
 
-  if (file_exists("capt/bloss/done"))
+  char str[64];
+  sprintf(str, "capt/bloss/%c/done", "wb"[stm]);
+  if (file_exists(str))
     return;
 
   bool partial = dir_exists(-1, stm, "capt/bloss"), done = partial;
@@ -385,7 +387,7 @@ static void calc_capt_bloss(int stm)
       }
   }
 
-  create_empty("capt/bloss/done");
+  create_empty(str);
 }
 
 static void predecessors_worker(struct ThreadData *thread)
@@ -1040,6 +1042,7 @@ void cleanup_generation(void)
     unlink(file);
     rmdir(dir);
   }
+  rmdir("capt/bloss/done");
   for (int i = 0; i < 5; i++) {
     sprintf(dir, "capt/%s", wdl_name[i]);
     delete_dir(-1, dir);

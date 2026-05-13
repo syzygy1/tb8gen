@@ -141,7 +141,7 @@ static void read_merge_info(int stm)
   char str[64];
   sprintf(str, "merge_info.%c", "wb"[stm]);
   FILE *F = file_open_read(str);
-  file_read(&mi, sizeof mi, F);
+  read_data(F, &mi, sizeof mi);
   fclose(F);
 }
 
@@ -154,8 +154,7 @@ static void delete_slices_dir(int stm, const char *name, int psq)
   for (int k1 = 0; k1 < 64; k1++) {
     if (k1 == psq) continue;
     for (int k2 = 0; k2 < 64; k2++) {
-      if (k2 == psq || k2 == k1) continue;
-      if (king_attacks(k1) & bit(k2)) continue;
+      if (k2 == psq || (king_mask(k1) & bit(k2))) continue;
       sprintf(str, "../%s/", pawnstr[q]);
       create_name_sq(str + strlen(str), k1, k2, stm, name, -1);
       unlink(str);
@@ -173,21 +172,46 @@ static void delete_merged(int psq)
   rmdir(str);
 }
 
-void final_cleanup(void)
+static void pawn_slice_cleanup(void)
 {
   if (!g_cleanup) return;
 
-  unlink("generate_info");
-  unlink("merge_info.w");
-  unlink("merge_info.b");
-  unlink("maxfens");
   delete_dir(-1, "merged/dtz");
-  delete_dir(-1, "stats");
   if (g_pos.sq[2] >= 48) {
     delete_dir(-1, "merged/wdl");
     rmdir("merged");
   }
 }
+
+#if 0
+static void final_cleanup(void)
+{
+  if (!g_cleanup) return;
+
+  char str[64];
+  for (int q = 0; q < 24; q++) {
+    int psq = InvPawnFlip[0][q];
+    for (int k1 = 0; k1 < 64; k1++) {
+      if (k1 == psq) continue;
+      for (int k2 = 0; k2 < 64; k2++) {
+        if (k2 == psq || (king_mask(k1) & bit(k2))) continue;
+        for (int stm = 0; stm < 2; stm++) {
+          sprintf(str, "%s/", pawnstr[q]);
+          create_name_sq(str + strlen(str), k1, k2, stm, "stats", -1);
+          unlink(str);
+        }
+      }
+    }
+    rmdir(pawnstr[q]);
+  }
+
+  delete_dir(-1, "stats");
+  unlink("merge_info.w");
+  unlink("merge_info.b");
+  unlink("maxfens");
+  unlink("generate_info");
+}
+#endif
 
 // Compress one pawn-slice as 63 tables of 62 K-slices.
 static void join_wdl_pk(int stm)
@@ -619,21 +643,17 @@ void compress_slice_pk(void)
 
   if (!one_sided || one_sided_stm == WHITE)
     join_dtz_pk(WHITE);
-  else
-    delete_slices_dir(WHITE, "stats", g_pos.sq[2]);
 
   if (   (one_sided && one_sided_stm == BLACK)
       || (!one_sided && !symmetric))
     join_dtz_pk(BLACK);
-  else
-    delete_slices_dir(BLACK, "stats", g_pos.sq[2]);
 
   free(join_table);
   free(tb_table);
 
   if (!g_cleanup) return;
 
-  final_cleanup();
+  pawn_slice_cleanup();
 }
 
 void join_slices_pk(void)
@@ -928,7 +948,6 @@ static void join_dtz_p(int stm)
   if (!g_cleanup) return;
 
   delete_slices_dir(stm, "merged/dtz", g_pos.sq[2]);
-  delete_slices_dir(stm, "stats", g_pos.sq[2]);
 }
 
 static void join_final_p(int type)
@@ -1090,14 +1109,10 @@ void compress_slice_p(void)
 
   if (!one_sided || one_sided_stm == WHITE)
     join_dtz_p(WHITE);
-  else
-    delete_slices_dir(WHITE, "stats", g_pos.sq[2]);
 
   if (   (one_sided && one_sided_stm == BLACK)
       || (!one_sided && !symmetric))
     join_dtz_p(BLACK);
-  else
-    delete_slices_dir(BLACK, "stats", g_pos.sq[2]);
 
   if (g_pos.sq[2] >= 48)
     unlink("merged");
@@ -1107,11 +1122,12 @@ void compress_slice_p(void)
 
   if (!g_cleanup) return;
 
-  final_cleanup();
+  pawn_slice_cleanup();
 }
 
 void join_slices_p(void)
 {
   join_final_p(WDL);
   join_final_p(DTZ);
+//  final_cleanup();
 }

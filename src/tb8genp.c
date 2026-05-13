@@ -221,10 +221,10 @@ int main(int argc, char **argv)
   change_dir(g_tablename);
   make_dir("stats");
 
-  for (int p = 0; p < 24; p++) {
-    g_pos.sq[2] = InvPawnFlip[0][p];
-    make_dir(pawnstr[p]);
-    change_dir(pawnstr[p]);
+  for (int q = 0; q < 24; q++) {
+    g_pos.sq[2] = InvPawnFlip[0][q];
+    make_dir(pawnstr[q]);
+    change_dir(pawnstr[q]);
 
     memset(g_stats, 0, sizeof g_stats);
 
@@ -261,7 +261,7 @@ int main(int argc, char **argv)
         one_sided ? one_sided_stm == WHITE ? "white" : "black"
         : wins_only ? "wins" : "losses");
 
-    dtz_format[p] = (struct DtzFormat){
+    dtz_format[q] = (struct DtzFormat){
       .one_sided = one_sided, .wins_only = wins_only,
       .one_sided_stm = one_sided_stm
     };
@@ -274,24 +274,21 @@ int main(int argc, char **argv)
       fclose(F);
     } else {
       for (int stm = 0; stm < 2; stm++) {
-        mf.dtz[stm][0] = mf.dtz[stm][1] = -1;
-        int n;
+        int n, m;
         for (n = MAX_STATS / 2 - 4; n > DRAW_RULE; n--)
           if (g_stats[stm][stats_n(n)])
             break;
-        if (n > DRAW_RULE && g_stats[stm ^ 1][MAX_STATS - 1 - (n + 1)])
-          mf.dtz[stm][1] = 2 * (n + 1);
-        else if (n > DRAW_RULE)
-          mf.dtz[stm][1] = 2 * n + 1;
-        else if (n == DRAW_RULE && g_stats[stm ^ 1][MAX_STATS - 2 - DRAW_RULE])
-          mf.dtz[stm][1] = 2 * (DRAW_RULE + 1);
+        for (m = MAX_STATS / 2 - 4; m > n; m--)
+          if (g_stats[stm ^ 1][MAX_STATS - 1 - m])
+            break;
+        mf.dtz[stm][1] = m > n ? 2 * m : n > DRAW_RULE ? 2 * n + 1 : -1;
         for (n = DRAW_RULE; n >= 1; n--)
           if (g_stats[stm][stats_n(n)])
             break;
-        if (n < DRAW_RULE && g_stats[stm ^ 1][MAX_STATS - 1 - (n + 1)])
-          mf.dtz[stm][0] = 2 * (n + 1);
-        else if (n >= 1)
-          mf.dtz[stm][0] = 2 * n + 1;
+        for (m = DRAW_RULE; m > n; m--)
+          if (g_stats[stm ^ 1][MAX_STATS - 1 - m])
+            break;
+        mf.dtz[stm][0] = m > n ? 2 * m : n >= 1 ? 2 * n + 1 : -1;
       }
     }
 
@@ -305,7 +302,7 @@ int main(int argc, char **argv)
     collect_stats(BLACK);
 
     fprintf(stdout, "\n########## %s - %s ##########\n", g_tablename,
-        pawnstr[p]);
+        pawnstr[q]);
     print_stats(stdout, WHITE);
     print_stats(stdout, BLACK);
     fprintf(stdout, "\n");
@@ -320,7 +317,7 @@ int main(int argc, char **argv)
         }
 
     char str[64];
-    sprintf(str, "../stats/%s", pawnstr[p]);
+    sprintf(str, "../stats/%s", pawnstr[q]);
     FILE *F = file_open_write(str);
     write_data(F, g_stats, sizeof g_stats);
     fclose(F);
@@ -343,11 +340,11 @@ int main(int argc, char **argv)
     if (!g_cleanup) continue;
 
     if (g_pos.sq[2] >= 16 && g_pos.sq[2] < 40)
-      rmdir(pawnstr[p - 1]);
+      rmdir(pawnstr[q - 1]);
     else {
-      rmdir(pawnstr[p - 2]);
-      rmdir(pawnstr[p - 1]);
-      rmdir(pawnstr[p]);
+      rmdir(pawnstr[q - 2]);
+      rmdir(pawnstr[q - 1]);
+      rmdir(pawnstr[q]);
     }
   }
 
@@ -362,9 +359,9 @@ int main(int argc, char **argv)
 
   memset(g_stats, 0, sizeof g_stats);
   uint64_t tmp[2][MAX_STATS];
-  for (int p = 0; p < 24; p++) {
+  for (int q = 0; q < 24; q++) {
     char str[64];
-    sprintf(str, "stats/%s", pawnstr[p]);
+    sprintf(str, "stats/%s", pawnstr[q]);
     FILE *F = file_open_read(str);
     read_data(F, tmp, sizeof tmp);
     fclose(F);
@@ -393,12 +390,35 @@ int main(int argc, char **argv)
   print_max_fens(stdout, &mmf);
 
   if (g_cleanup) {
-    for (int p = 0; p < 24; p++) {
-      char str[64];
-      sprintf(str, "stats/%s", pawnstr[p]);
+    char str[64];
+    for (int q = 0; q < 24; q++) {
+      int psq = InvPawnFlip[0][q];
+      for (int k1 = 0; k1 < 64; k1++) {
+        if (k1 == psq) continue;
+        for (int k2 = 0; k2 < 64; k2++) {
+          if (k2 == psq || (king_mask(k1) & bit(k2))) continue;
+          for (int stm = 0; stm < 2; stm++) {
+            sprintf(str, "%s/", pawnstr[q]);
+            create_name_sq(str + strlen(str), k1, k2, stm, "stats", -1);
+            unlink(str);
+          }
+        }
+      }
+      sprintf(str, "%s/stats", pawnstr[q]);
+      delete_dir(-1, str);
+      sprintf(str, "%s/merge_info.w", pawnstr[q]);
       unlink(str);
-      rmdir("stats");
+      sprintf(str, "%s/merge_info.b", pawnstr[q]);
+      unlink(str);
+      sprintf(str, "%s/maxfens", pawnstr[q]);
+      unlink(str);
+      sprintf(str, "%s/generate_info", pawnstr[q]);
+      unlink(str);
+      sprintf(str, "stats/%s", pawnstr[q]);
+      unlink(str);
+      rmdir(pawnstr[q]);
     }
+    rmdir("stats");
     change_dir("..");
     rmdir(g_tablename);
   }

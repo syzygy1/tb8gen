@@ -325,7 +325,7 @@ void merge(int stm)
   }
 
   FILE *F = file_open_write(str);
-  file_write(&mi, sizeof mi, F);
+  write_data(F, &mi, sizeof mi);
   fclose(F);
   file_rename(str);
 }

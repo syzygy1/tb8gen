@@ -136,7 +136,7 @@ static void read_merge_info(int stm)
   char str[64];
   sprintf(str, "merge_info.%c", "wb"[stm]);
   FILE *F = file_open_read(str);
-  file_read(&mi, sizeof mi, F);
+  read_data(F, &mi, sizeof mi);
   fclose(F);
 }
 

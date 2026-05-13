@@ -253,24 +253,21 @@ int main(int argc, char **argv)
     fclose(F);
   } else {
     for (int stm = 0; stm < 2; stm++) {
-      mf.dtz[stm][0] = mf.dtz[stm][1] = -1;
-      int n;
+      int n, m;
       for (n = MAX_STATS / 2 - 3; n > DRAW_RULE; n--)
         if (g_stats[stm][stats_n(n)])
           break;
-      if (n > DRAW_RULE && g_stats[stm ^ 1][MAX_STATS - 1 - (n + 1)])
-        mf.dtz[stm][1] = 2 * (n + 1);
-      else if (n > DRAW_RULE)
-        mf.dtz[stm][1] = 2 * n + 1;
-      else if (n == DRAW_RULE && g_stats[stm ^ 1][MAX_STATS - 2 - DRAW_RULE])
-        mf.dtz[stm][1] = 2 * (DRAW_RULE + 1);
+      for (m = MAX_STATS / 2 - 3; m > n; m--)
+        if (g_stats[stm ^ 1][MAX_STATS - 1 - m])
+          break;
+      mf.dtz[stm][1] = m > n ? 2 * m : n > DRAW_RULE ? 2 * n + 1 : -1;
       for (n = DRAW_RULE; n >= 1; n--)
         if (g_stats[stm][stats_n(n)])
           break;
-      if (n < DRAW_RULE && g_stats[stm ^ 1][MAX_STATS - 1 - (n + 1)])
-        mf.dtz[stm][0] = 2 * (n + 1);
-      else if (n >= 1)
-        mf.dtz[stm][0] = 2 * n + 1;
+      for (m = DRAW_RULE; m > n; m--)
+        if (g_stats[stm ^ 1][MAX_STATS - 1 - m])
+          break;
+      mf.dtz[stm][0] = m > n ? 2 * m : n >= 1 ? 2 * n + 1 : -1;
     }
   }
 
