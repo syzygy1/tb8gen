@@ -169,6 +169,7 @@ static void generate_test_list(uint64_t size, int n)
 
 void init_permute_pawn_pk(void)
 {
+  assume(ii.numsets + 1 <= MAX_SETS);
   int stm = g_pos.stm;
   pk_ii.numsets = ii.numsets + 1;
   pk_ii.first[0] = stm ^ 1;
@@ -322,12 +323,10 @@ static int64_t estimate_compression(void *table, int *bestp, bool wide,
         try_ii[i].mult[j] = pk_ii.mult[p];
         try_ii[i].first[j] = pk_ii.first[p];
       }
-//      calc_factors(&try_ii[i]);
       for (int l = 0, n = 62; l < try_ii[i].numsets; l++) {
-        try_ii[i].factor[l + 1] = Binomial[try_ii[i].mult[l]][n];
+        try_ii[i].factor[l] = Binomial[try_ii[i].mult[l]][n];
         n -= try_ii[i].mult[l];
       }
-      try_ii[i].factor[0] = 64;
     }
     estimate_compression_pawn(table, num_cands, wide, wdl);
     for (i = 0; i < num_cands; i++) {
@@ -360,10 +359,9 @@ void permute_pawn_pk(void *tb_table, void *table, uint8_t *best, int type,
     best_ii.first[i] = pk_ii.first[k];
   }
   for (int i = 0, n = 62; i < best_ii.numsets; i++) {
-    best_ii.factor[i + 1] = Binomial[best_ii.mult[i]][n];
+    best_ii.factor[i] = Binomial[best_ii.mult[i]][n];
     n -= best_ii.mult[i];
   }
-  best_ii.factor[0] = 64;
 
   printf("\nbest permutation: ");
   for (int i = 0; i < pk_ii.numsets; i++) {
