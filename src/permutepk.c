@@ -167,10 +167,10 @@ static void generate_test_list(uint64_t size, int n)
     segs[i] += i * seg_size;
 }
 
-void init_permute_pawn_pk(void)
+void init_permute_pawn_pk(int stm)
 {
   assume(ii.numsets + 1 <= MAX_SETS);
-  int stm = g_pos.stm;
+  g_pos.stm = stm;
   pk_ii.numsets = ii.numsets + 1;
   pk_ii.first[0] = stm ^ 1;
   pk_ii.mult[0] = 1;
