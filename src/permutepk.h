@@ -9,7 +9,7 @@
 
 #include <inttypes.h>
 
-void init_permute_pawn_pk(void);
+void init_permute_pawn_pk(int stm);
 void permute_pawn_pk(void *tb_table, void *table, uint8_t *best, int type,
     bool wide);
 

@@ -186,6 +186,8 @@ static void pawn_slice_cleanup(void)
 // Compress one pawn-slice as 63 tables of 62 K-slices.
 static void join_wdl_pk(int stm)
 {
+  init_permute_pawn_pk(stm);
+
   char str[64];
   uint8_t *table = join_table;
 
@@ -312,7 +314,7 @@ static void join_dtz_pk(int stm)
 
   compress_alloc_dtz(tb_wide);
 
-  g_pos.stm = stm;
+  init_permute_pawn_pk(stm);
   for (int k1 = 0; k1 < 64; k1++) {
     if (k1 == g_pos.sq[2]) continue;
 
@@ -598,8 +600,6 @@ void join_final_pk(int type)
 
 void compress_slice_pk(void)
 {
-  init_permute_pawn_pk();
-
   join_table = alloc_huge(62 * kslice_size);
   tb_table = alloc_huge(62 * kslice_size + 1);
   if (!join_table || !tb_table)
