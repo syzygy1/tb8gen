@@ -61,7 +61,7 @@ static void NAME(convert_est_data_pawn)(struct ThreadData *thread)
   uint32_t dsize = est_data.dsize;
   T *restrict dst = est_data.dst;
   uint8_t sq[MAX_PIECES];
-  uint32_t sub[MAX_SETS];
+  uint32_t sub[MAX_SETS + 1];
 
   uint64_t idx_dec_buf[NUM];
 

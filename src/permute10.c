@@ -64,10 +64,11 @@ static int32_t current_size = -1;
 void p10_idx_to_sq_init(uint64_t idx, uint32_t *restrict sub,
     const struct P10IdxInfo *ii)
 {
-  for (int k = ii->numsets - 1; k >= 0; k--) {
+  for (int k = ii->numsets - 1; k > 0; k--) {
     sub[k] = idx % ii->factor[k];
     idx /= ii->factor[k];
   }
+  sub[0] = idx;
 }
 
 INLINE void p10_idx_to_sq_inc(uint32_t *sub, const struct P10IdxInfo *ii)

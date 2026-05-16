@@ -1473,7 +1473,6 @@ NOINLINE struct TbTable2 *init_new_table(struct TbEntry *entry,
   }
 
   static constexpr uint8_t knum[] = { 58, 58, 58, 55, 55, 55, 33, 30, 30, 30 };
-  // FIXME: LT_PAWN_PK
   uint64_t tb_size = 1;
   if (tb->layout == LT_PIECE_KK) {
     for (int i = 0, n = 62; i < k; i++) {
@@ -1519,6 +1518,18 @@ NOINLINE struct TbTable2 *init_new_table(struct TbEntry *entry,
     data += k + 1;
   }
   else if (tb->layout == LT_PAWN_PK) {
+    for (int i = 0, n = 62; i < k; i++) {
+      int l = data[i];
+      if (l == 0) {
+        table->first[i] = 1;
+        table->mult[i] = 1;
+      } else {
+        table->factor[i] = Binomial[table->mult[i]][n];
+        n -= table->mult[i];
+        tb_size *= table->factor[i];
+      }
+    }
+    data += k;
   }
   data += (uintptr_t)data & 1;
 
@@ -1858,13 +1869,13 @@ INLINE int probe_table(Position *pos, int s, const int type)
       if (tb->layout == LT_PAWN_P) {
         occ = bit(p[2]);
         tsq = PawnFlip[0][p[2]];
-        t = !entry->symmetric ? 2 * tsq + btm_side : tsq;
       } else {
         if (btm_side)
           Swap(p[0], p[1]);
         tsq = PawnFlip[0][p[2]] * 63 + p[0] - (p[0] > p[2]);
-        t = 0;
+        occ = bit(p[0]) | bit(p[2]);
       }
+      t = !entry->symmetric ? 2 * tsq + btm_side : tsq;
 
     } else {
       t = tsq = 0;
@@ -1882,7 +1893,7 @@ INLINE int probe_table(Position *pos, int s, const int type)
       UNLOCK(mutex);
     }
 
-    if ((uintptr_t)table == 1)
+    if (type != WDL && (uintptr_t)table == 1)
       probe_failed(pos, type);
 
     if (!table->precomp) {

@@ -30,8 +30,6 @@ static void NAME(convert_data_piece)(struct ThreadData *thread)
   for (; fill < NUM && idx < end;
       fill++, idx++, p10_idx_to_sq_inc(sub, perm_ii))
   {
-//    if (stm == WHITE && g_pos.sq[stm] == 2 && idx == 114926)
-//      printf("hey\n");
     p10_idx_to_sq(sub, sq, perm_ii, stm);
     normalize(sq, sq2);
     uint64_t idx_dec = p10_sq_to_idx(sq2, sq[stm ^ 1]);

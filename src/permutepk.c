@@ -69,7 +69,7 @@ void pk_idx_to_sq_init(uint64_t idx, uint32_t *restrict sub,
 
 INLINE void pk_idx_to_sq_inc(uint32_t *sub, const struct PKIdxInfo *ii)
 {
-  for (int i = ii->numsets - 1; ++sub[i] >= ii->factor[i] && i > 0; i--)
+  for (int i = ii->numsets - 1; i >= 0 && ++sub[i] >= ii->factor[i]; i--)
     sub[i] = 0;
 }
 

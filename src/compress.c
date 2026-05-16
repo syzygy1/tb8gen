@@ -225,6 +225,11 @@ void compress_init_wdl(bool vals[])
     if (wdl_vals[i])
       num_vals++;
 
+  if (num_vals == 0) {
+    wdl_vals[2] = true;
+    num_vals = 1;
+  }
+
   dc_to_val[0] = wdl_vals[0] ? 0 : 1;
   dc_to_val[1] = wdl_vals[2] ? 2 : dc_to_val[0];
   dc_to_val[2] = wdl_vals[2] ? 2 : (wdl_vals[0] ? 0 : (wdl_vals[3] ? 3 : 1));
@@ -703,7 +708,7 @@ void compress_init_dtz(struct DtzMap *map, bool wide)
         symcode[i][j] = i;
   }
   g_compress_type = 0;
-  if (num_vals == 1)
+  if (num_vals <= 1)
     g_compress_type = 1;
 
   if (!out_buffer && !(out_buffer = malloc(BUFFER_SIZE)))
