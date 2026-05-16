@@ -15,12 +15,6 @@ struct IdxInfo ii, capt_ii[MAX_SETS];
 int pc_to_set[MAX_PIECES];
 Bitboard Unrank2[62 * 61 / 2], Unrank3[62 * 61 * 60 / 6];
 
-#ifndef HAS_PAWNS
-static constexpr bool has_pawns = false;
-#else
-static constexpr bool has_pawns = true;
-#endif
-
 void init_unrank(void)
 {
   int idx = 0;
@@ -113,4 +107,13 @@ void calc_factors(struct IdxInfo *ii)
   for (int i = ii->numsets - 1; i >= 0; i--)
     f *= ii->factor[i];
   ii->size = f;
+}
+
+void idx_state_init(struct IdxState *is, uint64_t idx, uint8_t *restrict sq,
+    const struct IdxInfo *ii)
+{
+  idx_to_sq_init(idx, is->sub, ii);
+  is->n = 0;
+  is->occ[0] = has_pawns ? bit(sq[0]) | bit(sq[1]) | bit(sq[2])
+                         : bit(sq[0]) | bit(sq[1]);
 }

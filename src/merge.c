@@ -34,24 +34,26 @@ alignas(64) static uint64_t thread_stats[MAX_THREADS][MAX_STATS];
 
 static void stat_count_worker(struct ThreadData *thread)
 {
-  uint32_t sub[MAX_SETS];
+  struct IdxState is;
   Position pos = g_pos;
+  uint8_t sq2[MAX_PIECES];
 
   uint64_t *restrict p = (uint64_t *)kslice_get_address(-1);
 
   uint64_t cnt = 0;
   p += thread->begin >> 6;
   uint64_t last = thread->begin;
-  idx_to_sq_init(last, sub, &ii);
+  idx_state_init(&is, last, pos.sq, &ii);
+  idx_state_to_sq(&is, pos.sq, &ii);
   for (uint64_t idx = thread->begin, end = thread->end; idx < end; idx += 64) {
     uint64_t w = *p++;
     while (w) {
       uint64_t cur = idx + pop_lsb(&w);
-      idx_to_sq_add(cur - last, sub, &ii);
+      idx_state_add(&is, cur - last, &ii);
       last = cur;
-      idx_to_sq(sub, pos.sq);
-      mirror_diagonal(pos.sq);
-      uint64_t idx2 = sq_to_idx(pos.sq);
+      idx_state_to_sq(&is, pos.sq, &ii);
+      mirror_diagonal2(pos.sq, sq2);
+      uint64_t idx2 = sq_to_idx(sq2);
       cnt += (cur == idx2) ? 2 : 1;
     }
   }

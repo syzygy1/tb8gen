@@ -52,7 +52,7 @@ static void NAME(merge_capt_bloss_worker)(struct ThreadData *thread)
 }
 
 INLINE void NAME(merge_mark_unmoves)(int k, T *restrict const p, Bitboard occ,
-    uint8_t *restrict sq)
+    const uint8_t *restrict sq)
 {
   uint8_t sq2[MAX_PIECES];
   Bitboard b = non_king_piece_moves(g_pos.pt[k], sq[k], occ);
@@ -65,7 +65,7 @@ INLINE void NAME(merge_mark_unmoves)(int k, T *restrict const p, Bitboard occ,
 
 static void NAME(merge_illegal_worker)(struct ThreadData *thread)
 {
-  uint32_t sub[MAX_SETS];
+  struct IdxState is;
   Position pos = g_pos;
   int k = work_set;
   int m = ii.last[k];
@@ -74,12 +74,12 @@ static void NAME(merge_illegal_worker)(struct ThreadData *thread)
 
   T *restrict const p = merge_table;
 
-  idx_to_sq_init(thread->begin, sub, &capt_ii[k]);
+  idx_state_init(&is, thread->begin, pos.sq, &capt_ii[k]);
 
   for (uint64_t idx = thread->begin, end = thread->end; idx < end;
-      idx++, idx_to_sq_inc(sub, &capt_ii[k]))
+      idx++, idx_state_inc(&is, &capt_ii[k]))
   {
-    Bitboard occ = capt_idx_to_sq(sub, pos.sq, k);
+    Bitboard occ = idx_state_to_sq(&is, pos.sq, &capt_ii[k]);
     pos.sq[m] = king_sq;
     NAME(merge_mark_unmoves)(m, p, occ, pos.sq);
   }
@@ -97,16 +97,17 @@ static void NAME(merge_statistics_worker)(struct ThreadData *thread)
       thread_stats[t][NAME(mi.v_inv)[p[idx]]] += 2;
   } else {
     // Both kings on the diagonal, so count carefully.
-    uint32_t sub[MAX_SETS];
+    struct IdxState is;
     Position pos = g_pos;
-    idx_to_sq_init(thread->begin, sub, &ii);
+    idx_state_init(&is, thread->begin, pos.sq, &ii);
 
     for (uint64_t idx = thread->begin, end = thread->end; idx < end;
-        idx++, idx_to_sq_inc(sub, &ii))
+        idx++, idx_state_inc(&is, &ii))
     {
-      idx_to_sq(sub, pos.sq);
-      mirror_diagonal(pos.sq);
-      uint64_t idx2 = sq_to_idx(pos.sq);
+      idx_state_to_sq(&is, pos.sq, &ii);
+      uint8_t sq2[MAX_PIECES];
+      mirror_diagonal2(pos.sq, sq2);
+      uint64_t idx2 = sq_to_idx(sq2);
       thread_stats[t][NAME(mi.v_inv)[p[idx]]] += idx == idx2 ? 2 : 1;
     }
   }

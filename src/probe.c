@@ -612,8 +612,6 @@ void init_indices(void)
       Off10[i][j] = n++;
     }
   }
-
-
 }
 
 INLINE int leading_pawn(uint8_t *p, struct TbEntry *entry, const int lt)

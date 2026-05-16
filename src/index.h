@@ -20,21 +20,32 @@
 #endif
 #include "types.h"
 
+#ifndef HAS_PAWNS
+static constexpr bool has_pawns = false;
+#else
+static constexpr bool has_pawns = true;
+#endif
+
 struct IdxInfo {
   int numsets;   // number of sets of like pieces, excluding kings.
-  uint64_t size;
-  uint32_t factor[MAX_SETS]; // total number of placements for a set
-  uint64_t recip[MAX_SETS];
   int first[MAX_SETS];          // index of first piece of each set
   int mult[MAX_SETS];           // number of like pieces in each set
+  uint32_t factor[MAX_SETS]; // total number of placements for a set
+  uint64_t recip[MAX_SETS];
+  uint64_t size;
   int last[MAX_SETS];
+};
+
+struct IdxState {
+  uint32_t sub[MAX_SETS];
+  Bitboard occ[MAX_SETS];
+  int n;
 };
 
 extern struct IdxInfo ii, capt_ii[MAX_SETS];
 extern int pc_to_set[MAX_PIECES];
 extern Bitboard Unrank2[62 * 61 / 2], Unrank3[62 * 61 * 60 / 6];
 
-#if 1
 #define SORT2(a, b) do { \
   if ((b) < (a))         \
     Swap(a, b);          \
@@ -62,19 +73,19 @@ INLINE void sort_squares(int n, uint8_t *restrict x)
   switch (n) {
   case 0:
   case 1:
-    return;
+    break;
 
   case 2:
     SORT2(x[0], x[1]);
-    return;
+    break;
 
   case 3:
     sort3(x);
-    return;
+    break;
 
   case 4:
     sort4(x);
-    return;
+    break;
 
   default:
     // insertion sort
@@ -87,18 +98,8 @@ INLINE void sort_squares(int n, uint8_t *restrict x)
       }
       x[j] = v;
     }
-    return;
   }
 }
-#else
-INLINE void sort_squares(int n, uint8_t *restrict sq)
-{
-  for (int i = 0; i < n; i++)
-    for (int j = i + 1; j < n; j++)
-      if (sq[i] > sq[j])
-        Swap(sq[i], sq[j]);
-}
-#endif
 
 INLINE int rank_among_free(uint8_t sq, Bitboard occ)
 {
@@ -207,6 +208,57 @@ INLINE void mirror_diagonal(uint8_t *restrict sq)
     sq[i] = FlipDiag[sq[i]];
 }
 
+INLINE void mirror_diagonal2(uint8_t *restrict sq, uint8_t *restrict sq2)
+{
+  assume(g_pos.num <= MAX_PIECES);
+
+  sq2[0] = sq[0];
+  sq2[1] = sq[1];
+  for (int i = 2; i < g_pos.num; i++)
+    sq2[i] = FlipDiag[sq[i]];
+}
+
+INLINE void idx_state_inc(struct IdxState *is, const struct IdxInfo *ii)
+{
+  uint32_t *restrict sub = is->sub;
+  int i = ii->numsets - 1;
+  for (; ++sub[i] >= ii->factor[i] && i > 0; i--)
+    sub[i] = 0;
+  is->n = i;
+}
+
+INLINE void idx_state_add(struct IdxState *is, uint64_t v,
+    const struct IdxInfo *restrict ii)
+{
+  uint32_t *restrict sub = is->sub;
+  int i = ii->numsets;
+
+  while (i > 0) {
+    uint64_t s = (uint64_t)sub[--i] + v;
+    uint32_t f = ii->factor[i];
+
+    if (s < f) {
+      sub[i] = s;
+      is->n = i;
+      return;
+    }
+
+    v = divmod_u64_u32_recip(s, f, ii->recip[i], &sub[i]);
+  }
+}
+
+INLINE Bitboard idx_state_to_sq(struct IdxState *is, uint8_t *restrict sq,
+    const struct IdxInfo *ii)
+{
+  int i = is->n;
+  Bitboard occ = is->occ[i];
+  for (; i < ii->numsets; i++) {
+    is->occ[i] = occ;
+    occ = unrank_binomial(is->sub[i], ii->mult[i], sq + ii->first[i], occ);
+  }
+  return occ;
+}
+
 void init_unrank(void);
 void calc_factors(struct IdxInfo *ii);
 uint64_t sq_to_idx(uint8_t *sq);
@@ -215,5 +267,7 @@ void idx_to_sq_init(uint64_t idx, uint32_t *sub, const struct IdxInfo *ii);
 Bitboard idx_to_sq(uint32_t *sub, uint8_t *sq);
 void idx_to_sq_ii(uint32_t *sub, uint8_t *sq, const struct IdxInfo *ii);
 Bitboard capt_idx_to_sq(uint32_t *sub, uint8_t *sq, int k);
+void idx_state_init(struct IdxState *is, uint64_t idx, uint8_t *restrict sq,
+    const struct IdxInfo *ii);
 
 #endif
