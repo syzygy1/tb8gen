@@ -9,7 +9,7 @@
 #include <stdlib.h>
 
 #include "defs.h"
-#include "indexp.h"
+#include "index.h"
 #include "generatep.h"
 #include "kslicep.h"
 #include "merge.h"

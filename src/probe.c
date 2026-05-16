@@ -917,9 +917,8 @@ INLINE void decode_helper(uint32_t *sub, uint8_t *restrict p,
 
   q = sub[0];
   if (lt == LT_PIECE) {
-    switch (entry->kk_enc) {
-
-    case 0: /* 111 */
+    if (!entry->kk_enc) {
+      /* 111 */
       if (q < 6*63*62) {
         r = q / (63*62);
         q -= r * 63*62;
@@ -962,13 +961,12 @@ INLINE void decode_helper(uint32_t *sub, uint8_t *restrict p,
         occ &= DIAGONAL_BB;
       }
       i = 3;
-    break;
-
-    default: /* K2 */
+    }
+    else {
+      /* K2 */
       p[0] = place_empty(KKSquare[q][0], &occ);
       p[1] = place_no_skip(KKSquare[q][1], &occ);
       i = 2;
-      break;
     }
   }
   else { /* LT_PAWN_FILE, LT_PAWN_RANK */

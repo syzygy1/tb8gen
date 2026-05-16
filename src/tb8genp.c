@@ -16,7 +16,7 @@
 
 #include "defs.h"
 #include "generatep.h"
-#include "indexp.h"
+#include "index.h"
 #include "joinp.h"
 #include "kslicep.h"
 #include "merge.h"
@@ -59,7 +59,7 @@ int main(int argc, char **argv)
   int val, lindex;
   uint8_t pcs[16];
   uint8_t pt[8];
-  int layout = -1;
+  int layout = 0;
 
   const char *path = getenv(TBPATH);
   g_num_threads = 1;
@@ -95,8 +95,9 @@ int main(int argc, char **argv)
   }
   g_tablename = argv[optind];
 
-  init_tablebases(path);
   init_movegen();
+  init_unrank();
+  init_tablebases(path);
   init_threads();
 
   for (int i = 0; i < 16; i++)
@@ -117,10 +118,8 @@ int main(int argc, char **argv)
     }
   int numpcs = k;
 
-#if 1
-  if (layout < 0 || layout > 2)
-    layout = numpcs <= 6 ? 1 : numpcs == 7 ? 1 : 2;
-#endif
+  if (layout <= 0 || layout > 2)
+    layout = numpcs <= 7 ? 1 : numpcs == 8 ? 1 : 2;
 
   if (!color) exit(EXIT_FAILURE);
 

@@ -13,7 +13,11 @@
 
 #include "defs.h"
 #include "probe.h"
+#ifndef HAS_PAWNS
 #include "tb8gen.h"
+#else
+#include "tb8genp.h"
+#endif
 #include "types.h"
 
 struct IdxInfo {
@@ -27,8 +31,8 @@ struct IdxInfo {
 };
 
 extern struct IdxInfo ii, capt_ii[MAX_SETS];
-
 extern int pc_to_set[MAX_PIECES];
+extern Bitboard Unrank2[62 * 61 / 2], Unrank3[62 * 61 * 60 / 6];
 
 INLINE void sort_squares(int n, uint8_t *restrict sq)
 {
@@ -50,18 +54,39 @@ INLINE Bitboard unrank_binomial(uint64_t idx, int n, uint8_t *restrict sq,
     return occ;
 
   Bitboard b = ~occ;
-  for (int i = n - 1; i > 0; i--) {
-    int r = i;
-    while (idx >= Binomial[i + 1][r + 1])
-      r++;
-    idx -= Binomial[i + 1][r];
-    Bitboard b1 = _pdep_u64(1ULL << r, b);
-    sq[i] = lsb(b1);
+
+  if (n == 1) {
+    Bitboard b1 = _pdep_u64(1ULL << idx, b);
     occ |= b1;
+    sq[0] = lsb(b1);
   }
-  Bitboard b1 = _pdep_u64(1ULL << idx, b);
-  sq[0] = lsb(b1);
-  occ |= b1;
+  else if (n == 2) {
+    Bitboard b1 = _pdep_u64(Unrank2[idx], b);
+    occ |= b1;
+    sq[0] = pop_lsb(&b1);
+    sq[1] = lsb(b1);
+  }
+  else if (n == 3) {
+    Bitboard b1 = _pdep_u64(Unrank3[idx], b);
+    occ |= b1;
+    sq[0] = pop_lsb(&b1);
+    sq[1] = pop_lsb(&b1);
+    sq[2] = lsb(b1);
+  }
+  else {
+    Bitboard b1 = 0;
+    for (int i = n - 1; i > 0; i--) {
+      int r = i;
+      while (idx >= Binomial[i + 1][r + 1])
+        r++;
+      idx -= Binomial[i + 1][r];
+      b1 |= bit(r);
+    }
+    b1 = _pdep_u64(b1 | bit(idx), b);
+    occ |= b1;
+    while (b1)
+      *sq++ = pop_lsb(&b1);
+  }
 
   return occ;
 }
@@ -124,7 +149,7 @@ INLINE void mirror_diagonal(uint8_t *restrict sq)
     sq[i] = FlipDiag[sq[i]];
 }
 
-void init_tables(void);
+void init_unrank(void);
 void calc_factors(struct IdxInfo *ii);
 uint64_t sq_to_idx(uint8_t *sq);
 uint64_t capt_sq_to_idx(uint8_t *sq, int k);

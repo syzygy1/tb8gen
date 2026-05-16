@@ -9,7 +9,7 @@
 
 #include "defs.h"
 #include "generatep.h"
-#include "indexp.h"
+#include "index.h"
 #include "kslicep.h"
 #include "movegen.h"
 #include "probe.h"

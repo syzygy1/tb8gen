@@ -92,6 +92,7 @@ int main(int argc, char **argv)
   g_tablename = argv[optind];
 
   init_movegen();
+  init_unrank();
   init_tablebases(path);
   init_threads();
 

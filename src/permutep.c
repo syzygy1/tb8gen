@@ -19,7 +19,7 @@
 #include "types.h"
 #include "compress.h"
 #include "huffman.h"
-#include "indexp.h"
+#include "index.h"
 #include "kslicep.h"
 #include "permutep.h"
 #include "probe.h"

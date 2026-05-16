@@ -14,7 +14,7 @@
 #include "compress.h"
 #include "defs.h"
 #include "generatep.h"
-#include "indexp.h"
+#include "index.h"
 #include "kslicep.h"
 #include "merge.h"
 #include "movegen.h"

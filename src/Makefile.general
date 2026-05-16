@@ -5,7 +5,7 @@ GENOBJS = tb8gen.o movegen.o index.o generate.o merge.o kslice.o probe.o \
 	  stats.o join.o permute.o permute462.o permute10.o compress.o rans.o \
 	  huffman.o util.o threads.o checksum.o city-c.o
 
-GENPOBJS = tb8genp.o movegen.o indexp.o generatep.o mergep.o kslicep.o \
+GENPOBJS = tb8genp.o movegen.o index.o generatep.o mergep.o kslicep.o \
 	   probe.o statsp.o joinp.o permute.o permutepk.o permutep.o \
 	   compress.o rans.o huffman.o util.o threads.o checksum.o city-c.o
 
