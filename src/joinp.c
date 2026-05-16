@@ -451,7 +451,7 @@ void join_final_pk(int type)
 {
   char str[64];
   struct stat st;
-  uint64_t slice_size[2 * 1512], size_small = 0;
+  uint64_t slice_size[2 * 1512];
   bool has_stm[24][2];
 
   for (int i = 0; i < 24; i++) {
@@ -476,7 +476,7 @@ void join_final_pk(int type)
   p = buf + (((p - buf) + 7) & ~7);
 
   int sides = symmetric ? 1 : 2;
-  int num = 0, num_small = 0;
+  int num = 0;
   for (int q = 0; q < 24; q++) {
     int psq = InvPawnFlip[0][q];
     for (int k1 = 0; k1 < 64; k1++) {
@@ -492,10 +492,6 @@ void join_final_pk(int type)
           exit(EXIT_FAILURE);
         }
         slice_size[num++] = st.st_size;
-        if (st.st_size < 64) {
-          num_small++;
-          size_small += st.st_size;
-        }
       }
     }
   }
@@ -925,7 +921,7 @@ static void join_final_p(int type)
 {
   char str[64];
   struct stat st;
-  uint64_t slice_size[2 * 24], size_small = 0;
+  uint64_t slice_size[2 * 24];
   bool has_stm[24][2];
 
   for (int i = 0; i < 24; i++) {
@@ -950,7 +946,7 @@ static void join_final_p(int type)
   p = buf + (((p - buf) + 7) & ~7);
 
   int sides = symmetric ? 1 : 2;
-  int num = 0, num_small = 0;
+  int num = 0;
   for (int q = 0; q < 24; q++) {
     int psq = InvPawnFlip[0][q];
     for (int stm = 0; stm < sides; stm++) {
@@ -964,10 +960,6 @@ static void join_final_p(int type)
         exit(EXIT_FAILURE);
       }
       slice_size[num++] = st.st_size;
-      if (st.st_size < 64) {
-        num_small++;
-        size_small += st.st_size;
-      }
     }
   }
   assert(num == 24 * sides);

@@ -4,6 +4,7 @@
   This file is distributed under the terms of the GNU GPL, version 2.
 */
 
+#define _POSIX_C_SOURCE 200809L
 #include <assert.h>
 #include <errno.h>
 #include <inttypes.h>

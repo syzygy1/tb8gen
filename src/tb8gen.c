@@ -282,16 +282,14 @@ int main(int argc, char **argv)
 
   char stats_file[64];
   sprintf(stats_file, "../%s.txt", g_tablename);
-  if (!file_exists(stats_file)) {
-    FILE *F = file_open_write(stats_file);
-    fprintf(F, "########## %s ##########\n", g_tablename);
-    print_stats(F, WHITE);
-    print_stats(F, BLACK);
-    fprintf(F, "\n");
-    print_max_fens(F, &mf);
-    fclose(F);
-    file_rename(stats_file);
-  }
+  FILE *F = file_open_write(stats_file);
+  fprintf(F, "########## %s ##########\n", g_tablename);
+  print_stats(F, WHITE);
+  print_stats(F, BLACK);
+  fprintf(F, "\n");
+  print_max_fens(F, &mf);
+  fclose(F);
+  file_rename(stats_file);
 
   printf("\n########## %s ##########\n", g_tablename);
   print_stats(stdout, WHITE);

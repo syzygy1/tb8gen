@@ -526,7 +526,7 @@ void join_final_462(int type)
 {
   char str[64];
   struct stat st;
-  uint64_t slice_size[924], size_small = 0;
+  uint64_t slice_size[924];
   bool has_stm[2] = {
     type == WDL || !one_sided || one_sided_stm == WHITE,
     !symmetric && (type == WDL || !one_sided || one_sided_stm == BLACK)
@@ -554,7 +554,7 @@ void join_final_462(int type)
   }
   p = buf + (((p - buf) + 7) & ~7);
 
-  int num = 0, num_small = 0;
+  int num = 0;
   for (int s = 0; s < 462; s++)
     for (int stm = 0; stm < 2; stm++) {
       if (!has_stm[stm]) continue;
@@ -564,10 +564,6 @@ void join_final_462(int type)
         exit(EXIT_FAILURE);
       }
       slice_size[num++] = st.st_size;
-      if (st.st_size < 64) {
-        num_small++;
-        size_small += st.st_size;
-      }
     }
 
   uint64_t offset = (p - buf) + num * sizeof(uint64_t);
@@ -969,7 +965,7 @@ static void join_final_10(int type)
 {
   char str[64];
   struct stat st;
-  uint64_t slice_size[20], size_small = 0;
+  uint64_t slice_size[20];
   bool has_stm[2] = {
     type == WDL || !one_sided || one_sided_stm == WHITE,
     !symmetric && (type == WDL || !one_sided || one_sided_stm == BLACK)
@@ -997,7 +993,7 @@ static void join_final_10(int type)
   }
   p = buf + (((p - buf) + 7) & ~7);
 
-  int num = 0, num_small = 0;
+  int num = 0;
   for (int k = 0; k < 10; k++)
     for (int stm = 0; stm < 2; stm++) {
       if (!has_stm[stm]) continue;
@@ -1007,10 +1003,6 @@ static void join_final_10(int type)
         exit(EXIT_FAILURE);
       }
       slice_size[num++] = st.st_size;
-      if (st.st_size < 64) {
-        num_small++;
-        size_small += st.st_size;
-      }
     }
 
   uint64_t offset = (p - buf) + num * sizeof(uint64_t);
