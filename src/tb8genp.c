@@ -97,7 +97,6 @@ int main(int argc, char **argv)
 
   init_tablebases(path);
   init_movegen();
-  init_tables();
   init_threads();
 
   for (int i = 0; i < 16; i++)

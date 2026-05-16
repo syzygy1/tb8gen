@@ -92,8 +92,3 @@ void calc_factors(struct IdxInfo *ii)
     f *= ii->factor[i];
   ii->size = f;
 }
-
-void init_tables(void)
-{
-
-}

@@ -190,8 +190,7 @@ static void estimate_compression_piece(void *table, int num_cands, bool wide,
   free(dst);
 }
 
-static int64_t estimate_compression(void *table, int *bestp, int rank,
-    bool wide, bool wdl)
+static int64_t estimate_compression(void *table, int *bestp, bool wide,bool wdl)
 {
   int i, j, k, p, q;
   int num_cands, bp = 0;
@@ -255,10 +254,7 @@ static int64_t estimate_compression(void *table, int *bestp, int rank,
       }
       calc_factors(&try_ii[i]);
     }
-    if (rank < 0)
-      estimate_compression_piece(table, num_cands, wide, wdl);
-//    else
-//      estimate_compression_pawn(table, pcs, rank, num_cands, wide);
+    estimate_compression_piece(table, num_cands, wide, wdl);
     for (i = 0; i < num_cands; i++) {
       if (compest[trylist[i]] < best) {
 	best = compest[trylist[i]];
@@ -277,7 +273,7 @@ void permute_piece_462(void *tb_table, void *table, uint8_t *best, int type,
 {
   int bestp;
 
-  estimate_compression(table, &bestp, -1, wide, type == WDL);
+  estimate_compression(table, &bestp, wide, type == WDL);
 
   for (int i = 0; i < num_sets; i++)
     best[i] = set_perm_list[bestp][i];

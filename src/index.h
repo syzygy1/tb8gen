@@ -20,6 +20,7 @@ struct IdxInfo {
   int numsets;   // number of sets of like pieces, excluding kings.
   uint64_t size;
   uint32_t factor[MAX_SETS]; // total number of placements for a set
+  uint64_t recip[MAX_SETS];
   int first[MAX_SETS];          // index of first piece of each set
   int mult[MAX_SETS];           // number of like pieces in each set
   int last[MAX_SETS];
@@ -71,19 +72,34 @@ INLINE void idx_to_sq_inc(uint32_t *sub, const struct IdxInfo *ii)
     sub[i] = 0;
 }
 
-// FIXME: make sure that v and sub[] never overflow
-// probably just insert a check: if v too big, then do as in init().
-INLINE void idx_to_sq_add(uint32_t v, uint32_t *restrict sub,
-    const struct IdxInfo *ii)
+// Valid if x <= 2^N, d-1 <= 2^l and N + l <= 64.
+// This should not be a problem even for 9-piece tables.
+// See https://gmplib.org/~tege/divcnst-pldi94.pdf
+INLINE uint64_t divmod_u64_u32_recip(uint64_t x, uint32_t d, uint64_t recip,
+    uint32_t *rem)
+{
+  uint64_t q = ((__uint128_t)x * recip) >> 64;
+  uint64_t r = x - q * d;
+
+  *rem = (uint32_t)r;
+  return q;
+}
+
+INLINE void idx_to_sq_add(uint64_t v, uint32_t *restrict sub,
+    const struct IdxInfo *restrict ii)
 {
   int i = ii->numsets;
-  while (v && i > 0) {
-    sub[--i] += v;
-    v = 0;
-    while (sub[i] >= ii->factor[i]) {
-      sub[i] -= ii->factor[i];
-      v++;
+
+  while (i > 0) {
+    uint64_t s = (uint64_t)sub[--i] + v;
+    uint32_t f = ii->factor[i];
+
+    if (s < f) {
+      sub[i] = s;
+      return;
     }
+
+    v = divmod_u64_u32_recip(s, f, ii->recip[i], &sub[i]);
   }
 }
 

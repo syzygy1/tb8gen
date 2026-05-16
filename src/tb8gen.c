@@ -93,7 +93,6 @@ int main(int argc, char **argv)
 
   init_movegen();
   init_tablebases(path);
-  init_tables();
   init_threads();
 
   for (int i = 0; i < 16; i++)
@@ -160,13 +159,13 @@ int main(int argc, char **argv)
     g_pos.pt[i] = pt[i];
 
   k = 0;
-  for (int i = 0; i < numpcs; i++)
+  for (int i = 2; i < numpcs; i++)
     if (!(pt[i] & 0x08))
       g_pos.pcs[WHITE][k++] = i;
   g_pos.pcs[WHITE][k] = -1;
 
   k = 0;
-  for (int i = 0; i < numpcs; i++)
+  for (int i = 2; i < numpcs; i++)
     if (pt[i] & 0x08)
       g_pos.pcs[BLACK][k++] = i;
   g_pos.pcs[BLACK][k] = -1;
@@ -191,6 +190,14 @@ int main(int argc, char **argv)
   for (k = 0; k < ii.numsets; k++) {
     capt_ii[k] = ii;
     capt_ii[k].mult[k]--;
+    if (capt_ii[k].mult[k] == 0) {
+      for (int i = k + 1; i < ii.numsets; i++) {
+        capt_ii[k].first[i - 1] = capt_ii[k].first[i];
+        capt_ii[k].mult[i - 1] = capt_ii[k].mult[i];
+        capt_ii[k].last[i - 1] = capt_ii[k].last[i];
+      }
+      capt_ii[k].numsets--;
+    }
     calc_factors(&capt_ii[k]);
     kslice_sub_size[k] = capt_ii[k].size;
   }

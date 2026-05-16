@@ -205,7 +205,7 @@ static void predecessors_sub_worker(struct ThreadData *thread)
       pos.sq[m] = pos.sq[stm];
       mark_king_unmoves(stm, occ, pos.sq, s);
       // Uncapture by non-king pieces.
-      for (int i = 1; pos.pcs[stm][i] >= 0; i++) {
+      for (int i = 0; pos.pcs[stm][i] >= 0; i++) {
         int j = pos.pcs[stm][i];
         pos.sq[m] = pos.sq[j];
         mark_unmoves(j, q, occ, pos.sq);
@@ -411,7 +411,7 @@ static void predecessors_worker(struct ThreadData *thread)
       last = cur;
       Bitboard occ = idx_to_sq(sub, pos.sq);
       mark_king_unmoves(stm, occ, pos.sq, s);
-      for (int i = 1; pos.pcs[stm][i] >= 0; i++) {
+      for (int i = 0; pos.pcs[stm][i] >= 0; i++) {
         int j = pos.pcs[stm][i];
         mark_unmoves(j, q, occ, pos.sq);
       }
@@ -535,7 +535,7 @@ static void check_successors_worker(struct ThreadData *thread)
       // Currently, we need to test.
       if (opp_king_attacked(&pos))
         goto clear_bit;
-      for (int i = 1; pos.pcs[stm][i] >= 0; i++) {
+      for (int i = 0; pos.pcs[stm][i] >= 0; i++) {
         int j = pos.pcs[stm][i];
         bool v = check_moves(j, s, q, occ, pos.sq);
         if (!v) goto clear_bit;

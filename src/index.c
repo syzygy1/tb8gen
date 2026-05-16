@@ -59,10 +59,8 @@ INLINE Bitboard idx_to_sq_unpack(uint32_t *sub, uint8_t *restrict sq,
 void idx_to_sq_init(uint64_t idx, uint32_t *restrict sub,
     const struct IdxInfo *ii)
 {
-  for (int k = ii->numsets - 1; k >= 0; k--) {
-    sub[k] = idx % ii->factor[k];
-    idx /= ii->factor[k];
-  }
+  for (int k = ii->numsets - 1; k >= 0; k--)
+    idx = divmod_u64_u32_recip(idx, ii->factor[k], ii->recip[k], &sub[k]);
 }
 
 Bitboard idx_to_sq(uint32_t *sub, uint8_t *restrict sq)
@@ -84,6 +82,7 @@ void calc_factors(struct IdxInfo *ii)
 {
   for (int i = 0, n = 62; i < ii->numsets; i++) {
     ii->factor[i] = Binomial[ii->mult[i]][n];
+    ii->recip[i] = (((__uint128_t)1 << 64) + ii->factor[i] - 1) / ii->factor[i];
     n -= ii->mult[i];
   }
 
@@ -91,8 +90,4 @@ void calc_factors(struct IdxInfo *ii)
   for (int i = ii->numsets - 1; i >= 0; i--)
     f *= ii->factor[i];
   ii->size = f;
-}
-
-void init_tables(void)
-{
 }
