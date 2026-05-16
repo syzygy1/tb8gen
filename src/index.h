@@ -71,18 +71,22 @@ INLINE void idx_to_sq_inc(uint32_t *sub, const struct IdxInfo *ii)
     sub[i] = 0;
 }
 
-// FIXME: make sure that v and sub[] never overflow
-// probably just insert a check: if v too big, then do as in init().
-INLINE void idx_to_sq_add(uint32_t v, uint32_t *restrict sub,
+INLINE void idx_to_sq_add(uint64_t v, uint32_t *restrict sub,
     const struct IdxInfo *ii)
 {
-  int i = ii->numsets;
-  while (v && i > 0) {
-    sub[--i] += v;
-    v = 0;
-    while (sub[i] >= ii->factor[i]) {
-      sub[i] -= ii->factor[i];
-      v++;
+  for (int i = ii->numsets - 1; v && i >= 0; i--) {
+    uint64_t sum = sub[i] + v;
+    uint32_t factor = ii->factor[i];
+    if (sum < factor) {
+      sub[i] = sum;
+      break;
+    }
+    if (sum < 2 * (uint64_t)factor) {
+      sub[i] = sum - factor;
+      v = 1;
+    } else {
+      sub[i] = sum % factor;
+      v = sum / factor;
     }
   }
 }

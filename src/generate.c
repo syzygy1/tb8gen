@@ -430,24 +430,40 @@ static void predecessors(int stm, int s)
   run_threaded(predecessors_worker, work_g, 0);
 }
 
-INLINE int get_idx(const uint8_t *restrict sq, int s)
+INLINE void fill_piece_on_square(uint8_t *restrict piece_on_square,
+    const uint8_t *restrict sq)
 {
-  for (int i = 0; ; i++)
-    if (sq[i] == s)
-      return i;
-  unreachable();
+  for (int i = 0; i < g_pos.num; i++)
+    piece_on_square[sq[i]] = i;
 }
 
-INLINE bool check_king_moves(int stm, Bitboard occ, uint8_t *restrict sq)
+INLINE void ensure_piece_on_square(bool *restrict valid,
+    uint8_t *restrict piece_on_square, const uint8_t *restrict sq)
+{
+  if (!*valid) {
+    fill_piece_on_square(piece_on_square, sq);
+    *valid = true;
+  }
+}
+
+INLINE int get_idx(const uint8_t *restrict piece_on_square, int s)
+{
+  return piece_on_square[s];
+}
+
+INLINE bool check_king_moves(int stm, Bitboard occ, uint8_t *restrict sq,
+    uint8_t *restrict piece_on_square, bool *restrict piece_on_square_valid)
 {
   uint8_t sq2[MAX_PIECES];
 
   Bitboard b = king_attacks(sq[stm]) & ~king_attacks(sq[stm ^ 1]);
 #if 1
   Bitboard attacks = b & occ;
+  if (attacks)
+    ensure_piece_on_square(piece_on_square_valid, piece_on_square, sq);
   while (attacks) {
     int to = pop_lsb(&attacks);
-    int j = get_idx(sq, to);
+    int j = get_idx(piece_on_square, to);
     if ((g_pos.pt[j] >> 3) == stm) continue;
     sq[stm] = to;
     normalize(sq, sq2);
@@ -474,7 +490,8 @@ INLINE bool check_king_moves(int stm, Bitboard occ, uint8_t *restrict sq)
 }
 
 INLINE bool check_moves(int k, int s, uint8_t *restrict const p, Bitboard occ,
-    const uint8_t *restrict sq)
+    const uint8_t *restrict sq, uint8_t *restrict piece_on_square,
+    bool *restrict piece_on_square_valid)
 {
   uint8_t sq2[MAX_PIECES];
 
@@ -482,9 +499,11 @@ INLINE bool check_moves(int k, int s, uint8_t *restrict const p, Bitboard occ,
 
 #if 1
   Bitboard attacks = b & occ;
+  if (attacks)
+    ensure_piece_on_square(piece_on_square_valid, piece_on_square, sq);
   while (attacks) {
     int to = pop_lsb(&attacks);
-    int j = get_idx(sq, to);
+    int j = get_idx(piece_on_square, to);
     if (!((g_pos.pt[k] ^ g_pos.pt[j]) & 8)) continue;
     memcpy(sq2, sq, sizeof sq2);
     int l = pc_to_set[j];
@@ -535,13 +554,17 @@ static void check_successors_worker(struct ThreadData *thread)
       // Currently, we need to test.
       if (opp_king_attacked(&pos))
         goto clear_bit;
+      uint8_t piece_on_square[64];
+      bool piece_on_square_valid = false;
       for (int i = 1; pos.pcs[stm][i] >= 0; i++) {
         int j = pos.pcs[stm][i];
-        bool v = check_moves(j, s, q, occ, pos.sq);
+        bool v = check_moves(j, s, q, occ, pos.sq, piece_on_square,
+            &piece_on_square_valid);
         if (!v) goto clear_bit;
       }
       uint8_t tmp = pos.sq[stm];
-      bool v = check_king_moves(stm, occ, pos.sq);
+      bool v = check_king_moves(stm, occ, pos.sq, piece_on_square,
+          &piece_on_square_valid);
       pos.sq[stm] = tmp;
       if (v) continue;
 clear_bit:
