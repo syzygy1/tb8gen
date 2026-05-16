@@ -202,15 +202,26 @@ static void free_tb_table(struct TbTable *table)
   free(table->precomp);
 }
 
-static void free_tbase(struct TbEntry *entry, struct Tbase *tb)
+static void free_tbase(struct TbEntry *entry, struct Tbase *tb, int type)
 {
   unmap_file(tb->data, tb->mapping);
-  int num =  tb->layout == LT_PIECE ? 1
-           : tb->layout == LT_PIECE_K ? 10
-           : tb->layout == LT_PIECE_KK ? 462
-           : tb->layout == LT_PAWN_FILE ? 4 : 6;
-  if (tb->dist_format & TWO_SIDED)
-    num *= 2;
+  int num =  tb->layout == LT_PIECE    ? 1
+           : tb->layout == LT_PAWN_FILE ? 4
+           : tb->layout == LT_PAWN_RANK ? 6
+           : tb->layout == LT_PIECE_K   ? 10
+           : tb->layout == LT_PIECE_KK  ? 462
+           : tb->layout == LT_PAWN_P    ? 24
+           : tb->layout == LT_PAWN_PK   ? 1512
+           : tb->layout == LT_PAWN_PP   ? 576 : 1128;
+  if (!entry->symmetric) {
+    if (tb->layout <= LT_PAWN_RANK)
+      num *= type == WDL || (type != DTZ && (tb->dist_format & TWO_SIDED))
+           ? 2 : 1;
+    else if (tb->layout <= LT_PIECE_KK)
+      num *= type == WDL || (tb->dist_format & TWO_SIDED) ? 2 : 1;
+    else
+      num *= 2;
+  }
   for (int i = 0; i < num; i++) {
     struct TbTable *table = atomic_load_explicit(&tb->table[i],
         memory_order_relaxed);
@@ -224,7 +235,7 @@ static void free_tb_entry(struct TbEntry *entry)
   for (int i = 0; i < 3; i++) {
     struct Tbase *tb = atomic_load_explicit(&entry->tbase[i],
         memory_order_relaxed);
-    if (tb) free_tbase(entry, tb);
+    if (tb) free_tbase(entry, tb, i);
   }
 }
 
@@ -1524,10 +1535,12 @@ NOINLINE struct TbTable2 *init_new_table(struct TbEntry *entry,
         table->first[i] = 1;
         table->mult[i] = 1;
       } else {
-        table->factor[i] = Binomial[table->mult[i]][n];
-        n -= table->mult[i];
-        tb_size *= table->factor[i];
+        table->first[i] = first[l];
+        table->mult[i] = mult[l];
       }
+      table->factor[i] = Binomial[table->mult[i]][n];
+      n -= table->mult[i];
+      tb_size *= table->factor[i];
     }
     data += k;
   }
