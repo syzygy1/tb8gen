@@ -25,9 +25,6 @@ struct Position {
   uint8_t sq[8], pt[8];
   int num, stm;
   int8_t pcs[2][8];
-#ifdef HAS_PAWNS
-  int8_t pawns[2][8];
-#endif
 };
 
 typedef struct Position Position;
@@ -161,28 +158,11 @@ INLINE Bitboard piece_moves(int pt, int sq, Bitboard occ)
   }
 }
 
-#ifdef HAS_PAWNS
-extern uint8_t KingIndex[2];
-#if 0
-INLINE uint8_t king_index(int stm)
-{
-  return KingIndex[stm];
-}
-#else
-INLINE uint8_t king_index(Position *pos, int stm)
-{
-  for (int i = 0; ; i++)
-    if (pos->pt[i] == (stm << 3 | KING))
-      return i;
-}
-#endif
-#else
 INLINE uint8_t king_index(Position *pos, int stm)
 {
   (void)pos;
   return stm;
 }
-#endif
 
 INLINE bool is_attacked_by(Position *pos, int sq, int stm)
 {
@@ -194,22 +174,36 @@ INLINE bool is_attacked_by(Position *pos, int sq, int stm)
   return false;
 }
 
-INLINE bool my_king_attacked(Position *pos)
-{
-  return is_attacked_by(pos, pos->sq[king_index(pos, pos->stm)], pos->stm ^ 1);
-}
-
 INLINE bool opp_king_attacked(Position *pos)
 {
   return is_attacked_by(pos, pos->sq[king_index(pos, pos->stm ^ 1)], pos->stm);
 }
 
+#if 1
+static_assert(MAX_PIECES == 8);
+INLINE int get_idx(const uint8_t *restrict sq, uint8_t s)
+{
+  uint64_t x = *(const uint64_t *)sq;
+
+  uint64_t m = x ^ (UINT64_C(0x0101010101010101) * s);
+  uint64_t z =  (m - UINT64_C(0x0101010101010101)) & ~m
+              & UINT64_C(0x8080808080808080);
+
+  return __builtin_ctzll(z) >> 3;
+}
+#else
+INLINE int get_idx(const uint8_t *restrict sq, int s)
+{
+  for (int i = 0; ; i++)
+    if (sq[i] == s)
+      return i;
+  unreachable();
+}
+#endif
+
 INLINE int piece_idx(Position *pos, int sq)
 {
-  for (int i = 0; i < pos->num; i++)
-    if (pos->sq[i] == sq) return i;
-  assume(false); // signal to the compiler that this path is unreachable
-  return 0;
+  return get_idx(pos->sq, sq);
 }
 
 INLINE void undo_capture(Position *pos, int from, int to, int i, int j)

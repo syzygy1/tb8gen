@@ -936,14 +936,6 @@ static void predecessors(int stm, int s)
   }
 }
 
-INLINE int get_idx(const uint8_t *restrict sq, int s)
-{
-  for (int i = 0; ; i++)
-    if (sq[i] == s)
-      return i;
-  unreachable();
-}
-
 INLINE bool check_king_moves(int stm, Bitboard occ, const uint8_t *restrict sq)
 {
   uint8_t sq2[MAX_PIECES];

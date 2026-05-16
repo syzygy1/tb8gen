@@ -430,31 +430,9 @@ static void predecessors(int stm, int s)
   run_threaded(predecessors_worker, work_g, 0);
 }
 
-#if 1
-static_assert(MAX_PIECES == 8);
-INLINE int get_idx(const uint8_t *restrict sq, uint8_t s)
-{
-  uint64_t x = *(const uint64_t *)sq;
-
-  uint64_t m = x ^ (UINT64_C(0x0101010101010101) * s);
-  uint64_t z =  (m - UINT64_C(0x0101010101010101)) & ~m
-              & UINT64_C(0x8080808080808080);
-
-  return __builtin_ctzll(z) >> 3;
-}
-#else
-INLINE int get_idx(const uint8_t *restrict sq, int s)
-{
-  for (int i = 0; ; i++)
-    if (sq[i] == s)
-      return i;
-  unreachable();
-}
-#endif
-
 INLINE bool check_king_moves(int stm, Bitboard occ, uint8_t *restrict sq)
 {
-  alignas(8) uint8_t sq2[MAX_PIECES];
+  uint8_t sq2[MAX_PIECES];
 
   Bitboard b = king_attacks(sq[stm]) & ~king_attacks(sq[stm ^ 1]);
 #if 1
@@ -490,7 +468,7 @@ INLINE bool check_king_moves(int stm, Bitboard occ, uint8_t *restrict sq)
 INLINE bool check_moves(int k, int s, uint8_t *restrict const p, Bitboard occ,
     const uint8_t *restrict sq)
 {
-  alignas(8) uint8_t sq2[MAX_PIECES];
+  uint8_t sq2[MAX_PIECES];
 
   Bitboard b = non_king_piece_attacks(g_pos.pt[k], sq[k], occ);
 

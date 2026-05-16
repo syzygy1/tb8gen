@@ -34,6 +34,63 @@ extern struct IdxInfo ii, capt_ii[MAX_SETS];
 extern int pc_to_set[MAX_PIECES];
 extern Bitboard Unrank2[62 * 61 / 2], Unrank3[62 * 61 * 60 / 6];
 
+#if 1
+#define SORT2(a, b) do { \
+  if ((b) < (a))         \
+    Swap(a, b);          \
+} while (0)
+
+INLINE void sort3(uint8_t *x)
+{
+  SORT2(x[0], x[1]);
+  SORT2(x[1], x[2]);
+  SORT2(x[0], x[1]);
+}
+
+INLINE void sort4(uint8_t *x)
+{
+  SORT2(x[0], x[1]);
+  SORT2(x[2], x[3]);
+  SORT2(x[0], x[2]);
+  SORT2(x[1], x[3]);
+  SORT2(x[1], x[2]);
+}
+
+INLINE void sort_squares(int n, uint8_t *restrict x)
+{
+  assume(n <= MAX_PIECES - 2);
+  switch (n) {
+  case 0:
+  case 1:
+    return;
+
+  case 2:
+    SORT2(x[0], x[1]);
+    return;
+
+  case 3:
+    sort3(x);
+    return;
+
+  case 4:
+    sort4(x);
+    return;
+
+  default:
+    // insertion sort
+    for (int i = 1; i < n; i++) {
+      int v = x[i];
+      int j = i;
+      while (j > 0 && v < x[j - 1]) {
+        x[j] = x[j - 1];
+        j--;
+      }
+      x[j] = v;
+    }
+    return;
+  }
+}
+#else
 INLINE void sort_squares(int n, uint8_t *restrict sq)
 {
   for (int i = 0; i < n; i++)
@@ -41,6 +98,7 @@ INLINE void sort_squares(int n, uint8_t *restrict sq)
       if (sq[i] > sq[j])
         Swap(sq[i], sq[j]);
 }
+#endif
 
 INLINE int rank_among_free(uint8_t sq, Bitboard occ)
 {
