@@ -13,6 +13,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <sys/time.h>
+#include <unistd.h>
 
 #include "defs.h"
 #include "generatep.h"
@@ -26,9 +27,11 @@
 #include "tb8genp.h"
 #include "threads.h"
 #include "types.h"
+#include "util.h"
 
 #define TBPATH "RTBPATH"
 #define STATSDIR "RTBSTATSDIR"
+#define WORKDIR "TB8DIR"
 
 Position g_pos;
 bool flipped = false;
@@ -37,6 +40,7 @@ bool g_cleanup;
 bool one_sided, wins_only;
 int one_sided_stm;
 char *g_tablename;
+char *g_output_dir;
 uint64_t *work_g, *work_g16, *work_capt[MAX_SETS];
 struct DtzFormat dtz_format[24];
 struct MaxFen mf, mmf;
@@ -51,6 +55,7 @@ static struct option options[] = {
   { "path", 1, nullptr, 'p' },
   { "rans", 0, nullptr, 'r' },
   { "layout", 1, nullptr, 'l' },
+  { "workdir", 1, nullptr, 'w' },
   { 0 }
 };
 
@@ -62,9 +67,10 @@ int main(int argc, char **argv)
   int layout = 0;
 
   const char *path = getenv(TBPATH);
+  const char *workdir = getenv(WORKDIR);
   g_num_threads = 1;
 
-  while ((val = getopt_long(argc, argv, "at:gp:rl:c", options, &lindex)) != -1)
+  while ((val = getopt_long(argc, argv, "at:gp:rl:cw:", options, &lindex)) != -1)
     switch (val) {
     case 'a':
       g_thread_affinity = true;
@@ -87,6 +93,9 @@ int main(int argc, char **argv)
     case 'c':
       g_cleanup = true;
       break;
+    case 'w':
+      workdir = optarg;
+      break;
     }
 
   if (optind >= argc) {
@@ -94,6 +103,11 @@ int main(int argc, char **argv)
     exit(EXIT_FAILURE);
   }
   g_tablename = argv[optind];
+  g_output_dir = getcwd(nullptr, 0);
+  if (!g_output_dir) {
+    fprintf(stderr, "Could not determine current working directory.\n");
+    exit(EXIT_FAILURE);
+  }
 
   init_movegen();
   init_unrank();
@@ -222,6 +236,9 @@ int main(int argc, char **argv)
     pawnstr[i][0] = 'a' + (i / 6);
     pawnstr[i][1] = '1' + (((i % 6) + 1) ^ (flipped ? 7 : 0));
   }
+
+  if (workdir && *workdir)
+    change_dir(workdir);
 
   make_dir(g_tablename);
   change_dir(g_tablename);
@@ -376,8 +393,11 @@ int main(int argc, char **argv)
         g_stats[stm][i] += tmp[stm][i];
   }
 
-  char stats_file[64];
-  sprintf(stats_file, "../%s.txt", g_tablename);
+  size_t stats_file_len = strlen(g_output_dir) + strlen(g_tablename) + 6;
+  char *stats_file = malloc(stats_file_len);
+  if (!stats_file)
+    out_of_mem();
+  snprintf(stats_file, stats_file_len, "%s/%s.txt", g_output_dir, g_tablename);
   FILE *F = file_open_write(stats_file);
   fprintf(F, "########## %s ##########\n", g_tablename);
   print_stats(F, WHITE);
@@ -386,6 +406,7 @@ int main(int argc, char **argv)
   print_max_fens(F, &mmf);
   fclose(F);
   file_rename(stats_file);
+  free(stats_file);
 
   printf("\n########## %s ##########\n", g_tablename);
   print_stats(stdout, WHITE);

@@ -1415,10 +1415,15 @@ void compress_tb(struct tb_handle *F, int num, void *data, uint64_t tb_size,
 
 void merge_tb(struct tb_handle *F)
 {
-  char name[64], str[64];
+  char str[64];
   char ext[32];
 
-  sprintf(name, "../%s%s", F->name, suffix[F->type]);
+  size_t name_len = strlen(g_output_dir) + strlen(F->name)
+      + strlen(suffix[F->type]) + 2;
+  char *name = malloc(name_len);
+  if (!name)
+    out_of_mem();
+  snprintf(name, name_len, "%s/%s%s", g_output_dir, F->name, suffix[F->type]);
   FILE *G = file_open_write(name);
 
   for (int i = 0; i < F->num_tables; i++) {
@@ -1439,10 +1444,14 @@ void merge_tb(struct tb_handle *F)
 
   fclose(G);
 
-  char tmp[64];
+  char *tmp = malloc(strlen(name) + 5);
+  if (!tmp)
+    out_of_mem();
   strcat(strcpy(tmp, name), ".tmp");
   add_checksum(tmp);
   file_rename(name);
+  free(tmp);
+  free(name);
 
   for (int i = 0; i < F->num_tables; i++) {
     if (F->flags[i] & 0x80) continue;

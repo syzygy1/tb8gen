@@ -22,6 +22,7 @@ extern bool symmetric;
 extern bool g_cleanup;
 
 extern char *g_tablename;
+extern char *g_output_dir;
 extern Position g_pos;
 extern uint64_t *work_g, *work_capt[MAX_SETS];
 extern uint64_t g_stats[2][MAX_STATS];

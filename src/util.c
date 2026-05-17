@@ -334,24 +334,30 @@ FILE *file_open_read(const char *name)
 
 FILE *file_open_write(const char *name)
 {
-  char str[64];
+  char *str = malloc(strlen(name) + 5);
+  if (!str)
+    out_of_mem();
   strcat(strcpy(str, name), ".tmp");
   FILE *F = fopen(str, "wb");
   if (!F) {
     fprintf(stderr, "Could not open %s for writing.\n", str);
     exit(EXIT_FAILURE);
   }
+  free(str);
   return F;
 }
 
 void file_rename(const char *name)
 {
-  char str[64];
+  char *str = malloc(strlen(name) + 5);
+  if (!str)
+    out_of_mem();
   strcat(strcpy(str, name), ".tmp");
   if (rename(str, name) < 0) {
     fprintf(stderr, "Could not rename %s into %s.\n", str, name);
     exit(EXIT_FAILURE);
   }
+  free(str);
 }
 
 bool file_exists(const char *name)

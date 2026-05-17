@@ -33,6 +33,17 @@ bool join_wide, tb_wide;
 uint8_t g_dist_format;
 struct DtzMap dtzmap;
 
+static char *create_final_name(int type)
+{
+  size_t len = strlen(g_output_dir) + strlen(g_tablename)
+      + strlen(suffix[type]) + 2;
+  char *name = malloc(len);
+  if (!name)
+    out_of_mem();
+  snprintf(name, len, "%s/%s%s", g_output_dir, g_tablename, suffix[type]);
+  return name;
+}
+
 static int sort_list(uint64_t *freq, uint16_t *map, uint16_t *inv_map)
 {
   int num;
@@ -517,8 +528,10 @@ void join_final_pk(int type)
       offset += slice_size[i];
     }
 
-  char fname[64], tmp[64];
-  sprintf(fname, "../%s%s", g_tablename, suffix[type]);
+  char *fname = create_final_name(type);
+  char *tmp = malloc(strlen(fname) + 5);
+  if (!tmp)
+    out_of_mem();
   strcat(strcpy(tmp, fname), ".tmp");
   int fd = creat(tmp, 0666);
   if (fd < 0) {
@@ -582,7 +595,9 @@ void join_final_pk(int type)
   }
   close(fd);
   add_checksum(tmp);
-  rename(tmp, fname);
+  file_rename(fname);
+  free(tmp);
+  free(fname);
 
   if (!g_cleanup) return;
 
@@ -984,8 +999,10 @@ static void join_final_p(int type)
       offset += slice_size[i];
     }
 
-  char fname[64], tmp[64];
-  sprintf(fname, "../%s%s", g_tablename, suffix[type]);
+  char *fname = create_final_name(type);
+  char *tmp = malloc(strlen(fname) + 5);
+  if (!tmp)
+    out_of_mem();
   strcat(strcpy(tmp, fname), ".tmp");
   int fd = creat(tmp, 0666);
   if (fd < 0) {
@@ -1043,7 +1060,9 @@ static void join_final_p(int type)
   }
   close(fd);
   add_checksum(tmp);
-  rename(tmp, fname);
+  file_rename(fname);
+  free(tmp);
+  free(fname);
 
   if (!g_cleanup) return;
 
