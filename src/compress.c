@@ -5,6 +5,7 @@
 */
 
 #include <inttypes.h>
+#include <math.h>
 #include <stdbit.h>
 #include <stdint.h>
 #include <stdio.h>
@@ -33,6 +34,61 @@ int g_compress_type;
 static constexpr int MAX_NEW = 250;
 
 static struct DtzMap *current_map;
+
+// If DTZ Huffman coding loses both more than 2% against entropy and
+// more than 1/64 bit per symbol, use rANS to avoid integer-code redundancy.
+static constexpr double HUFFMAN_MAX_RELATIVE_REDUNDANCY = 0.02;
+static constexpr double HUFFMAN_MAX_ABSOLUTE_REDUNDANCY = 1.0 / 64.0;
+
+static double calc_entropy_bits(const int64_t *freq, int num_syms,
+    uint64_t *total_freq)
+{
+  uint64_t total = 0;
+  for (int i = 0; i < num_syms; i++)
+    total += freq[i];
+
+  *total_freq = total;
+  if (total == 0) return 0.0;
+
+  double entropy = 0.0;
+  for (int i = 0; i < num_syms; i++)
+    if (freq[i])
+      entropy += freq[i] * log2((double)total / freq[i]);
+
+  return entropy;
+}
+
+static uint64_t calc_huffman_bits(const struct HuffCode *c)
+{
+  uint64_t bits = 0;
+  for (int i = 0; i < c->num_syms; i++)
+    bits += c->length[i] * c->freq[i];
+
+  return bits;
+}
+
+static bool huffman_misses_entropy(const struct HuffCode *c, int num_syms)
+{
+  uint64_t total;
+  double entropy = calc_entropy_bits(c->freq, num_syms, &total);
+  if (total == 0) return false;
+
+  double huff_bits = calc_huffman_bits(c);
+  double redundancy_per_symbol = (huff_bits - entropy) / total;
+  double relative_redundancy = entropy > 0.0
+      ? (huff_bits - entropy) / entropy
+      : INFINITY;
+
+  return redundancy_per_symbol > HUFFMAN_MAX_ABSOLUTE_REDUNDANCY
+      && relative_redundancy > HUFFMAN_MAX_RELATIVE_REDUNDANCY;
+}
+
+static int64_t *release_huffman_freq(struct HuffCode *c)
+{
+  int64_t *freq = c->freq;
+  free(c);
+  return freq;
+}
 
 struct Symbol {
   uint16_t pattern[2];
@@ -1217,13 +1273,20 @@ static void compress_data(struct tb_handle *F, int num, FILE *G,
   if (!rans) {
     struct HuffCode *c = create_code(freq, num_syms);
 
-    if (!wide)
-      calc_block_sizes_u8(data, size, c, F->default_blocksize);
-    else
-      calc_block_sizes_u16(data, size, c, F->default_blocksize);
+    if (F->type == DTZ && huffman_misses_entropy(c, num_syms)) {
+      rans = true;
+      freq = release_huffman_freq(c);
+    } else {
+      if (!wide)
+        calc_block_sizes_u8(data, size, c, F->default_blocksize);
+      else
+        calc_block_sizes_u16(data, size, c, F->default_blocksize);
 
-    F->code.huff[num] = c;
-  } else {
+      F->code.huff[num] = c;
+    }
+  }
+
+  if (rans) {
     used_rans = true;
     struct RansCode *c = create_code_rans(freq, num_syms);
 
@@ -1392,10 +1455,10 @@ void merge_tb(struct tb_handle *F)
 
   for (int i = 0; i < F->num_tables; i++) {
     if (F->flags[i] & 0x80) continue;
-    if (F->type == WDL || !g_use_rans)
-      free_code(F->code.huff[i]);
-    else
+    if (F->flags[i] & 0x40)
       free_code_rans(F->code.rans[i]);
+    else
+      free_code(F->code.huff[i]);
     free(F->symtable[i]);
   }
 
@@ -1433,12 +1496,20 @@ void compress_data_slice(const char *name, int stm, int type, void *data,
       type == WDL);
   bool rans = g_use_rans && type == DTZ;
   if (!rans) {
-    code = create_code(freq, num_syms);
-    if (!wide)
-      calc_block_sizes_u8(data, tb_size, code, default_blocksize[type]);
-    else
-      calc_block_sizes_u16(data, tb_size, code, default_blocksize[type]);
-  } else {
+    struct HuffCode *c = create_code(freq, num_syms);
+    if (type == DTZ && huffman_misses_entropy(c, num_syms)) {
+      rans = true;
+      freq = release_huffman_freq(c);
+    } else {
+      code = c;
+      if (!wide)
+        calc_block_sizes_u8(data, tb_size, code, default_blocksize[type]);
+      else
+        calc_block_sizes_u16(data, tb_size, code, default_blocksize[type]);
+    }
+  }
+
+  if (rans) {
     used_rans = true;
     code = create_code_rans(freq, num_syms);
     if (!wide)
