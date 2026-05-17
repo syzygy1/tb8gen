@@ -99,6 +99,7 @@ void calc_factors(struct IdxInfo *ii)
 {
   for (int i = 0, n = has_pawns ? 61 : 62; i < ii->numsets; i++) {
     ii->factor[i] = Binomial[ii->mult[i]][n];
+    assert(ii->factor[i] != 1);
     ii->recip[i] = (((__uint128_t)1 << 64) + ii->factor[i] - 1) / ii->factor[i];
     n -= ii->mult[i];
   }
