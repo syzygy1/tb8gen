@@ -176,17 +176,29 @@ INLINE uint64_t sq_to_idx_helper(uint8_t *restrict sq, uint64_t idx,
     Bitboard occ, const struct IdxInfo *ii)
 {
   for (int k = 0; k < ii->numsets; k++) {
+    size_t s;
     int i = ii->first[k];
-    sort_squares(ii->mult[k], &sq[i]);
-    size_t s = 0;
-    Bitboard occ2 = occ;
-    for (int j = 0; j < ii->mult[k]; i++, j++) {
-      int rank = rank_among_free(sq[i], occ);
-      occ2 |= bit(sq[i]);
-      s += Binomial[j + 1][rank];
+    int m = ii->mult[k];
+    if (m == 1) {
+      s = rank_among_free(sq[i], occ);
+      occ |= bit(sq[i]);
+    } else if (m == 2) {
+      sort_squares(2, &sq[i]);
+      s =  rank_among_free(sq[i], occ)
+         + Binomial[2][rank_among_free(sq[i + 1], occ)];
+      occ |= bit(sq[i]) | bit(sq[i + 1]);
+    } else {
+      sort_squares(m, &sq[i]);
+      s = 0;
+      Bitboard occ2 = 0;
+      for (int j = 0; j < m; i++, j++) {
+        int rank = rank_among_free(sq[i], occ);
+        occ2 |= bit(sq[i]);
+        s += Binomial[j + 1][rank];
+      }
+      occ |= occ2;
     }
     idx = idx * ii->factor[k] + s;
-    occ = occ2;
   }
 
   return idx;
