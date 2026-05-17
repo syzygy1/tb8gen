@@ -103,11 +103,6 @@ INLINE void sort_squares(int n, uint8_t *restrict x)
 
 #undef SORT2
 
-INLINE int rank_among_free(uint8_t sq, Bitboard occ)
-{
-  return sq - popcnt(occ & ((1ULL << sq) - 1));
-}
-
 INLINE Bitboard unrank_binomial(uint64_t idx, int n, uint8_t *restrict sq,
     Bitboard occ)
 {
@@ -117,7 +112,7 @@ INLINE Bitboard unrank_binomial(uint64_t idx, int n, uint8_t *restrict sq,
   Bitboard b = ~occ;
 
   if (n == 1) {
-    Bitboard b1 = _pdep_u64(1ULL << idx, b);
+    Bitboard b1 = _pdep_u64(bit(idx), b);
     occ |= b1;
     sq[0] = lsb(b1);
   }
@@ -152,12 +147,6 @@ INLINE Bitboard unrank_binomial(uint64_t idx, int n, uint8_t *restrict sq,
   return occ;
 }
 
-INLINE void idx_to_sq_inc(uint32_t *sub, const struct IdxInfo *ii)
-{
-  for (int i = ii->numsets - 1; ++sub[i] >= ii->factor[i] && i > 0; i--)
-    sub[i] = 0;
-}
-
 // Valid if x <= 2^N, d-1 <= 2^l and N + l <= 64.
 // This should not be a problem even for 9-piece tables.
 // See https://gmplib.org/~tege/divcnst-pldi94.pdf
@@ -177,25 +166,31 @@ INLINE uint64_t recip(uint64_t f)
   return (((__uint128_t)1 << 64) + f - 1) / f;
 }
 
-#if 0
-INLINE void idx_to_sq_add(uint64_t v, uint32_t *restrict sub,
-    const struct IdxInfo *restrict ii)
+INLINE int rank_among_free(uint8_t sq, Bitboard occ)
 {
-  int i = ii->numsets;
-
-  while (i > 0) {
-    uint64_t s = (uint64_t)sub[--i] + v;
-    uint32_t f = ii->factor[i];
-
-    if (s < f) {
-      sub[i] = s;
-      return;
-    }
-
-    v = divmod_u64_u32_recip(s, f, ii->recip[i], &sub[i]);
-  }
+  return sq - popcnt(occ & ((1ULL << sq) - 1));
 }
-#endif
+
+// We expect a normalized position.
+INLINE uint64_t sq_to_idx_helper(uint8_t *restrict sq, uint64_t idx,
+    Bitboard occ, const struct IdxInfo *ii)
+{
+  for (int k = 0; k < ii->numsets; k++) {
+    int i = ii->first[k];
+    sort_squares(ii->mult[k], &sq[i]);
+    size_t s = 0;
+    Bitboard occ2 = occ;
+    for (int j = 0; j < ii->mult[k]; i++, j++) {
+      int rank = rank_among_free(sq[i], occ);
+      occ2 |= bit(sq[i]);
+      s += Binomial[j + 1][rank];
+    }
+    idx = idx * ii->factor[k] + s;
+    occ = occ2;
+  }
+
+  return idx;
+}
 
 // Mirror wK to A1-D1-D4 and, if wK on A1-D4, then bK to A1-H1-H8.
 INLINE void normalize(const uint8_t *restrict sq, uint8_t *restrict sq2)

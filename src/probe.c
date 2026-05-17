@@ -858,29 +858,33 @@ size_t set_dec_info(struct DecInfo *di, struct TbEntry *entry, uint8_t *pcs,
   return f;
 }
 
-INLINE Bitboard unrank_binomial_mapped(uint64_t idx, int n, uint8_t *restrict p,
+static Bitboard unrank_binomial_mapped(uint64_t idx, int n, uint8_t *restrict sq,
     const uint8_t *restrict const map, Bitboard occ)
 {
   if (n == 0)
     return occ;
 
   Bitboard b = ~occ;
-  for (int i = n - 1; i > 0; i--) {
-    int r = i;
-    while (idx >= Binomial[i + 1][r + 1])
-      r++;
-    idx -= Binomial[i + 1][r];
-//    r = map ? map[r] : r;
-    r = map[r];
-    Bitboard b1 = _pdep_u64(1ULL << r, b);
-    p[i] = lsb(b1);
+
+  if (n == 1) {
+    Bitboard b1 = _pdep_u64(1ULL << map[idx], b);
     occ |= b1;
+    sq[0] = lsb(b1);
   }
-//  idx = map ? map[idx] : idx;
-  idx = map[idx];
-  Bitboard b1 = _pdep_u64(1ULL << idx, b);
-  p[0] = lsb(b1);
-  occ |= b1;
+  else {
+    Bitboard b1 = 0;
+    for (int i = n - 1; i > 0; i--) {
+      int r = i;
+      while (idx >= Binomial[i + 1][r + 1])
+        r++;
+      idx -= Binomial[i + 1][r];
+      b1 |= bit(map[r]);
+    }
+    b1 = _pdep_u64(b1 | bit(map[idx]), b);
+    occ |= b1;
+    while (b1)
+      *sq++ = pop_lsb(&b1);
+  }
 
   return occ;
 }

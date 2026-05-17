@@ -29,39 +29,22 @@ void init_unrank(void)
         Unrank3[idx++] = bit(s0) | bit(s1) | bit(s2);
 }
 
-// We expect a normalized position.
-INLINE uint64_t sq_to_idx_helper(uint8_t *restrict sq, const struct IdxInfo *ii)
+uint64_t sq_to_idx(uint8_t *restrict sq)
 {
-  uint64_t idx = 0;
   Bitboard occ = bit(sq[0]) | bit(sq[1]);
   if (has_pawns)
     occ |= bit(sq[2]);
 
-  for (int k = 0; k < ii->numsets; k++) {
-    int i = ii->first[k];
-    sort_squares(ii->mult[k], &sq[i]);
-    size_t s = 0;
-    Bitboard occ2 = occ;
-    for (int j = 0; j < ii->mult[k]; i++, j++) {
-      int rank = rank_among_free(sq[i], occ);
-      occ2 |= bit(sq[i]);
-      s += Binomial[j + 1][rank];
-    }
-    idx = idx * ii->factor[k] + s;
-    occ = occ2;
-  }
-
-  return idx;
-}
-
-uint64_t sq_to_idx(uint8_t *restrict sq)
-{
-  return sq_to_idx_helper(sq, &ii);
+  return sq_to_idx_helper(sq, 0, occ, &ii);
 }
 
 uint64_t capt_sq_to_idx(uint8_t *restrict sq, int k)
 {
-  return sq_to_idx_helper(sq, &capt_ii[k]);
+  Bitboard occ = bit(sq[0]) | bit(sq[1]);
+  if (has_pawns)
+    occ |= bit(sq[2]);
+
+  return sq_to_idx_helper(sq, 0, occ, &capt_ii[k]);
 }
 
 void calc_factors(struct IdxInfo *ii)

@@ -111,25 +111,11 @@ void p10_idx_state_to_sq(struct P10IdxState *is, uint8_t *restrict sq,
 
 uint64_t p10_sq_to_idx(uint8_t *restrict sq, int k2sq)
 {
-  Bitboard occ = bit(sq[0]) | bit(sq[1]);
-
   assert(P10Square[k2sq] != 0xff);
-  uint64_t idx = P10Square[k2sq];
-  for (int k = 0; k < ii.numsets; k++) {
-    int i = ii.first[k];
-    sort_squares(ii.mult[k], &sq[i]);
-    size_t s = 0;
-    Bitboard occ2 = occ;
-    for (int j = 0; j < ii.mult[k]; i++, j++) {
-      int rank = rank_among_free(sq[i], occ);
-      occ2 |= bit(sq[i]);
-      s += Binomial[j + 1][rank];
-    }
-    idx = idx * ii.factor[k] + s;
-    occ = occ2;
-  }
 
-  return idx;
+  Bitboard occ = bit(sq[0]) | bit(sq[1]);
+  uint64_t idx = P10Square[k2sq];
+  return sq_to_idx_helper(sq, idx, occ, &ii);
 }
 
 static void generate_set_perms_helper(int n, int k)

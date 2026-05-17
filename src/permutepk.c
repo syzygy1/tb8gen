@@ -81,7 +81,7 @@ INLINE void pk_idx_state_inc(struct PKIdxState *is, const struct PKIdxInfo *ii)
   int i = ii->numsets - 1;
   for (; i >= 0 && ++sub[i] >= ii->factor[i]; i--)
     sub[i] = 0;
-  is->n = i < 0 ? 0 : i;
+  is->n = max(0, i);
 }
 
 void pk_idx_state_to_sq(struct PKIdxState *is, uint8_t *restrict sq,
@@ -97,24 +97,11 @@ void pk_idx_state_to_sq(struct PKIdxState *is, uint8_t *restrict sq,
 
 uint64_t pk_sq_to_idx(uint8_t *restrict sq, int stm)
 {
-  Bitboard occ = bit(sq[stm]) | bit(sq[2]);
+  Bitboard occ = bit(sq[0]) | bit(sq[1]) | bit(sq[2]);
 
-  uint64_t idx = 0;
-  for (int k = 0; k < pk_ii.numsets; k++) {
-    int i = pk_ii.first[k];
-    sort_squares(pk_ii.mult[k], &sq[i]);
-    size_t s = 0;
-    Bitboard occ2 = occ;
-    for (int j = 0; j < pk_ii.mult[k]; i++, j++) {
-      int rank = rank_among_free(sq[i], occ);
-      occ2 |= bit(sq[i]);
-      s += Binomial[j + 1][rank];
-    }
-    idx = idx * pk_ii.factor[k] + s;
-    occ = occ2;
-  }
-
-  return idx;
+  int s0 = (sq[stm ^ 1] > sq[stm]) + (sq[stm ^ 1] > sq[2]);
+  uint64_t idx = (sq[stm ^ 1] - s0);
+  return sq_to_idx_helper(sq, idx, occ, &ii);
 }
 
 static void generate_set_perms_helper(int n, int k)

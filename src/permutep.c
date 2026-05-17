@@ -97,24 +97,12 @@ void p_idx_state_to_sq(struct PIdxState *is, uint8_t *restrict sq,
 
 uint64_t p_sq_to_idx(uint8_t *restrict sq)
 {
-  Bitboard occ = bit(sq[2]);
+  Bitboard occ = bit(sq[0]) | bit(sq[1]) | bit(sq[2]);
 
-  uint64_t idx = 0;
-  for (int k = 0; k < p_ii.numsets; k++) {
-    int i = p_ii.first[k];
-    sort_squares(p_ii.mult[k], &sq[i]);
-    size_t s = 0;
-    Bitboard occ2 = occ;
-    for (int j = 0; j < p_ii.mult[k]; i++, j++) {
-      int rank = rank_among_free(sq[i], occ);
-      occ2 |= bit(sq[i]);
-      s += Binomial[j + 1][rank];
-    }
-    idx = idx * p_ii.factor[k] + s;
-    occ = occ2;
-  }
-
-  return idx;
+  int s0 = (sq[0] > sq[2]);
+  int s1 = (sq[1] > sq[2]) + (sq[1] > sq[0]);
+  uint64_t idx = (sq[0] - s0) * 62 + (sq[1] - s1);
+  return sq_to_idx_helper(sq, idx, occ, &ii);
 }
 
 static void generate_set_perms_helper(int n, int k)
