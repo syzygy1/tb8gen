@@ -252,9 +252,11 @@ static void estimate_compression_pawn(void *table, int num_cands, bool wide,
     csize = calc_size(c);
     free_code(c);
     printf("[%2d]", p);
-    printf("; perm:");
-    for (int i = 0; i < p_ii.numsets; i++)
-      printf(" %2d", set_perm_list[trylist[p]][i]);
+    printf(";");
+    for (int i = 0; i < p_ii.numsets; i++) {
+      int k = set_perm_list[trylist[p]][i];
+      printf(" %c", PieceChar[set_pt[k]]);
+    }
     printf("; %"PRIu64"\n", csize);
     compest[trylist[p]] = csize;
     dst0 += (wide ? 2 : 1) * dsize;
@@ -284,24 +286,26 @@ static int64_t estimate_compression(void *table, int *bestp, bool wide,
     compest[i] = 0;
 
   for (k = 0; k < p_ii.numsets - 1; k++) {
+    int pos0 = p_ii.numsets - k - 2;
+    int pos1 = p_ii.numsets - k - 1;
     best = UINT64_MAX;
     num_cands = 0;
     for (p = 0; p < p_ii.numsets; p++) {
-      for (i = 0; i < k; i++)
+      for (i = pos1 + 1; i < p_ii.numsets; i++)
 	if (p == bestperm[i]) break;
-      if (i < k) continue;
+      if (i < p_ii.numsets) continue;
       for (q = 0; q < p_ii.numsets; q++) {
 	if (q == p) continue;
-	for (i = 0; i < k; i++)
+	for (i = pos1 + 1; i < p_ii.numsets; i++)
 	  if (q == bestperm[i]) break;
-	if (i < k) continue;
-	// look for permutation starting with bestperm[0..k-1],p,q
+	if (i < p_ii.numsets) continue;
+	// look for permutation ending with p,q,bestperm[pos1+1..p_ii.numsets-1]
 	for (i = 0; i < num_set_perms; i++) {
-	  for (j = 0; j < k; j++)
+	  for (j = pos1 + 1; j < p_ii.numsets; j++)
 	    if (set_perm_list[i][j] != bestperm[j]) break;
-	  if (j < k) continue;
-	  if (   set_perm_list[i][k]   == p
-              && set_perm_list[i][k+1] == q) break;
+	  if (j < p_ii.numsets) continue;
+	  if (   set_perm_list[i][pos0] == p
+              && set_perm_list[i][pos1] == q) break;
 	}
 	if (i < num_set_perms) {
 	  if (compest[i]) {
@@ -337,7 +341,7 @@ static int64_t estimate_compression(void *table, int *bestp, bool wide,
 	bp = trylist[i];
       }
     }
-    bestperm[k] = set_perm_list[bp][k];
+    bestperm[pos1] = set_perm_list[bp][pos1];
   }
   *bestp = bp;
 

@@ -127,7 +127,6 @@ static struct {
   void *src;
   void *dst;
   struct IdxInfo *perm_ii;
-  int rank;
 } convert_data;
 
 static struct {
@@ -135,7 +134,6 @@ static struct {
   void *dst;
   int num_cands;
   uint64_t dsize;
-  int rank;
 } est_data;
 
 #define T u8
@@ -179,9 +177,11 @@ static void estimate_compression_piece(void *table, int num_cands, bool wide,
     csize = calc_size(c);
     free_code(c);
     printf("[%2d]", p);
-    printf("; perm:");
-    for (int i = 0; i < num_sets; i++)
-      printf(" %2d", set_perm_list[trylist[p]][i]);
+    printf(";");
+    for (int i = 0; i < num_sets; i++) {
+      int k = set_perm_list[trylist[p]][i];
+      printf(" %c", PieceChar[set_pt[k]]);
+    }
     printf("; %"PRIu64"\n", csize);
     compest[trylist[p]] = csize;
     dst0 += (wide ? 2 : 1) * dsize;
@@ -210,24 +210,26 @@ static int64_t estimate_compression(void *table, int *bestp, bool wide,bool wdl)
     compest[i] = 0;
 
   for (k = 0; k < num_sets - 1; k++) {
+    int pos0 = num_sets - k - 2;
+    int pos1 = num_sets - k - 1;
     best = UINT64_MAX;
     num_cands = 0;
     for (p = 0; p < num_sets; p++) {
-      for (i = 0; i < k; i++)
+      for (i = pos1 + 1; i < num_sets; i++)
 	if (p == bestperm[i]) break;
-      if (i < k) continue;
+      if (i < num_sets) continue;
       for (q = 0; q < num_sets; q++) {
 	if (q == p) continue;
-	for (i = 0; i < k; i++)
+	for (i = pos1 + 1; i < num_sets; i++)
 	  if (q == bestperm[i]) break;
-	if (i < k) continue;
-	// look for permutation starting with bestperm[0..k-1],p,q
+	if (i < num_sets) continue;
+	// look for permutation ending with p,q,bestperm[pos1+1..num_sets-1]
 	for (i = 0; i < num_set_perms; i++) {
-	  for (j = 0; j < k; j++)
+	  for (j = pos1 + 1; j < num_sets; j++)
 	    if (set_perm_list[i][j] != bestperm[j]) break;
-	  if (j < k) continue;
-	  if (   set_perm_list[i][k]   == p
-              && set_perm_list[i][k+1] == q) break;
+	  if (j < num_sets) continue;
+	  if (   set_perm_list[i][pos0] == p
+              && set_perm_list[i][pos1] == q) break;
 	}
 	if (i < num_set_perms) {
 	  if (compest[i]) {
@@ -261,7 +263,7 @@ static int64_t estimate_compression(void *table, int *bestp, bool wide,bool wdl)
 	bp = trylist[i];
       }
     }
-    bestperm[k] = set_perm_list[bp][k];
+    bestperm[pos1] = set_perm_list[bp][pos1];
   }
   *bestp = bp;
 
