@@ -159,7 +159,7 @@ INLINE void idx_to_sq_inc(uint32_t *sub, const struct IdxInfo *ii)
 // Valid if x <= 2^N, d-1 <= 2^l and N + l <= 64.
 // This should not be a problem even for 9-piece tables.
 // See https://gmplib.org/~tege/divcnst-pldi94.pdf
-INLINE uint64_t divmod_u64_u32_recip(uint64_t x, uint32_t d, uint64_t recip,
+INLINE uint64_t divmod_recip(uint64_t x, uint32_t d, uint64_t recip,
     uint32_t *rem)
 {
   uint64_t q = ((__uint128_t)x * recip) >> 64;
@@ -167,6 +167,12 @@ INLINE uint64_t divmod_u64_u32_recip(uint64_t x, uint32_t d, uint64_t recip,
 
   *rem = (uint32_t)r;
   return q;
+}
+
+INLINE uint64_t recip(uint64_t f)
+{
+  assert(f != 1);
+  return (((__uint128_t)1 << 64) + f - 1) / f;
 }
 
 INLINE void idx_to_sq_add(uint64_t v, uint32_t *restrict sub,

@@ -13,14 +13,14 @@ static void NAME(convert_data_piece)(struct ThreadData *thread)
   T *restrict src = convert_data.src;
   T *restrict dst = convert_data.dst;
   struct P10IdxInfo *perm_ii = convert_data.perm_ii;
-  uint32_t sub[MAX_SETS + 1];
+  struct P10IdxState is;
 
   uint64_t idx_dec_buf[NUM];
 
   int stm = g_pos.stm;
   sq[stm] = g_pos.sq[stm];
 
-  p10_idx_to_sq_init(thread->begin, sub, perm_ii);
+  p10_idx_state_init(&is, thread->begin, sq, perm_ii, stm);
 
   uint64_t idx = thread->begin, end = thread->end;
   int fill = 0;
@@ -28,9 +28,9 @@ static void NAME(convert_data_piece)(struct ThreadData *thread)
 
   // Fill pipeline.
   for (; fill < NUM && idx < end;
-      fill++, idx++, p10_idx_to_sq_inc(sub, perm_ii))
+      fill++, idx++, p10_idx_state_inc(&is, perm_ii))
   {
-    p10_idx_to_sq(sub, sq, perm_ii, stm);
+    p10_idx_state_to_sq(&is, sq, perm_ii, stm);
     normalize(sq, sq2);
     uint64_t idx_dec = p10_sq_to_idx(sq2, sq[stm ^ 1]);
     __builtin_prefetch(src + idx_dec, 0, 3);
@@ -38,8 +38,8 @@ static void NAME(convert_data_piece)(struct ThreadData *thread)
   }
 
   // Steady-state pipeline.
-  for (; idx < end; idx++, p10_idx_to_sq_inc(sub, perm_ii)) {
-    p10_idx_to_sq(sub, sq, perm_ii, stm);
+  for (; idx < end; idx++, p10_idx_state_inc(&is, perm_ii)) {
+    p10_idx_state_to_sq(&is, sq, perm_ii, stm);
     normalize(sq, sq2);
     uint64_t idx_dec = p10_sq_to_idx(sq2, sq[stm ^ 1]);
     __builtin_prefetch(src + idx_dec, 0, 3);
@@ -62,7 +62,7 @@ static void NAME(convert_est_data_piece)(struct ThreadData *thread)
   uint32_t dsize = est_data.dsize;
   T *restrict dst = est_data.dst;
   uint8_t sq[MAX_PIECES], sq2[MAX_PIECES];
-  uint32_t sub[MAX_SETS + 1];
+  struct P10IdxState is;
 
   uint64_t idx_dec_buf[NUM];
 
@@ -71,21 +71,21 @@ static void NAME(convert_est_data_piece)(struct ThreadData *thread)
 
   for (int p = 0; p < num_cands; p++) {
     for (int i = thread->begin; i < thread->end; i++) {
-      p10_idx_to_sq_init(segs[i], sub, &try_ii[p]);
+      p10_idx_state_init(&is, segs[i], sq, &try_ii[p], stm);
       int j = 0, fill = 0, head = 0;
 
       for (; fill < NUM && j < seg_size;
-          fill++, j++, p10_idx_to_sq_inc(sub, &try_ii[p]))
+          fill++, j++, p10_idx_state_inc(&is, &try_ii[p]))
       {
-        p10_idx_to_sq(sub, sq, &try_ii[p], stm);
+        p10_idx_state_to_sq(&is, sq, &try_ii[p], stm);
         normalize(sq, sq2);
         uint64_t idx_dec = p10_sq_to_idx(sq2, sq[stm ^ 1]);
         __builtin_prefetch(table + idx_dec, 0, 3);
         idx_dec_buf[fill] = idx_dec;
       }
 
-      for (; j < seg_size; j++, p10_idx_to_sq_inc(sub, &try_ii[p])) {
-        p10_idx_to_sq(sub, sq, &try_ii[p], stm);
+      for (; j < seg_size; j++, p10_idx_state_inc(&is, &try_ii[p])) {
+        p10_idx_state_to_sq(&is, sq, &try_ii[p], stm);
         normalize(sq, sq2);
         uint64_t idx_dec = p10_sq_to_idx(sq2, sq[stm ^ 1]);
         __builtin_prefetch(table + idx_dec, 0, 3);

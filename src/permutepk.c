@@ -34,6 +34,12 @@ struct PKIdxInfo {
   int mult[MAX_SETS + 1];
 };
 
+struct PKIdxState {
+  uint32_t sub[MAX_SETS + 1];
+  Bitboard occ[MAX_SETS + 1];
+  int n;
+};
+
 struct IdxInfo pk_ii;
 
 extern uint64_t tb_size;
@@ -57,28 +63,36 @@ static struct PKIdxInfo best_ii;
 
 static uint8_t perm_tmp[MAX_SETS];
 
-void pk_idx_to_sq_init(uint64_t idx, uint32_t *restrict sub,
-    const struct PKIdxInfo *ii)
+void pk_idx_state_init(struct PKIdxState *is, uint64_t idx,
+    uint8_t *restrict sq, const struct PKIdxInfo *ii, int stm)
 {
   for (int k = ii->numsets - 1; k > 0; k--) {
-    sub[k] = idx % ii->factor[k];
+    is->sub[k] = idx % ii->factor[k];
     idx /= ii->factor[k];
   }
-  sub[0] = idx;
+  is->sub[0] = idx;
+  is->n = 0;
+  is->occ[0] = bit(sq[stm]) | bit(sq[2]);
 }
 
-INLINE void pk_idx_to_sq_inc(uint32_t *sub, const struct PKIdxInfo *ii)
+INLINE void pk_idx_state_inc(struct PKIdxState *is, const struct PKIdxInfo *ii)
 {
-  for (int i = ii->numsets - 1; i >= 0 && ++sub[i] >= ii->factor[i]; i--)
+  uint32_t *restrict sub = is->sub;
+  int i = ii->numsets - 1;
+  for (; i >= 0 && ++sub[i] >= ii->factor[i]; i--)
     sub[i] = 0;
+  is->n = i < 0 ? 0 : i;
 }
 
-void pk_idx_to_sq(uint32_t *sub, uint8_t *restrict sq,
-    const struct PKIdxInfo *ii, int stm)
+void pk_idx_state_to_sq(struct PKIdxState *is, uint8_t *restrict sq,
+    const struct PKIdxInfo *ii)
 {
-  Bitboard occ = bit(sq[stm]) | bit(sq[2]);
-  for (int i = 0; i < ii->numsets; i++)
-    occ = unrank_binomial(sub[i], ii->mult[i], sq + ii->first[i], occ);
+  int i = is->n;
+  Bitboard occ = is->occ[i];
+  for (; i < ii->numsets; i++) {
+    is->occ[i] = occ;
+    occ = unrank_binomial(is->sub[i], ii->mult[i], sq + ii->first[i], occ);
+  }
 }
 
 uint64_t pk_sq_to_idx(uint8_t *restrict sq, int stm)

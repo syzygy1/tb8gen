@@ -35,6 +35,12 @@ struct P10IdxInfo {
   int mult[MAX_SETS];
 };
 
+struct P10IdxState {
+  uint32_t sub[MAX_SETS + 1];
+  Bitboard occ[MAX_SETS + 1];
+  int n;
+};
+
 extern uint64_t tb_size;
 
 static constexpr int MAX_PERMS = 1*2*3*4*5*6*7;
@@ -61,29 +67,46 @@ static uint8_t InvSquare[64];
 
 static int32_t current_size = -1;
 
-void p10_idx_to_sq_init(uint64_t idx, uint32_t *restrict sub,
-    const struct P10IdxInfo *ii)
+void p10_idx_state_init(struct P10IdxState *is, uint64_t idx,
+    uint8_t *restrict sq, const struct P10IdxInfo *ii, int stm)
 {
   for (int k = ii->numsets - 1; k > 0; k--) {
-    sub[k] = idx % ii->factor[k];
+    is->sub[k] = idx % ii->factor[k];
     idx /= ii->factor[k];
   }
-  sub[0] = idx;
+  is->sub[0] = idx;
+  sq[stm ^ 1] = InvSquare[is->sub[ii->k2]];
+  is->n = 0;
+  is->occ[0] = bit(sq[0]) | bit(sq[1]);
 }
 
-INLINE void p10_idx_to_sq_inc(uint32_t *sub, const struct P10IdxInfo *ii)
+INLINE void p10_idx_state_inc(struct P10IdxState *is,
+    const struct P10IdxInfo *ii)
 {
-  for (int i = ii->numsets - 1; i >= 0 && ++sub[i] >= ii->factor[i]; i--)
+  uint32_t *restrict sub = is->sub;
+  int i = ii->numsets - 1;
+  for (; i >= 0 && ++sub[i] >= ii->factor[i]; i--)
     sub[i] = 0;
+  is->n = i <= ii->k2 ? 0 : i;
 }
 
-void p10_idx_to_sq(uint32_t *sub, uint8_t *restrict sq,
+void p10_idx_state_to_sq(struct P10IdxState *is, uint8_t *restrict sq,
     const struct P10IdxInfo *ii, int stm)
 {
-  sq[stm ^ 1] = InvSquare[sub[ii->k2]];
-  Bitboard occ = bit(sq[0]) | bit(sq[1]);
-  for (int i = 0; i < ii->numsets; i++)
-    occ = unrank_binomial(sub[i], ii->mult[i], sq + ii->first[i], occ);
+  int i = is->n;
+  Bitboard occ;
+
+  if (i == 0) {
+    sq[stm ^ 1] = InvSquare[is->sub[ii->k2]];
+    occ = bit(sq[0]) | bit(sq[1]);
+    is->occ[0] = occ;
+  } else
+    occ = is->occ[i];
+
+  for (; i < ii->numsets; i++) {
+    is->occ[i] = occ;
+    occ = unrank_binomial(is->sub[i], ii->mult[i], sq + ii->first[i], occ);
+  }
 }
 
 uint64_t p10_sq_to_idx(uint8_t *restrict sq, int k2sq)
