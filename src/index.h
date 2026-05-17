@@ -101,6 +101,8 @@ INLINE void sort_squares(int n, uint8_t *restrict x)
   }
 }
 
+#undef SORT2
+
 INLINE int rank_among_free(uint8_t sq, Bitboard occ)
 {
   return sq - popcnt(occ & ((1ULL << sq) - 1));
@@ -175,6 +177,7 @@ INLINE uint64_t recip(uint64_t f)
   return (((__uint128_t)1 << 64) + f - 1) / f;
 }
 
+#if 0
 INLINE void idx_to_sq_add(uint64_t v, uint32_t *restrict sub,
     const struct IdxInfo *restrict ii)
 {
@@ -192,6 +195,7 @@ INLINE void idx_to_sq_add(uint64_t v, uint32_t *restrict sub,
     v = divmod_u64_u32_recip(s, f, ii->recip[i], &sub[i]);
   }
 }
+#endif
 
 // Mirror wK to A1-D1-D4 and, if wK on A1-D4, then bK to A1-H1-H8.
 INLINE void normalize(const uint8_t *restrict sq, uint8_t *restrict sq2)
@@ -249,7 +253,7 @@ INLINE void idx_state_add(struct IdxState *is, uint64_t v,
       return;
     }
 
-    v = divmod_u64_u32_recip(s, f, ii->recip[i], &sub[i]);
+    v = divmod_recip(s, f, ii->recip[i], &sub[i]);
   }
 }
 
@@ -269,10 +273,6 @@ void init_unrank(void);
 void calc_factors(struct IdxInfo *ii);
 uint64_t sq_to_idx(uint8_t *sq);
 uint64_t capt_sq_to_idx(uint8_t *sq, int k);
-void idx_to_sq_init(uint64_t idx, uint32_t *sub, const struct IdxInfo *ii);
-Bitboard idx_to_sq(uint32_t *sub, uint8_t *sq);
-void idx_to_sq_ii(uint32_t *sub, uint8_t *sq, const struct IdxInfo *ii);
-Bitboard capt_idx_to_sq(uint32_t *sub, uint8_t *sq, int k);
 void idx_state_init(struct IdxState *is, uint64_t idx, uint8_t *restrict sq,
     const struct IdxInfo *ii);
 

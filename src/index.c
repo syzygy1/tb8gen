@@ -33,8 +33,9 @@ void init_unrank(void)
 INLINE uint64_t sq_to_idx_helper(uint8_t *restrict sq, const struct IdxInfo *ii)
 {
   uint64_t idx = 0;
-  Bitboard occ = has_pawns ? bit(sq[0]) | bit(sq[1]) | bit(sq[2])
-                           : bit(sq[0]) | bit(sq[1]);
+  Bitboard occ = bit(sq[0]) | bit(sq[1]);
+  if (has_pawns)
+    occ |= bit(sq[2]);
 
   for (int k = 0; k < ii->numsets; k++) {
     int i = ii->first[k];
@@ -63,38 +64,6 @@ uint64_t capt_sq_to_idx(uint8_t *restrict sq, int k)
   return sq_to_idx_helper(sq, &capt_ii[k]);
 }
 
-INLINE Bitboard idx_to_sq_unpack(uint32_t *sub, uint8_t *restrict sq,
-    const struct IdxInfo *ii)
-{
-  Bitboard occ = has_pawns ? bit(sq[0]) | bit(sq[1]) | bit(sq[2])
-                           : bit(sq[0]) | bit(sq[1]);
-  for (int i = 0; i < ii->numsets; i++)
-    occ = unrank_binomial(sub[i], ii->mult[i], sq + ii->first[i], occ);
-  return occ;
-}
-
-void idx_to_sq_init(uint64_t idx, uint32_t *restrict sub,
-    const struct IdxInfo *ii)
-{
-  for (int k = ii->numsets - 1; k >= 0; k--)
-    idx = divmod_recip(idx, ii->factor[k], ii->recip[k], &sub[k]);
-}
-
-Bitboard idx_to_sq(uint32_t *sub, uint8_t *restrict sq)
-{
-  return idx_to_sq_unpack(sub, sq, &ii);
-}
-
-void idx_to_sq_ii(uint32_t *sub, uint8_t *restrict sq, const struct IdxInfo *ii)
-{
-  idx_to_sq_unpack(sub, sq, ii);
-}
-
-Bitboard capt_idx_to_sq(uint32_t *sub, uint8_t *restrict sq, const int k)
-{
-  return idx_to_sq_unpack(sub, sq, &capt_ii[k]);
-}
-
 void calc_factors(struct IdxInfo *ii)
 {
   for (int i = 0, n = has_pawns ? 61 : 62; i < ii->numsets; i++) {
@@ -112,7 +81,8 @@ void calc_factors(struct IdxInfo *ii)
 void idx_state_init(struct IdxState *is, uint64_t idx, uint8_t *restrict sq,
     const struct IdxInfo *ii)
 {
-  idx_to_sq_init(idx, is->sub, ii);
+  for (int k = ii->numsets - 1; k >= 0; k--)
+    idx = divmod_recip(idx, ii->factor[k], ii->recip[k], &is->sub[k]);
   is->n = 0;
   is->occ[0] = has_pawns ? bit(sq[0]) | bit(sq[1]) | bit(sq[2])
                          : bit(sq[0]) | bit(sq[1]);
