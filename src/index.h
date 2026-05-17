@@ -26,6 +26,8 @@ static constexpr bool has_pawns = false;
 static constexpr bool has_pawns = true;
 #endif
 
+static constexpr int MAX_MULT = MAX_PIECES - (has_pawns ? 3 : 2);
+
 struct IdxInfo {
   int numsets;   // number of sets of like pieces, excluding kings.
   int first[MAX_SETS];          // index of first piece of each set
@@ -109,6 +111,8 @@ INLINE Bitboard unrank_binomial(uint64_t idx, int n, uint8_t *restrict sq,
   if (n == 0)
     return occ;
 
+  assume(n > 0 && n <= MAX_MULT);
+
   Bitboard b = ~occ;
 
   if (n == 1) {
@@ -179,24 +183,26 @@ INLINE uint64_t sq_to_idx_helper(uint8_t *restrict sq, uint64_t idx,
     size_t s;
     int i = ii->first[k];
     int m = ii->mult[k];
+    assume(m > 0 && m <= MAX_MULT);
     if (m == 1) {
       s = rank_among_free(sq[i], occ);
       occ |= bit(sq[i]);
     } else if (m == 2) {
-      sort_squares(2, &sq[i]);
-      s =  rank_among_free(sq[i], occ)
-         + Binomial[2][rank_among_free(sq[i + 1], occ)];
-      occ |= bit(sq[i]) | bit(sq[i + 1]);
+      Bitboard b = ~occ;
+      Bitboard b1 = bit(sq[i]) | bit(sq[i + 1]);
+      occ |= b1;
+      b1 = _pext_u64(b1, b);
+      s = pop_lsb(&b1);
+      s += Binomial[2][lsb(b1)];
     } else {
-      sort_squares(m, &sq[i]);
+      Bitboard b = ~occ, b1 = 0;
+      for (int j = 0; j < m; j++)
+        b1 |= bit(sq[i + j]);
+      occ |= b1;
+      b1 = _pext_u64(b1, b);
       s = 0;
-      Bitboard occ2 = 0;
-      for (int j = 0; j < m; i++, j++) {
-        int rank = rank_among_free(sq[i], occ);
-        occ2 |= bit(sq[i]);
-        s += Binomial[j + 1][rank];
-      }
-      occ |= occ2;
+      for (int j = 1; b1; j++)
+        s += Binomial[j][pop_lsb(&b1)];
     }
     idx = idx * ii->factor[k] + s;
   }
