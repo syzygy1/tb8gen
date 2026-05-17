@@ -83,7 +83,7 @@ INLINE void NAME(merge_mark_unmoves)(int k, T *restrict const p, Bitboard occ,
 
 static void NAME(merge_illegal_worker)(struct ThreadData *thread)
 {
-  uint32_t sub[MAX_SETS];
+  struct IdxState is;
   Position pos = g_pos;
   int k = work_set;
   int m = ii.last[k];
@@ -92,12 +92,12 @@ static void NAME(merge_illegal_worker)(struct ThreadData *thread)
 
   T *restrict const p = (T *)merge_table + 8 * k16offset(g_pos.sq);
 
-  idx_to_sq_init(thread->begin, sub, &capt_ii[k]);
+  idx_state_init(&is, thread->begin, pos.sq, &capt_ii[k]);
 
   for (uint64_t idx = thread->begin, end = thread->end; idx < end;
-      idx++, idx_to_sq_inc(sub, &capt_ii[k]))
+      idx++, idx_state_inc(&is, &capt_ii[k]))
   {
-    Bitboard occ = capt_idx_to_sq(sub, pos.sq, k);
+    Bitboard occ = idx_state_to_sq(&is, pos.sq, &capt_ii[k]);
     pos.sq[m] = king_sq;
     NAME(merge_mark_unmoves)(m, p, occ, pos.sq);
   }

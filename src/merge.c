@@ -120,11 +120,11 @@ static void find_position(int stm, bool loss, bool cursed)
   if (idx >= kslice_size)
     return;
 
-  uint32_t sub[MAX_SETS];
+  struct IdxState is;
   Position pos = g_pos;
   pos.stm = stm ^ loss;
-  idx_to_sq_init(idx, sub, &ii);
-  idx_to_sq(sub, pos.sq);
+  idx_state_init(&is, idx, pos.sq, &ii);
+  idx_state_to_sq(&is, pos.sq, &ii);
   pos_to_fen(&pos, mf.fen[stm][cursed], false);
   mf.found[stm][cursed] = true;
 
