@@ -135,12 +135,13 @@ INLINE Bitboard unrank_binomial(uint64_t idx, int n, uint8_t *restrict sq,
   }
   else {
     Bitboard b1 = 0;
+    int r = popcnt(b) - 1;
     for (int i = n - 1; i > 0; i--) {
-      int r = i;
-      while (idx >= Binomial[i + 1][r + 1])
-        r++;
+      while (idx < Binomial[i + 1][r])
+        r--;
       idx -= Binomial[i + 1][r];
       b1 |= bit(r);
+      r--;
     }
     b1 = _pdep_u64(b1 | bit(idx), b);
     occ |= b1;
