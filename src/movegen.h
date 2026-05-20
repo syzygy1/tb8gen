@@ -22,8 +22,10 @@ enum {
 
 struct Position {
   Bitboard occ;
-  uint8_t sq[8], pt[8];
-  int num, stm;
+  uint8_t sq[12];
+  int num;
+  int pt[12];
+  int stm;
   int8_t pcs[2][8];
 };
 
