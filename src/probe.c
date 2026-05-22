@@ -249,7 +249,7 @@ void free_tablebases(void)
   free(paths);
 }
 
-void create_piece_string(char *s, int n, int idx)
+static void create_piece_string(char *s, int n, int idx)
 {
   s[n] = 0;
   if (n == 0) return;
@@ -289,8 +289,8 @@ void init_tablebases(const char *path_list)
 
   char white[16], black[16], name[40];
 
-  for (int p = 1; p <= 5; p++)
-    for (int q = 0; q <= min(p, 5 - p); q++)
+  for (int p = 1; p <= 6; p++)
+    for (int q = 0; q <= min(p, 6 - p); q++)
       for (int k = Binomial[4][p + 4] - 1; k >= 0; k--) {
         create_piece_string(white, p, k);
         for (int l = q < p ? Binomial[4][q + 4] - 1 : k; l >= 0; l--) {
