@@ -244,8 +244,9 @@ uint64_t llrand(void)
   return (rand1 << 24) + rand2;
 }
 
-//static constexpr size_t COPYSIZE = 20*1024*1024ULL;
-static constexpr size_t COPYSIZE = 50*1024ULL;
+static constexpr size_t MIN_COPYSIZE = 50*1024ULL;
+static constexpr size_t MAX_COPYSIZE = 512*1024ULL;
+static constexpr int TARGET_COMPRESSION_CHUNKS_PER_THREAD = 4;
 
 static size_t compress_bound;
 
@@ -254,6 +255,9 @@ static LOCK_T cmprs_mutex;
 static FILE *cmprs_F;
 static void *cmprs_ptr;
 static size_t cmprs_size;
+static size_t cmprs_chunk_size;
+static size_t cmprs_chunk_alignment;
+static size_t cmprs_chunks_issued;
 static size_t cmprs_idx;
 static void *cmprs_v;
 static int cmprs_type;
@@ -285,15 +289,71 @@ static void init(void)
   if (!initialised) {
     initialised = 1;
     LOCK_INIT(cmprs_mutex);
-    compress_bound = ZSTD_compressBound(COPYSIZE);
+    compress_bound = ZSTD_compressBound(MAX_COPYSIZE);
     for (int i = 0; i < COMPRESSION_THREADS; i++) {
-      cmprs_state[i].buffer = malloc(COPYSIZE);
+      cmprs_state[i].buffer = malloc(MAX_COPYSIZE);
       cmprs_state[i].frame = malloc(HEADER_SIZE + compress_bound);
       cmprs_state[i].c_ctx = ZSTD_createCCtx();
       cmprs_state[i].d_ctx = ZSTD_createDCtx();
     }
     create_compression_threads();
   }
+}
+
+static size_t align_compression_chunk(size_t chunk, size_t remaining)
+{
+  size_t alignment = cmprs_chunk_alignment;
+
+  if (alignment > 1) {
+    if (chunk < remaining) {
+      chunk = (chunk + alignment - 1) & ~(alignment - 1);
+      if (chunk > remaining)
+        chunk = remaining & ~(alignment - 1);
+    }
+    if (chunk == 0)
+      chunk = remaining;
+  }
+
+  return chunk;
+}
+
+static size_t next_compression_chunk(void)
+{
+  size_t remaining = cmprs_size - cmprs_idx;
+  if (!remaining)
+    return 0;
+
+  size_t chunk;
+  if (cmprs_chunks_issued < COMPRESSION_THREADS) {
+    chunk = MIN_COPYSIZE;
+  } else if (remaining > cmprs_chunk_size * COMPRESSION_THREADS * 2) {
+    chunk = cmprs_chunk_size;
+  } else {
+    size_t chunks = COMPRESSION_THREADS * TARGET_COMPRESSION_CHUNKS_PER_THREAD;
+    chunk = (remaining + chunks - 1) / chunks;
+    if (chunk < MIN_COPYSIZE)
+      chunk = MIN_COPYSIZE;
+    if (chunk > cmprs_chunk_size)
+      chunk = cmprs_chunk_size;
+  }
+
+  if (chunk > remaining)
+    chunk = remaining;
+
+  cmprs_chunks_issued++;
+  return align_compression_chunk(chunk, remaining);
+}
+
+static void prepare_write_data(FILE *F, void *src, size_t size,
+    size_t alignment)
+{
+  cmprs_F = F;
+  cmprs_ptr = src;
+  cmprs_size = size;
+  cmprs_chunk_size = MAX_COPYSIZE;
+  cmprs_chunk_alignment = alignment;
+  cmprs_chunks_issued = 0;
+  cmprs_idx = 0;
 }
 
 static uint64_t total_read = 0, total_written = 0;
@@ -393,7 +453,7 @@ void copy_data(FILE *F, FILE *G, size_t size)
   uint8_t *buffer = cmprs_state[0].buffer;
 
   while (size) {
-    size_t chunk = min(COPYSIZE, size);
+    size_t chunk = min(MAX_COPYSIZE, size);
     file_read(buffer, chunk, G);
     file_write(buffer, chunk, F);
     size -= chunk;
@@ -409,7 +469,7 @@ static void write_data_worker(int t)
   while (true) {
     LOCK(cmprs_mutex);
     size_t idx = cmprs_idx;
-    size_t chunk = min(COPYSIZE, cmprs_size - idx);
+    size_t chunk = next_compression_chunk();
     cmprs_idx += chunk;
     UNLOCK(cmprs_mutex);
     if (chunk == 0)
@@ -456,10 +516,7 @@ void write_data_transform_u8(FILE *F, void *src, size_t size, uint8_t *v)
 {
   init();
 
-  cmprs_F = F;
-  cmprs_ptr = src;
-  cmprs_size = size;
-  cmprs_idx = 0;
+  prepare_write_data(F, src, size, 1);
   cmprs_v = v;
   cmprs_type = U8U8;
   run_compression(write_data_worker);
@@ -469,10 +526,7 @@ void write_data_transform_u16(FILE *F, void *src, size_t size, uint16_t *v)
 {
   init();
 
-  cmprs_F = F;
-  cmprs_ptr = src;
-  cmprs_size = size;
-  cmprs_idx = 0;
+  prepare_write_data(F, src, size, 2);
   cmprs_v = v;
   cmprs_type = U16U16;
   run_compression(write_data_worker);
@@ -489,10 +543,7 @@ void write_data_transform_to_u8_u16(FILE *F, void *src, size_t size,
 {
   init();
 
-  cmprs_F = F;
-  cmprs_ptr = src;
-  cmprs_size = size;
-  cmprs_idx = 0;
+  prepare_write_data(F, src, size, 1);
   cmprs_v = v;
   cmprs_type = U16U8;
   run_compression(write_data_worker);
@@ -502,10 +553,7 @@ void write_data(FILE *F, void *src, size_t size)
 {
   init();
 
-  cmprs_F = F;
-  cmprs_ptr = src;
-  cmprs_size = size;
-  cmprs_idx = 0;
+  prepare_write_data(F, src, size, 1);
   cmprs_v = nullptr;
   cmprs_type = COPY;
   run_compression(write_data_worker);
@@ -520,10 +568,7 @@ void write_data_as_u8_u16(FILE *F, void *src, size_t size)
 {
   init();
 
-  cmprs_F = F;
-  cmprs_ptr = src;
-  cmprs_size = size;
-  cmprs_idx = 0;
+  prepare_write_data(F, src, size, 1);
   cmprs_type = COPY_U16U8;
   run_compression(write_data_worker);
 }
