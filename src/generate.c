@@ -6,6 +6,7 @@
 
 #include <inttypes.h>
 #include <stdint.h>
+#include <stdlib.h>
 
 #include "defs.h"
 #include "index.h"
@@ -15,6 +16,7 @@
 #include "tb8gen.h"
 #include "threads.h"
 #include "types.h"
+#include "util.h"
 
 const char *wdl_name[5] = { "loss", "bloss", "draw", "cwin", "win" };
 
@@ -60,6 +62,22 @@ INLINE void mark_unmoves(int k, uint8_t *restrict const p, Bitboard occ,
 }
 
 static int work_slice, work_set;
+
+static struct Work work_g_dynamic, work_g_static, work_capt_dynamic[MAX_SETS];
+
+static constexpr uint64_t GENERATE_MIN_DYNAMIC_CHUNK = 1ULL << 9;
+static constexpr int GENERATE_DYNAMIC_FACTOR = 4;
+
+void init_generation_work(void)
+{
+  work_init(&work_g_dynamic, kslice_size, 0x1ff, WORK_DYNAMIC,
+      GENERATE_DYNAMIC_FACTOR, GENERATE_MIN_DYNAMIC_CHUNK);
+  work_init(&work_g_static, kslice_size, 0x1ff, WORK_STATIC, 1,
+      GENERATE_MIN_DYNAMIC_CHUNK);
+  for (int k = 0; k < ii.numsets; k++)
+    work_init(&work_capt_dynamic[k], capt_ii[k].size, 0x1ff, WORK_DYNAMIC,
+        GENERATE_DYNAMIC_FACTOR, GENERATE_MIN_DYNAMIC_CHUNK);
+}
 
 static void calc_sub_worker(struct ThreadData *thread)
 {
@@ -139,7 +157,7 @@ static void calc_sub_kslices(int stm)
         if ((g_pos.pt[ii.first[k]] >> 3) != stm)
           continue;
         work_set = k;
-        run_threaded(calc_sub_worker, work_capt[k], 0);
+        run_threaded(calc_sub_worker, &work_capt_dynamic[k], 0);
       }
 
       for (int t = 0; t < g_num_threads; t++)
@@ -231,7 +249,7 @@ static void predecessors_sub(int stm, int s, bool legality)
     if ((g_pos.pt[m] >> 3) == stm)
       continue;
     work_set = k;
-    run_threaded(predecessors_sub_worker, work_capt[k], 0);
+    run_threaded(predecessors_sub_worker, &work_capt_dynamic[k], 0);
   }
 }
 
@@ -429,7 +447,7 @@ static void predecessors(int stm, int s)
   g_pos.sq[0] = KKSquare[s][0];
   g_pos.sq[1] = KKSquare[s][1];
 
-  run_threaded(predecessors_worker, work_g, 0);
+  run_threaded(predecessors_worker, &work_g_dynamic, 0);
 }
 
 INLINE bool check_king_moves(int stm, Bitboard occ, uint8_t *restrict sq)
@@ -561,7 +579,7 @@ static uint64_t check_successors(int stm, int s)
   for (int t = 0; t < g_num_threads; t++)
     g_thread_data[t].cnt = 0;
 
-  run_threaded(check_successors_worker, work_g, 0);
+  run_threaded(check_successors_worker, &work_g_dynamic, 0);
 
   uint64_t cnt = 0;
   for (int t = 0; t < g_num_threads; t++)
@@ -681,7 +699,7 @@ static void calc_illegal_and_mate(void)
 
     for (int k = 0; k < ii.numsets; k++) {
       work_set = k;
-      run_threaded(calc_illegal_worker, work_capt[k], 0);
+      run_threaded(calc_illegal_worker, &work_capt_dynamic[k], 0);
     }
 
     for (int stm = 0; stm < 2; stm++) {
@@ -692,7 +710,7 @@ static void calc_illegal_and_mate(void)
     kslice_clear_addr(kslice_buf[2]); // wtm mate
     kslice_clear_addr(kslice_buf[3]); // btm mate
 
-    run_threaded(calc_mate_worker, work_g, 0);
+    run_threaded(calc_mate_worker, &work_g_static, 0);
 
     for (int stm = 0; stm < 2; stm++) {
       loss0[stm] += num = kslice_count_addr(kslice_buf[2 + stm]);

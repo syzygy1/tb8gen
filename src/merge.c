@@ -29,8 +29,38 @@ static void *merge_table, *merge_w;
 static int merge_n;
 static int work_set, work_slice;
 static bool include_wins, include_losses;
+static struct Work work_g_merge_dynamic, work_g_merge_static;
+static struct Work work_capt_merge_dynamic[MAX_SETS];
+static int merge_num_active_threads;
+static int merge_active_threads[MAX_THREADS];
+
+static constexpr uint64_t MERGE_MIN_DYNAMIC_CHUNK = 1ULL << 18;
+static constexpr int MERGE_DYNAMIC_FACTOR = 4;
 
 alignas(64) static uint64_t thread_stats[MAX_THREADS][MAX_STATS];
+
+static void set_merge_active_threads(struct Work *work)
+{
+  if (work->units <= 1) {
+    merge_num_active_threads = 1;
+    merge_active_threads[0] = g_num_threads - 1;
+  } else {
+    merge_num_active_threads = g_num_threads;
+    for (int t = 0; t < g_num_threads; t++)
+      merge_active_threads[t] = t;
+  }
+}
+
+void init_merge_work(void)
+{
+  work_init(&work_g_merge_dynamic, kslice_size, 0x1ff, WORK_DYNAMIC,
+      MERGE_DYNAMIC_FACTOR, MERGE_MIN_DYNAMIC_CHUNK);
+  work_init(&work_g_merge_static, kslice_size, 0x1ff, WORK_STATIC, 1,
+      MERGE_MIN_DYNAMIC_CHUNK);
+  for (int k = 0; k < ii.numsets; k++)
+    work_init(&work_capt_merge_dynamic[k], capt_ii[k].size, 0x1ff,
+        WORK_DYNAMIC, MERGE_DYNAMIC_FACTOR, MERGE_MIN_DYNAMIC_CHUNK);
+}
 
 static void stat_count_worker(struct ThreadData *thread)
 {
@@ -68,14 +98,19 @@ static uint64_t stat_count(int stm, int s)
 
   work_slice = s;
 
-  for (int t = 0; t < g_num_threads; t++)
+  set_merge_active_threads(&work_g_merge_dynamic);
+  for (int tt = 0; tt < merge_num_active_threads; tt++) {
+    int t = merge_active_threads[tt];
     g_thread_data[t].cnt = 0;
+  }
 
-  run_threaded(stat_count_worker, work_g, 0);
+  run_threaded(stat_count_worker, &work_g_merge_dynamic, 0);
 
   uint64_t cnt = 0;
-  for (int t = 0; t < g_num_threads; t++)
+  for (int tt = 0; tt < merge_num_active_threads; tt++) {
+    int t = merge_active_threads[tt];
     cnt += g_thread_data[t].cnt;
+  }
 
   return cnt;
 }
@@ -114,7 +149,7 @@ static void find_position(int stm, bool loss, bool cursed)
 {
   atomic_store_explicit(&found_idx, UINT64_MAX, memory_order_relaxed);
 
-  run_threaded(find_position_worker, work_g, 0);
+  run_threaded(find_position_worker, &work_g_merge_dynamic, 0);
 
   uint64_t idx = atomic_load_explicit(&found_idx, memory_order_relaxed);
   if (idx >= kslice_size)

@@ -33,8 +33,8 @@ uint64_t tb_size;
 static constexpr int MAX_PERMS = 1*2*3*4*5*6*7;
 static constexpr int MAX_CANDS = 6*7;
 
-static uint64_t *restrict work_convert = nullptr;
-static uint64_t *restrict work_est = nullptr;
+static struct Work *work_convert = nullptr;
+static struct Work *work_est = nullptr;
 
 static struct TbEntry tb_entry;
 static struct DecInfo dec_info;
@@ -531,8 +531,9 @@ static uint64_t estimate_compression(void *table, int *bestp, uint8_t *pcs,
   }
 
   if (!work_est)
-    work_est = alloc_work(g_total_work);
-  fill_work(g_total_work, num_segs, 0, work_est);
+    work_est = create_work(g_total_work, num_segs, 0);
+  else
+    work_refill_units(work_est, g_total_work, num_segs, 0);
 
   for (i = 0; i < num_type_perms; i++)
     compest[i] = 0;

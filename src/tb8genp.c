@@ -41,7 +41,7 @@ bool one_sided, wins_only;
 int one_sided_stm;
 char *g_tablename;
 char *g_output_dir;
-uint64_t *work_g, *work_g16, *work_capt[MAX_SETS];
+struct Work *work_g, *work_g16, *work_capt[MAX_SETS];
 struct DtzFormat dtz_format[24];
 struct MaxFen mf, mmf;
 
@@ -231,6 +231,7 @@ int main(int argc, char **argv)
   work_g16 = create_work(g_total_work, k16slice_alloc_size << 3, 0x1ff);
   for (int i = 0; i < ii.numsets; i++)
     work_capt[i] = create_work(g_total_work, capt_ii[i].size, 0x1ff);
+  init_generation_work();
 
   for (int i = 0; i < 24; i++) {
     pawnstr[i][0] = 'a' + (i / 6);

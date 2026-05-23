@@ -27,7 +27,7 @@ static char *data;
 static size_t fsize;
 static bool checksum_found;
 static bool checksum_match;
-static uint64_t *work = nullptr;
+static struct Work *work = nullptr;
 
 static void checksum_worker(struct ThreadData *thread)
 {
@@ -45,8 +45,6 @@ static void checksum_worker(struct ThreadData *thread)
 
 static void calc_checksum(const char *name)
 {
-  if (!work) work = alloc_work(g_total_work);
-
   FD fd = open_file(name);
   data = map_file(fd, false, &fsize);
   size_t orig_size = fsize;
@@ -64,7 +62,10 @@ static void calc_checksum(const char *name)
 
   int chunks = (fsize + CHUNK - 1) / CHUNK;
   results = (uint64_t *)malloc(32 * chunks);
-  fill_work(g_total_work, chunks, 0, work);
+  if (!work)
+    work = create_work(g_total_work, chunks, 0);
+  else
+    work_refill_units(work, g_total_work, chunks, 0);
   run_threaded(checksum_worker, work, 0);
   CityHashCrc128((char *)results, 32 * chunks, checksum2);
   unmap_file(data, orig_size);

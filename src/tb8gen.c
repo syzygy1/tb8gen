@@ -40,7 +40,7 @@ bool one_sided, wins_only;
 int one_sided_stm;
 char *g_tablename;
 char *g_output_dir;
-uint64_t *work_g, *work_capt[MAX_SETS];
+struct Work *work_g, *work_capt[MAX_SETS];
 struct MaxFen mf;
 
 const char *typename[3] = { "wdl", "dtm", "dtz" };
@@ -223,6 +223,8 @@ int main(int argc, char **argv)
   work_g = create_work(g_total_work, kslice_size, 0x1ff);
   for (int i = 0; i < ii.numsets; i++)
     work_capt[i] = create_work(g_total_work, capt_ii[i].size, 0x1ff);
+  init_generation_work();
+  init_merge_work();
 
   if (workdir && *workdir)
     change_dir(workdir);

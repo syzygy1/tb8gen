@@ -28,6 +28,7 @@ INLINE int stats_n(int n)
 }
 
 void generate(void);
+void init_generation_work(void);
 void delete_intermediate_slices(void);
 void cleanup_generation(void);
 

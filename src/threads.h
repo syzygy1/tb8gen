@@ -32,6 +32,22 @@ struct ThreadData {
   int affinity;
 };
 
+enum WorkSchedule {
+  WORK_DYNAMIC,
+  WORK_STATIC
+};
+
+struct Work {
+  uint64_t *range;
+  int units;
+  int capacity;
+  uint64_t size;
+  uint64_t mask;
+  uint64_t min_chunk;
+  int factor;
+  enum WorkSchedule schedule;
+};
+
 extern int g_num_threads;
 extern struct ThreadData *g_thread_data;
 extern bool g_thread_affinity;
@@ -39,15 +55,24 @@ extern int g_total_work;
 extern struct timeval g_start_time, g_cur_time;
 
 void init_threads(void);
-void run_threaded(void (*func)(struct ThreadData *), uint64_t *work,
+void run_threaded(void (*func)(struct ThreadData *), struct Work *work,
     bool report_time);
-void run_single(void (*func)(struct ThreadData *), uint64_t *work,
+void run_single(void (*func)(struct ThreadData *), struct Work *work,
     bool report_time);
 void fill_work(int n, uint64_t size, uint64_t mask, uint64_t *w);
 void fill_work_offset(int n, uint64_t size, uint64_t mask, uint64_t *w,
     uint64_t offset);
+int calc_work_units(uint64_t size, int factor, uint64_t min_chunk);
 uint64_t *alloc_work(int n);
-uint64_t *create_work(int n, uint64_t size, uint64_t mask);
+void work_init(struct Work *work, uint64_t size, uint64_t mask,
+    enum WorkSchedule schedule, int factor, uint64_t min_chunk);
+void work_init_units(struct Work *work, int units, uint64_t size, uint64_t mask,
+    enum WorkSchedule schedule);
+void work_refill(struct Work *work, uint64_t size);
+void work_refill_units(struct Work *work, int units, uint64_t size,
+    uint64_t mask);
+void work_free(struct Work *work);
+struct Work *create_work(int n, uint64_t size, uint64_t mask);
 
 void create_compression_threads(void);
 void run_compression(void (*func)(int t));

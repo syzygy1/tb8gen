@@ -37,9 +37,9 @@ uint64_t kslice_cache_lines, k16slice_cache_lines;
 uint64_t k16slice_read_count[16];
 uint64_t k16slice_read_cost;
 
-static uint64_t *work_cl;
-static uint64_t *work_cl16;
-static uint64_t *work_sub_cl[2];
+static struct Work *work_cl;
+static struct Work *work_cl16;
+static struct Work *work_sub_cl[2];
 static bool k16slice_in_use[11];
 
 static uint16_t kmask[16];

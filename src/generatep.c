@@ -6,6 +6,7 @@
 
 #include <inttypes.h>
 #include <stdint.h>
+#include <stdlib.h>
 
 #include "defs.h"
 #include "generatep.h"
@@ -16,6 +17,7 @@
 #include "tb8genp.h"
 #include "threads.h"
 #include "types.h"
+#include "util.h"
 
 const char *wdl_name[7] = {
   "loss", "bloss", "draw", "cwin", "win", "nobloss", "noloss"
@@ -84,6 +86,22 @@ INLINE void mark_unmoves(int k, uint8_t *restrict const p, Bitboard occ,
 }
 
 static int work_set, work_r, work_lower, work_upper;
+
+static struct Work work_g_dynamic, work_g_static, work_capt_dynamic[MAX_SETS];
+
+static constexpr uint64_t GENERATE_MIN_DYNAMIC_CHUNK = 1ULL << 18;
+static constexpr int GENERATE_DYNAMIC_FACTOR = 4;
+
+void init_generation_work(void)
+{
+  work_init(&work_g_dynamic, kslice_size, 0x1ff, WORK_DYNAMIC,
+      GENERATE_DYNAMIC_FACTOR, GENERATE_MIN_DYNAMIC_CHUNK);
+  work_init(&work_g_static, kslice_size, 0x1ff, WORK_STATIC, 1,
+      GENERATE_MIN_DYNAMIC_CHUNK);
+  for (int k = 0; k < ii.numsets; k++)
+    work_init(&work_capt_dynamic[k], capt_ii[k].size, 0x1ff, WORK_DYNAMIC,
+        GENERATE_DYNAMIC_FACTOR, GENERATE_MIN_DYNAMIC_CHUNK);
+}
 
 static void calc_sub_worker(struct ThreadData *thread)
 {
@@ -158,7 +176,7 @@ static void calc_sub_kslices(int stm)
           if ((g_pos.pt[ii.first[k]] >> 3) != stm)
             continue;
           work_set = k;
-          run_threaded(calc_sub_worker, work_capt[k], 0);
+          run_threaded(calc_sub_worker, &work_capt_dynamic[k], 0);
         }
       }
 
@@ -260,7 +278,7 @@ static void calc_psub_kslices(void)
           if ((g_pos.pt[ii.first[k]] >> 3) != WHITE)
             continue;
           work_set = k;
-          run_threaded(calc_psub_worker, work_capt[k], 0);
+          run_threaded(calc_psub_worker, &work_capt_dynamic[k], 0);
         }
       }
 
@@ -347,7 +365,7 @@ static void predecessors_sub(int stm, int s)
       if ((g_pos.pt[m] >> 3) == stm)
         continue;
       work_set = k;
-      run_threaded(predecessors_sub_worker, work_capt[k], 0);
+      run_threaded(predecessors_sub_worker, &work_capt_dynamic[k], 0);
     }
   }
 }
@@ -397,7 +415,7 @@ static void predecessors_psub(int s)
       if ((g_pos.pt[m] >> 3) != WHITE)
         continue;
       work_set = k;
-      run_threaded(predecessors_psub_worker, work_capt[k], 0);
+      run_threaded(predecessors_psub_worker, &work_capt_dynamic[k], 0);
     }
   }
 }
@@ -442,7 +460,7 @@ static void calc_king_captures_pawn(int s, int lower, int upper)
     if (!(king_attacks(g_pos.sq[0]) & bit(g_pos.sq[2])))
       continue;
 
-    run_threaded(calc_king_captures_pawn_worker, work_g, 0);
+    run_threaded(calc_king_captures_pawn_worker, &work_g_dynamic, 0);
   }
 }
 
@@ -706,7 +724,7 @@ static void calc_pawn_capts(void)
         if (pawn_attacks(BLACK, g_pos.sq[2]) & bit(g_pos.sq[0]))
           continue;
 
-        run_threaded(calc_pawn_capts_worker, work_g, 0);
+        run_threaded(calc_pawn_capts_worker, &work_g_dynamic, 0);
       }
 
       uint64_t num[16];
@@ -827,7 +845,7 @@ static void calc_pawn_push(void)
   read_data(F, merged_table, kslice_size);
   fclose(F);
 
-  run_threaded(calc_pawn_push_worker, work_g, 0);
+  run_threaded(calc_pawn_push_worker, &work_g_dynamic, 0);
 }
 
 static void calc_pawn_double_push_worker(struct ThreadData *thread)
@@ -895,7 +913,7 @@ static void calc_pawn_double_push(void)
   fclose(F);
 
   if (g_pos.sq[2] - 16 == g_pos.sq[0] || g_pos.sq[2] - 16 == g_pos.sq[1]) {
-    run_threaded(calc_pawn_push_worker, work_g, 0);
+    run_threaded(calc_pawn_push_worker, &work_g_dynamic, 0);
     return;
   }
 
@@ -906,7 +924,7 @@ static void calc_pawn_double_push(void)
   read_data(F, merged_table2, kslice_size);
   fclose(F);
 
-  run_threaded(calc_pawn_double_push_worker, work_g, 0);
+  run_threaded(calc_pawn_double_push_worker, &work_g_dynamic, 0);
 }
 
 static void predecessors_worker(struct ThreadData *thread)
@@ -950,7 +968,7 @@ static void predecessors(int stm, int s)
     if (is_broken(&g_pos))
       continue;
 
-    run_threaded(predecessors_worker, work_g, 0);
+    run_threaded(predecessors_worker, &work_g_dynamic, 0);
   }
 }
 
@@ -1046,7 +1064,7 @@ static uint64_t check_successors(int stm, int s, uint64_t num[16])
     for (int t = 0; t < g_num_threads; t++)
       g_thread_data[t].cnt = 0;
 
-    run_threaded(check_successors_worker, work_g, 0);
+    run_threaded(check_successors_worker, &work_g_dynamic, 0);
 
     for (int t = 0; t < g_num_threads; t++)
       num[r] += g_thread_data[t].cnt;
@@ -1191,7 +1209,7 @@ static void calc_illegal_and_mate_and_pawn_push(void)
         if (btm_illegal && (g_pos.pt[ii.first[k]] & 0x08))
           continue;
         work_set = k;
-        run_threaded(calc_illegal_worker, work_capt[k], 0);
+        run_threaded(calc_illegal_worker, &work_capt_dynamic[k], 0);
       }
     }
 
@@ -1210,7 +1228,7 @@ static void calc_illegal_and_mate_and_pawn_push(void)
       if (is_broken(&g_pos))
         continue;
 
-      run_threaded(calc_mate_worker, work_g, 0);
+      run_threaded(calc_mate_worker, &work_g_static, 0);
     }
 
     for (int stm = 0; stm < 2; stm++) {
@@ -1229,7 +1247,7 @@ static void calc_illegal_and_mate_and_pawn_push(void)
         continue;
 
       if (g_pos.sq[2] < 16)
-        run_threaded(calc_pawn_prom_worker, work_g, 0);
+        run_threaded(calc_pawn_prom_worker, &work_g_dynamic, 0);
       else if (g_pos.sq[2] < 48)
         calc_pawn_push();
       else

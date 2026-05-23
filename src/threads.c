@@ -1,5 +1,5 @@
 /*
-  Copyright (c) 2011-2013, 2018, 2025 Ronald de Man
+  Copyright (c) 2011-2013, 2018, 2025, 2026 Ronald de Man
 
   This file is distributed under the terms of the GNU GPL, version 2.
 */
@@ -46,12 +46,11 @@ static thrd_t *threads;
 
 struct Queue {
   void (*func)(struct ThreadData *);
-  uint64_t *work;
-  _Atomic int counter;
-  int total;
+  struct Work *work;
+  alignas(64) _Atomic int counter;
 } Queue;
 
-static struct Queue queue;
+alignas(64) static struct Queue queue;
 
 struct timeval g_start_time, g_cur_time;
 
@@ -72,17 +71,88 @@ void fill_work_offset(int n, uint64_t size, uint64_t mask, uint64_t *w,
     w[i] += offset;
 }
 
+int calc_work_units(uint64_t size, int factor, uint64_t min_chunk)
+{
+  int units = g_num_threads * factor;
+  uint64_t max_units = min_chunk
+      ? (size + min_chunk - 1) / min_chunk
+      : (uint64_t)units;
+
+  if (max_units < (uint64_t)units)
+    units = max_units;
+  if (units < 1)
+    units = 1;
+
+  return units;
+}
+
 uint64_t *alloc_work(int n)
 {
   return malloc((n + 1) * sizeof(uint64_t));
 }
 
-uint64_t *create_work(int n, uint64_t size, uint64_t mask)
+static void ensure_work_capacity(struct Work *work, int units)
 {
-  uint64_t *w = alloc_work(n);
-  fill_work(n, size, mask, w);
+  if (work->capacity < units) {
+    free(work->range);
+    work->range = alloc_work(units);
+    if (!work->range)
+      out_of_mem();
+    work->capacity = units;
+  }
+}
 
-  return w;
+void work_init(struct Work *work, uint64_t size, uint64_t mask,
+    enum WorkSchedule schedule, int factor, uint64_t min_chunk)
+{
+  *work = (struct Work){
+    .mask = mask,
+    .min_chunk = min_chunk,
+    .factor = factor,
+    .schedule = schedule
+  };
+  work_refill(work, size);
+}
+
+void work_init_units(struct Work *work, int units, uint64_t size, uint64_t mask,
+    enum WorkSchedule schedule)
+{
+  *work = (struct Work){ .schedule = schedule };
+  work_refill_units(work, units, size, mask);
+}
+
+void work_refill(struct Work *work, uint64_t size)
+{
+  int units = calc_work_units(size, work->factor, work->min_chunk);
+  work_refill_units(work, units, size, work->mask);
+}
+
+void work_refill_units(struct Work *work, int units, uint64_t size,
+    uint64_t mask)
+{
+  if (units < 1)
+    units = 1;
+  ensure_work_capacity(work, units);
+  fill_work(units, size, mask, work->range);
+  work->units = units;
+  work->size = size;
+  work->mask = mask;
+}
+
+void work_free(struct Work *work)
+{
+  free(work->range);
+  *work = (struct Work){0};
+}
+
+struct Work *create_work(int n, uint64_t size, uint64_t mask)
+{
+  struct Work *work = calloc(1, sizeof(*work));
+  if (!work)
+    out_of_mem();
+  work_init_units(work, n, size, mask, WORK_DYNAMIC);
+
+  return work;
 }
 
 uint64_t *create_work_offset(int n, uint64_t size, uint64_t mask,
@@ -99,9 +169,27 @@ alignas(64) struct Pool {
   cnd_t cv_work, cv_done;
   size_t generation;
   size_t helpers_done;
+  size_t helpers_target;
 } pool, cpool;
 
 static int worker(void *arg);
+
+static void update_time(bool report_time)
+{
+  int secs, usecs;
+  struct timeval stop_time;
+
+  gettimeofday(&stop_time, nullptr);
+  secs = stop_time.tv_sec - g_cur_time.tv_sec;
+  usecs = stop_time.tv_usec - g_cur_time.tv_usec;
+  if (usecs < 0) {
+    usecs += 1000000;
+    secs--;
+  }
+  if (report_time)
+    printf("time taken = %3d:%02d.%03d\n", secs / 60, secs % 60, usecs/1000);
+  g_cur_time = stop_time;
+}
 
 void init_threads(void)
 {
@@ -151,20 +239,29 @@ static int worker(void *arg)
     seen_generation = pool.generation;
     mtx_unlock(&pool.mtx);
 
-    int total = queue.total;
+    struct Work *work = queue.work;
+    int total = work->units;
 
-    while (true) {
+    if (work->schedule == WORK_STATIC) {
+      int w = atomic_fetch_add_explicit(&queue.counter, 1,
+          memory_order_relaxed);
+      if (w < total) {
+        thread->begin = work->range[w];
+        thread->end = work->range[w + 1];
+        queue.func(thread);
+      }
+    } else while (true) {
       int w = atomic_fetch_add_explicit(&queue.counter, 1,
           memory_order_relaxed);
       if (w >= total) break;
-      thread->begin = queue.work[w];
-      thread->end = queue.work[w + 1];
+      thread->begin = work->range[w];
+      thread->end = work->range[w + 1];
       queue.func(thread);
     }
 
     mtx_lock(&pool.mtx);
     pool.helpers_done++;
-    if (pool.helpers_done == g_num_threads - 1)
+    if (pool.helpers_done == pool.helpers_target)
       cnd_signal(&pool.cv_done);
     mtx_unlock(&pool.mtx);
   }
@@ -233,73 +330,71 @@ void run_group(struct GroupData *g, void (*func)(struct ThreadData *),
 #endif
 #endif
 
-void run_threaded(void (*func)(struct ThreadData *), uint64_t *work,
+void run_threaded(void (*func)(struct ThreadData *), struct Work *work,
     bool report_time)
 {
-  int secs, usecs;
-  struct timeval stop_time;
+  int total_work = work->units;
+  if (total_work <= 1) {
+    if (total_work == 1) {
+      struct ThreadData *thread = &g_thread_data[g_num_threads - 1];
+      thread->begin = work->range[0];
+      thread->end = work->range[1];
+      func(thread);
+    }
+    update_time(report_time);
+    return;
+  }
 
   queue.func = func;
   queue.work = work;
-  queue.total = g_total_work;
   queue.counter = 0;
-  int total = queue.total;
+  int total = work->units;
   struct ThreadData *thread = &g_thread_data[g_num_threads - 1];
+  int helpers = g_num_threads - 1;
 
   mtx_lock(&pool.mtx);
   pool.helpers_done = 0;
+  pool.helpers_target = helpers;
   atomic_store_explicit(&queue.counter, 0, memory_order_relaxed);
   pool.generation++;
   cnd_broadcast(&pool.cv_work);
   mtx_unlock(&pool.mtx);
 
-  while (true) {
+  if (work->schedule == WORK_STATIC) {
+    int w = atomic_fetch_add_explicit(&queue.counter, 1,
+        memory_order_relaxed);
+    if (w < total) {
+      thread->begin = work->range[w];
+      thread->end = work->range[w + 1];
+      queue.func(thread);
+    }
+  } else while (true) {
     int w = atomic_fetch_add_explicit(&queue.counter, 1,
         memory_order_relaxed);
     if (w >= total) break;
-    thread->begin = queue.work[w];
-    thread->end = queue.work[w + 1];
+    thread->begin = work->range[w];
+    thread->end = work->range[w + 1];
     queue.func(thread);
   }
 
   mtx_lock(&pool.mtx);
-  while (pool.helpers_done != g_num_threads - 1)
+  while (pool.helpers_done != pool.helpers_target)
     cnd_wait(&pool.cv_done, &pool.mtx);
   mtx_unlock(&pool.mtx);
 
-  gettimeofday(&stop_time, nullptr);
-  secs = stop_time.tv_sec - g_cur_time.tv_sec;
-  usecs = stop_time.tv_usec - g_cur_time.tv_usec;
-  if (usecs < 0) {
-    usecs += 1000000;
-    secs--;
-  }
-  if (report_time)
-    printf("time taken = %3d:%02d.%03d\n", secs / 60, secs % 60, usecs/1000);
-  g_cur_time = stop_time;
+  update_time(report_time);
 }
 
-void run_single(void (*func)(struct ThreadData *), uint64_t *work,
+void run_single(void (*func)(struct ThreadData *), struct Work *work,
     bool report_time)
 {
-  int secs, usecs;
-  struct timeval stop_time;
   struct ThreadData *thread = &(g_thread_data[g_num_threads - 1]);
 
-  thread->begin = work[0];
-  thread->end = work[g_total_work];
+  thread->begin = work->range[0];
+  thread->end = work->range[work->units];
   func(thread);
 
-  gettimeofday(&stop_time, nullptr);
-  secs = stop_time.tv_sec - g_cur_time.tv_sec;
-  usecs = stop_time.tv_usec - g_cur_time.tv_usec;
-  if (usecs < 0) {
-    usecs += 1000000;
-    secs--;
-  }
-  if (report_time)
-    printf("time taken = %3d:%02d.%03d\n", secs / 60, secs % 60, usecs/1000);
-  g_cur_time = stop_time;
+  update_time(report_time);
 }
 
 static struct ThreadData cmprs_data[COMPRESSION_THREADS];

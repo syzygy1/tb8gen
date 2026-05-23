@@ -693,7 +693,6 @@ static void join_wdl_p(int stm)
 
       if (king_attacks(k1) & bit(k2)) {
         memset(table + num * kslice_size, 8, kslice_size);
-// FIXME: increase stats[] ?
       } else {
 
         create_name_sq(str, k1, k2, stm, "merged/wdl", -1);

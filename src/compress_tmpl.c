@@ -25,13 +25,13 @@ void NAME(adjust_work_dontcares)(uint64_t *restrict work1,
     uint64_t *restrict work2)
 {
   size_t idx;
-  size_t end = work1[g_total_work];
+  size_t end = work1[compress_work_units];
   T *restrict data = compress_state.data;
   int i;
   int num = num_vals;
 
   work2[0] = work1[0];
-  for (i = 1; i < g_total_work; i++) {
+  for (i = 1; i < compress_work_units; i++) {
     idx = work1[i];
     if (idx < work2[i - 1]) {
       work2[i] = work2[i - 1];
@@ -41,7 +41,7 @@ void NAME(adjust_work_dontcares)(uint64_t *restrict work1,
       idx++;
     work2[i] = idx;
   }
-  work2[g_total_work] = work1[g_total_work];
+  work2[compress_work_units] = work1[compress_work_units];
 }
 
 // same as for dtz
@@ -124,6 +124,7 @@ static void NAME(count_pairs_dtz)(struct ThreadData *thread)
   NAME(cf) *countfreq = countfreq_dtz;
 
   if (idx == 0) idx = 1;
+  if (idx >= end) return;
   s1 = data[idx - 1];
   for (; idx < end; idx++) {
     s2 = data[idx];
@@ -139,7 +140,7 @@ void NAME(adjust_work_replace)(uint64_t *work)
   T *restrict data = compress_state.data;
   int i, s1, s2, j;
 
-  for (i = 1; i < g_total_work; i++) {
+  for (i = 1; i < compress_work_units; i++) {
     idx = work[i];
     if (idx <= work[i - 1]) {
       work[i] = work[i - 1];
@@ -242,13 +243,13 @@ void NAME(adjust_work_dontcares_dtz)(uint64_t *restrict work1,
     uint64_t *restrict work2)
 {
   uint64_t idx;
-  uint64_t end = work1[g_total_work];
+  uint64_t end = work1[compress_work_units];
   T *data = compress_state.data;
   int i;
   int num = num_vals;
 
   work2[0] = work1[0];
-  for (i = 1; i < g_total_work; i++) {
+  for (i = 1; i < compress_work_units; i++) {
     idx = work1[i];
     if (idx < work2[i - 1]) {
       work2[i] = work2[i - 1];
@@ -260,7 +261,7 @@ void NAME(adjust_work_dontcares_dtz)(uint64_t *restrict work1,
       idx++;
     work2[i] = idx;
   }
-  work2[g_total_work] = work1[g_total_work];
+  work2[compress_work_units] = work1[compress_work_units];
 }
 
 void NAME(calc_block_sizes)(T *restrict data, uint64_t size,

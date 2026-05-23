@@ -22,6 +22,7 @@ struct MergeInfo {
 
 extern struct MergeInfo mi;
 
+void init_merge_work(void);
 void merge(int merge_type);
 
 #endif
