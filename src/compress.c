@@ -1085,6 +1085,8 @@ int64_t *construct_pairs_dtz(void *data, uint64_t size, int minfreq,
 int64_t *construct_pairs(void *data, uint64_t size, int minfreq,
     int maxsymbols, int *nsyms, bool wide, bool wdl)
 {
+  if (!wide)
+    ((uint8_t *)data)[size] = 0;
   return wdl ? construct_pairs_wdl(data, size, minfreq, maxsymbols, nsyms)
     : construct_pairs_dtz(data, size, minfreq, maxsymbols, nsyms, wide);
 }

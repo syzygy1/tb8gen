@@ -6,6 +6,7 @@
 #include "compress.h"
 #include "huffman.h"
 #include "types.h"
+#include "util.h"
 
 struct List {
   uint64_t w[8192];
@@ -18,6 +19,8 @@ static constexpr int L = 32;
 static void package_merge(struct HuffCode *c, int num, int *a)
 {
   struct List *lists = malloc(L * sizeof(struct List));
+  if (!lists)
+    out_of_mem();
 
   for (int m = 0; m < L; m++) {
     int prev_len = m == 0 ? 0 : lists[m - 1].len;
@@ -81,6 +84,8 @@ void free_code(struct HuffCode *c)
 struct HuffCode *create_code(int64_t *freq, int num_syms)
 {
   struct HuffCode *c = malloc(sizeof *c);
+  if (!c)
+    out_of_mem();
   c->freq = freq;
   create_code_old(c, num_syms);
   if (sort_code(c)) return c;
@@ -117,10 +122,14 @@ struct HuffCode *create_code(int64_t *freq, int num_syms)
 static void create_code_old(struct HuffCode *c, int num_syms)
 {
   int i, num;
-  int idx1, idx2;
-  uint64_t min1, min2;
 
   c->num_syms = num_syms;
+
+  for (i = 0; i < num_syms; i++) {
+    c->length[i] = 0;
+    c->map[i] = -1;
+  }
+
   num = 0;
   for (i = 0; i < num_syms; i++)
     if (c->freq[i]) {
@@ -129,16 +138,13 @@ static void create_code_old(struct HuffCode *c, int num_syms)
       num++;
     }
 
-  for (i = 0; i < num_syms; i++)
-    c->length[i] = 0;
-
   if (num == 1) {
     for (i = 0; i < num_syms; i++)
       if (c->freq[i]) break;
     c->length[i] = 1;
   } else while (num  > 1) {
-    min1 = min2 = INT64_MAX;
-    idx1 = idx2 = 0;
+    int64_t min1 = INT64_MAX, min2 = INT64_MAX;
+    int idx1 = 0, idx2 = 0;
     for (i = 0; i < num; i++)
       if (c->nfreq[i] < min2) {
 	if (c->nfreq[i] < min1) {
