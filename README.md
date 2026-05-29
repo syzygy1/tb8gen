@@ -1,7 +1,7 @@
 ## Overview
 
 This is a generator for chess endgame databases ("tablebases")
-for up to 8 pieces on reasonable hardware.
+with up to 8 pieces on reasonable hardware.
 
 At the moment, only pawnless tablebases and tablebases with exactly one pawn
 are supported.
@@ -39,13 +39,16 @@ Pawnless tablebases with at least one pair of identical pieces of the same
 color, such as `KRRNvKRBN`, can be generated on a PC with 64 GB of RAM.
 For an 8-piece tablebase with one pawn, 32 GB of RAM should be sufficient.
 
+When generating a 7-piece tablebase on a PC with less than 128 GB of RAM,
+you should probably add "-l 2" to keep RAM use during compression low.
+(This may also lead to smaller tables than the 7-piece default "-l 1".)
+
 The generator writes and reads a massive number of temporary files to and
 from disk. Use of an SSD is at your own risk (SSDs have limited write
 endurance, normally expressed by a TBW rating: *terabytes written*).
 Using an HDD should be feasible because the number of disk seeks is expected
 to be relatively small (for 7- and 8-piece tables). I suspect that an HDD's
-sequential throughput should be sufficient, although this has not yet been
-verified.
+sequential throughput should be sufficient, but I have not yet verified this.
 
 ## Compilation
 
@@ -125,8 +128,7 @@ Layout 0 is the default for tablebases with up to 6 pieces.
 
 Layout 1 is the default for 7-piece tablebase files.
 Using this layout, the tablebase is compressed as 10 or 24
-(pawnless/pawnful) separate tables
-(20 or 48 if the table is two-sided).
+(pawnless/pawnful) separate tables (20 or 48 if the table is two-sided).
 
 #### Layout 2
 
