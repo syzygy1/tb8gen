@@ -1,0 +1,6 @@
+*.txt
+*.rtb?
+TODO
+*.swp
+build/
+buildp/
