@@ -4,3 +4,7 @@ TODO
 *.swp
 build/
 buildp/
+old/
+tmp/
+tb8gen
+tb8genp
