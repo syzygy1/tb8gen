@@ -36,6 +36,7 @@ struct IdxInfo {
   uint64_t recip[MAX_SETS];
   uint64_t size;
   int last[MAX_SETS];
+  int part_id;
 };
 
 struct IdxState {
@@ -283,11 +284,19 @@ INLINE Bitboard idx_state_to_sq(struct IdxState *is, uint8_t *restrict sq,
   return occ;
 }
 
+extern uint64_t reflection_size[30];
+
 void init_unrank(void);
 void calc_factors(struct IdxInfo *ii);
 uint64_t sq_to_idx(uint8_t *sq);
 uint64_t capt_sq_to_idx(uint8_t *sq, int k);
 void idx_state_init(struct IdxState *is, uint64_t idx, uint8_t *restrict sq,
+    const struct IdxInfo *ii);
+
+void init_perfect_ranker(void);
+uint64_t rank_reflection(uint8_t *restrict sq, Bitboard occ,
+    const struct IdxInfo *ii);
+void unrank_reflection(uint64_t idx, uint8_t *restrict sq, Bitboard occ,
     const struct IdxInfo *ii);
 
 #endif

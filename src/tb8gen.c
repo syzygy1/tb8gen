@@ -108,6 +108,7 @@ int main(int argc, char **argv)
   init_movegen();
   init_unrank();
   init_tablebases(path);
+  init_perfect_ranker();
   init_threads();
 
   for (int i = 0; i < 16; i++)
@@ -199,6 +200,38 @@ int main(int argc, char **argv)
   ii.numsets = k;
   calc_factors(&ii);
   kslice_size = ii.size;
+
+#if 0
+  {
+    // Test the perfect ranking functions.
+    uint8_t sq[MAX_PIECES];
+    sq[0] = 0;
+    sq[1] = 63;
+    Bitboard occ = bit(sq[0]) | bit(sq[1]);
+    uint64_t size = reflection_size[ii.part_id];
+    printf("Testing perfecting indexing on %lu positions.\n", size);
+    struct timespec start, end;
+    timespec_get(&start, TIME_UTC);
+    for (uint64_t idx = 0; idx < size; idx++) {
+      unrank_reflection(idx, sq, occ, &ii);
+      uint64_t rk = rank_reflection(sq, occ, &ii);
+      if (rk != idx) {
+        printf("%lu != %lu\n", idx, rk);
+        unrank_reflection(idx, sq, occ, &ii);
+        uint64_t rk = rank_reflection(sq, occ, &ii);
+        printf("%lu != %lu\n", idx, rk);
+        exit(EXIT_FAILURE);
+      }
+    }
+    timespec_get(&end, TIME_UTC);
+    printf("Test passed!\n");
+    double elapsed = (double)(end.tv_sec - start.tv_sec)
+        + 1e-9 * (double)(end.tv_nsec - start.tv_nsec);
+    printf("elapsed: %.6f s\n", elapsed);
+    printf("rate:    %.3f Miter/s\n", size / elapsed / 1e6);
+    exit(0);
+  }
+#endif
 
   // Initialize IdxInfo structs for running through positions with
   // a captured piece.

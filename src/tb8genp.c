@@ -111,6 +111,7 @@ int main(int argc, char **argv)
 
   init_movegen();
   init_unrank();
+  init_perfect_ranker();
   init_tablebases(path);
   init_threads();
 

@@ -160,12 +160,6 @@ INLINE Bitboard piece_moves(int pt, int sq, Bitboard occ)
   }
 }
 
-INLINE uint8_t king_index(Position *pos, int stm)
-{
-  (void)pos;
-  return stm;
-}
-
 INLINE bool is_attacked_by(Position *pos, int sq, int stm)
 {
   Bitboard b = bit(sq);
@@ -178,7 +172,7 @@ INLINE bool is_attacked_by(Position *pos, int sq, int stm)
 
 INLINE bool opp_king_attacked(Position *pos)
 {
-  return is_attacked_by(pos, pos->sq[king_index(pos, pos->stm ^ 1)], pos->stm);
+  return is_attacked_by(pos, pos->sq[pos->stm ^ 1], pos->stm);
 }
 
 #if 1
