@@ -48,8 +48,6 @@ uint64_t capt_sq_to_idx(uint8_t *restrict sq, int k)
   return sq_to_idx_helper(sq, 0, occ, &capt_ii[k]);
 }
 
-static int find_partition(int len, uint8_t mult[]);
-
 void calc_factors(struct IdxInfo *ii)
 {
   for (int i = 0, n = has_pawns ? 61 : 62; i < ii->numsets; i++) {
@@ -152,7 +150,7 @@ INLINE int fold_ps(int p, int s)
 
 static uint8_t unfold_ps[12][2];
 
-static int find_partition(int len, uint8_t mult[])
+int find_partition(int len, uint8_t mult[])
 {
   uint8_t m[6] = { 0 };
 
@@ -304,13 +302,13 @@ static uint64_t rank_combination(Bitboard subset, Bitboard universe)
 }
 
 static uint64_t rank_trivial_from(uint8_t *restrict sq, int k, Bitboard occ,
-    const struct IdxInfo *ii)
+    int numsets, const struct Hack *h)
 {
   uint64_t idx = 0;
-  for (; k < ii->numsets; k++) {
+  for (; k < numsets; k++) {
     size_t s;
-    int i = ii->first[k];
-    int m = ii->mult[k];
+    int i = h->first[k];
+    int m = h->mult[k];
     if (m == 1) {
       s = rank_among_free(sq[i], occ);
       occ |= bit(sq[i]);
@@ -331,7 +329,7 @@ static uint64_t rank_trivial_from(uint8_t *restrict sq, int k, Bitboard occ,
       for (int j = 1; b1; j++)
         s += Binomial[j][pop_lsb(&b1)];
     }
-    idx = idx * ii->factor[k] + s;
+    idx = idx * h->factor[k] + s;
   }
   return idx;
 }
@@ -347,25 +345,25 @@ INLINE uint64_t count_broken_residual_before(int rem, int p, int s, int one)
   return total;
 }
 
-uint64_t rank_reflection(uint8_t *restrict sq, Bitboard occ,
-    const struct IdxInfo *ii)
+uint64_t rank_reflection(uint8_t *restrict sq, Bitboard occ, int numsets,
+    const struct Hack *h)
 {
-  int part_id = ii->part_id;
+  int part_id = h->part_id;
   Bitboard pair_mask = LOWER_DIAG_MASK;
   Bitboard diag_mask = MAIN_DIAG_MASK & ~occ;
   int p = 28, s = 6;
 
   uint64_t rank = 0;
-  for (int k = 0; k < ii->numsets; k++) {
-    int m = ii->mult[k];
+  for (int k = 0; k < numsets; k++) {
+    int m = h->mult[k];
     Bitboard bb = 0;
     for (int i = 0; i < m; i++)
-      bb |= bit(sq[ii->first[k] + i]);
+      bb |= bit(sq[h->first[k] + i]);
     occ |= bb;
     int tid = transition_id[part_id][m];
 
     Bitboard mirror = flip_main_diag(bb);
-    Bitboard full_mask = bb & mirror & pair_mask;
+    Bitboard full_mask = bb & mirror  & pair_mask;
     Bitboard one_mask = (bb ^ mirror) & pair_mask;
     int d = popcnt(full_mask);    // Number of 2-orbits fully filled.
 
@@ -406,9 +404,9 @@ uint64_t rank_reflection(uint8_t *restrict sq, Bitboard occ,
     if (comp < orient_mask) {
       for (int i = 2; i < MAX_PIECES; i++)
         sq[i] = FlipDiag[sq[i]];
-      bb = flip_main_diag(bb);
+      occ = flip_main_diag(occ);
     }
-    return rank + rank_trivial_from(sq, k + 1, occ | bb, ii);
+    return rank + rank_trivial_from(sq, k + 1, occ, numsets, h);
   }
   return rank;
 }

@@ -214,11 +214,13 @@ int main(int argc, char **argv)
     timespec_get(&start, TIME_UTC);
     for (uint64_t idx = 0; idx < size; idx++) {
       unrank_reflection(idx, sq, occ, &ii);
-      uint64_t rk = rank_reflection(sq, occ, &ii);
+      uint64_t rk = rank_reflection(sq, occ, ii.numsets,
+          (struct Hack *)&ii.factor);
       if (rk != idx) {
         printf("%lu != %lu\n", idx, rk);
         unrank_reflection(idx, sq, occ, &ii);
-        uint64_t rk = rank_reflection(sq, occ, &ii);
+        uint64_t rk = rank_reflection(sq, occ, ii.numsets,
+           (struct Hack *)&ii.factor);
         printf("%lu != %lu\n", idx, rk);
         exit(EXIT_FAILURE);
       }

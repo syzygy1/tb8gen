@@ -1398,7 +1398,8 @@ NOINLINE struct Tbase *init_tbase(struct TbEntry *entry, const char *str,
       return init_old_layout(entry, tb, type, data + 4, true);
     }
 
-    if (data[4] != 1)
+    int version = data[4];
+    if (version > 2)
       return nullptr;
 
     const uint8_t *p = data + 4 + entry->num;
@@ -1422,6 +1423,7 @@ NOINLINE struct Tbase *init_tbase(struct TbEntry *entry, const char *str,
     struct Tbase *tbase = calloc(1, sizeof *tbase + num * sizeof(void *));
     tbase->data = data;
     tbase->mapping = mapping;
+    tbase->version = version;
     tbase->layout = layout;
     if (type != WDL && layout <= LT_PIECE_KK)
       tbase->dist_format = dist_format;
@@ -1493,6 +1495,10 @@ NOINLINE struct TbTable2 *init_new_table(struct TbEntry *entry,
       table->factor[i] = Binomial[m][n];
       tb_size *= table->factor[i];
       n -= m;
+    }
+    if (tb->version == 2 && tsq >= 441) {
+      table->part_id = find_partition(k, mult);
+      tb_size = reflection_size[table->part_id];
     }
     data += k;
   }
@@ -1926,24 +1932,29 @@ INLINE int probe_table(Position *pos, int s, const int type)
     }
 
     // Calculate index.
-    static const int extra[] = { 1, 0, 2, 1, 0, 0 };
-    int numsets = entry->numsets + extra[tb->layout - LT_PIECE_K];
-    for (int k = 0; k < numsets; k++) {
-      size_t s = 0;
-      if (table->mult[k] == 0)
-        s = Off10[tsq][p[1]];
-      else {
-        int m = table->first[k];
-        sort_squares(table->mult[k], &p[m]);
-        Bitboard occ2 = occ;
-        for (int i = 0; i < table->mult[k]; i++, m++) {
-          int rank = rank_among_free(p[m], occ);
-          occ2 |= bit(p[m]);
-          s += Binomial[i + 1][rank];
+    if (tb->layout != LT_PIECE_KK || tsq < 441 || tb->version == 1) {
+      static const int extra[] = { 1, 0, 2, 1, 0, 0 };
+      int numsets = entry->numsets + extra[tb->layout - LT_PIECE_K];
+      for (int k = 0; k < numsets; k++) {
+        size_t s = 0;
+        if (table->mult[k] == 0)
+          s = Off10[tsq][p[1]];
+        else {
+          int m = table->first[k];
+          sort_squares(table->mult[k], &p[m]);
+          Bitboard occ2 = occ;
+          for (int i = 0; i < table->mult[k]; i++, m++) {
+            int rank = rank_among_free(p[m], occ);
+            occ2 |= bit(p[m]);
+            s += Binomial[i + 1][rank];
+          }
+          occ = occ2;
         }
-        occ = occ2;
+        idx = idx * table->factor[k] + s;
       }
-      idx = idx * table->factor[k] + s;
+    } else {
+      idx = rank_reflection(p, occ, entry->numsets,
+          (struct Hack *)&table->factor);
     }
 
     const uint8_t *w = decompress_pairs(table->precomp, idx);

@@ -125,6 +125,7 @@ struct TbTable2 {
   uint32_t factor[MAX_SETS];
   uint8_t first[MAX_SETS];
   uint8_t mult[MAX_SETS];
+  uint8_t part_id;
 };
 
 struct WdlTable2 {
@@ -132,6 +133,7 @@ struct WdlTable2 {
   uint32_t factor[MAX_SETS];
   uint8_t first[MAX_SETS];
   uint8_t mult[MAX_SETS];
+  uint8_t part_id;
 };
 
 struct DtmTable2 {
@@ -139,6 +141,7 @@ struct DtmTable2 {
   uint32_t factor[MAX_SETS];
   uint8_t first[MAX_SETS];
   uint8_t mult[MAX_SETS];
+  uint8_t part_id;
   uint8_t mapped;
   uint8_t dist_format;
   const uint16_t *map_dtm;
@@ -150,6 +153,7 @@ struct DtzTable2 {
   uint32_t factor[MAX_SETS];
   uint8_t first[MAX_SETS];
   uint8_t mult[MAX_SETS];
+  uint8_t part_id;
   uint8_t mapped;
   uint8_t dist_format;
   uint16_t map_dtz_idx[4];
@@ -171,6 +175,7 @@ struct Tbase {
   uint8_t pt[MAX_PIECES];
   uint8_t layout;
   uint8_t dist_format;
+  uint8_t version;
   bool flipped;
   uint8_t offset;
   void *_Atomic table[];

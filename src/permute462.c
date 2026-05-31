@@ -31,6 +31,7 @@ static constexpr int MAX_CANDS = 6*7;
 
 static struct Work *work_convert = nullptr;
 static struct Work *work_est = nullptr;
+static uint64_t slice_size = 0;
 
 static int num_sets, num_set_perms;
 static uint8_t set_perm_list[MAX_PERMS][MAX_SETS];
@@ -119,8 +120,8 @@ void init_permute_piece_462(void)
     set_pt[i] = g_pos.pt[ii.first[i]];
 
   generate_test_list(kslice_size, g_pos.num - 2);
-
   work_convert = create_work(g_total_work, kslice_size, 0);
+  slice_size = kslice_size;
 }
 
 static struct {
@@ -145,7 +146,7 @@ static struct {
 #undef T
 
 static void estimate_compression_piece(void *table, int num_cands, bool wide,
-    bool wdl)
+    bool wdl, bool reflection)
 {
   uint64_t dsize = num_segs * seg_size;
   void *dst = malloc((num_cands * dsize + 1) * (1 + wide));
@@ -155,17 +156,32 @@ static void estimate_compression_piece(void *table, int num_cands, bool wide,
   est_data.dsize = dsize;
   uint8_t *dst0 = dst;
 
-  if (num_segs > 1) {
-    if (!wide)
-      run_threaded(convert_est_data_piece_u8, work_est, 0);
-    else
-      run_threaded(convert_est_data_piece_u16, work_est, 0);
-  }
-  else {
-    if (!wide)
-      run_single(convert_est_data_piece_u8, work_est, 0);
-    else
-      run_single(convert_est_data_piece_u16, work_est, 0);
+  if (reflection) {
+    if (num_segs > 1) {
+      if (!wide)
+        run_threaded(convert_est_data_piece_ref_u8, work_est, 0);
+      else
+        run_threaded(convert_est_data_piece_ref_u16, work_est, 0);
+    }
+    else {
+      if (!wide)
+        run_single(convert_est_data_piece_ref_u8, work_est, 0);
+      else
+        run_single(convert_est_data_piece_ref_u16, work_est, 0);
+    }
+  } else {
+    if (num_segs > 1) {
+      if (!wide)
+        run_threaded(convert_est_data_piece_u8, work_est, 0);
+      else
+        run_threaded(convert_est_data_piece_u16, work_est, 0);
+    }
+    else {
+      if (!wide)
+        run_single(convert_est_data_piece_u8, work_est, 0);
+      else
+        run_single(convert_est_data_piece_u16, work_est, 0);
+    }
   }
 
   uint64_t csize;
@@ -190,7 +206,8 @@ static void estimate_compression_piece(void *table, int num_cands, bool wide,
   free(dst);
 }
 
-static int64_t estimate_compression(void *table, int *bestp, bool wide,bool wdl)
+static int64_t estimate_compression(void *table, int *bestp, bool wide,
+    bool wdl, bool reflection)
 {
   int i, j, k, p, q;
   int num_cands, bp = 0;
@@ -257,7 +274,7 @@ static int64_t estimate_compression(void *table, int *bestp, bool wide,bool wdl)
       }
       calc_factors(&try_ii[i]);
     }
-    estimate_compression_piece(table, num_cands, wide, wdl);
+    estimate_compression_piece(table, num_cands, wide, wdl, reflection);
     for (i = 0; i < num_cands; i++) {
       if (compest[trylist[i]] < best) {
 	best = compest[trylist[i]];
@@ -274,9 +291,21 @@ static int64_t estimate_compression(void *table, int *bestp, bool wide,bool wdl)
 void permute_piece_462(void *tb_table, void *table, uint8_t *best, int type, 
     bool wide)
 {
+  int s = KKMap[g_pos.sq[0]][g_pos.sq[1]];
+  bool reflection = s >= 441;
+  uint64_t size = reflection ? reflection_size[ii.part_id] : kslice_size;
+
+  if (size != slice_size) {
+    generate_test_list(size, g_pos.num - 2);
+    if (work_convert)
+      work_free(work_convert);
+    work_convert = create_work(g_total_work, size, 0);
+    slice_size = size;
+  }
+
   int bestp;
 
-  estimate_compression(table, &bestp, wide, type == WDL);
+  estimate_compression(table, &bestp, wide, type == WDL, reflection);
 
   for (int i = 0; i < num_sets; i++)
     best[i] = set_perm_list[bestp][i];
@@ -303,8 +332,15 @@ void permute_piece_462(void *tb_table, void *table, uint8_t *best, int type,
   if (g_compress_type == 1)
     return;
 
-  if (!wide)
-    run_threaded(convert_data_piece_u8, work_convert, 1);
-  else
-    run_threaded(convert_data_piece_u16, work_convert, 1);
+  if (reflection) {
+    if (!wide)
+      run_threaded(convert_data_piece_ref_u8, work_convert, 1);
+    else
+      run_threaded(convert_data_piece_ref_u16, work_convert, 1);
+  } else {
+    if (!wide)
+      run_threaded(convert_data_piece_u8, work_convert, 1);
+    else
+      run_threaded(convert_data_piece_u16, work_convert, 1);
+  }
 }

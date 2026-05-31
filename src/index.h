@@ -30,13 +30,20 @@ static constexpr int MAX_MULT = MAX_PIECES - (has_pawns ? 3 : 2);
 
 struct IdxInfo {
   int numsets;   // number of sets of like pieces, excluding kings.
-  int first[MAX_SETS];          // index of first piece of each set
-  int mult[MAX_SETS];           // number of like pieces in each set
-  uint32_t factor[MAX_SETS]; // total number of placements for a set
+  uint32_t factor[MAX_SETS];        // total number of placements for a set
+  uint8_t first[MAX_SETS];          // index of first piece of each set
+  uint8_t mult[MAX_SETS];           // number of like pieces in each set
+  uint8_t part_id;
   uint64_t recip[MAX_SETS];
   uint64_t size;
-  int last[MAX_SETS];
-  int part_id;
+  uint8_t last[MAX_SETS];
+};
+
+struct Hack {
+  uint32_t factor[MAX_SETS];
+  uint8_t first[MAX_SETS];
+  uint8_t mult[MAX_SETS];
+  uint8_t part_id;
 };
 
 struct IdxState {
@@ -294,8 +301,9 @@ void idx_state_init(struct IdxState *is, uint64_t idx, uint8_t *restrict sq,
     const struct IdxInfo *ii);
 
 void init_perfect_ranker(void);
-uint64_t rank_reflection(uint8_t *restrict sq, Bitboard occ,
-    const struct IdxInfo *ii);
+int find_partition(int len, uint8_t mult[]);
+uint64_t rank_reflection(uint8_t *restrict sq, Bitboard occ, int numsets,
+    const struct Hack *h);
 void unrank_reflection(uint64_t idx, uint8_t *restrict sq, Bitboard occ,
     const struct IdxInfo *ii);
 

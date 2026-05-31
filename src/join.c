@@ -410,13 +410,14 @@ static void join_wdl_462(int stm)
       }
 
     compress_init_wdl(v_wdl);
+    uint64_t slice_size = s < 441 ? kslice_size : reflection_size[ii.part_id];
 
     uint8_t best[MAX_SETS];
     printf("Find optimal permutation for %ctm/wdl, slice = %d.\n", "wb"[stm],
         s);
     permute_piece_462(tb_table, table, best, WDL, false);
     printf("Compressing data for %ctm/wdl, slice = %d.\n", "wb"[stm], s);
-    compress_data_slice(name, stm, WDL, tb_table, kslice_size, best, minfreq,
+    compress_data_slice(name, stm, WDL, tb_table, slice_size, best, minfreq,
         false, false);
 
     if (!g_cleanup) continue;
@@ -516,13 +517,14 @@ static void join_dtz_462(int stm)
     }
 
     compress_init_dtz(&dtzmap, tb_wide);
+    uint64_t slice_size = s < 441 ? kslice_size : reflection_size[ii.part_id];
 
     uint8_t best[MAX_SETS];
     printf("Find optimal permutation for %ctm/dtz, slice = %d.\n", "wb"[stm],
         s);
     permute_piece_462(tb_table, join_table, best, DTZ, tb_wide);
     printf("Compressing data for %ctm/dtz, slice = %d.\n", "wb"[stm], s);
-    compress_data_slice(name, stm, DTZ, tb_table, kslice_size, best, minfreq,
+    compress_data_slice(name, stm, DTZ, tb_table, slice_size, best, minfreq,
         tb_wide, false);
 
     if (!g_cleanup) continue;
@@ -550,7 +552,7 @@ void join_final_462(int type)
   uint8_t *p = buf;
   write_le_u32(p, magic2[type]);
   p += 4;
-  *p++ = 1; // version number
+  *p++ = 2; // version number
   *p++ = g_pos.num;
   for (int i = 2; i < g_pos.num; i++)
     *p++ = (g_pos.pt[i] & 7) | ((g_pos.pt[i] & 8) << 4);
