@@ -27,9 +27,9 @@ struct MergeInfo mi;
 
 static void *merge_table, *merge_w;
 static int merge_n;
-static int work_set, work_slice;
+static int work_set;
 static bool include_wins, include_losses;
-static struct Work work_g_merge_dynamic, work_g_merge_static;
+static struct Work work_g_merge_dynamic[2], work_g_merge_static[2];
 static struct Work work_capt_merge_dynamic[MAX_SETS];
 static int merge_num_active_threads;
 static int merge_active_threads[MAX_THREADS];
@@ -53,66 +53,17 @@ static void set_merge_active_threads(struct Work *work)
 
 void init_merge_work(void)
 {
-  work_init(&work_g_merge_dynamic, kslice_size, 0x1ff, WORK_DYNAMIC,
+  work_init(&work_g_merge_dynamic[0], kslice_sizes[0], 0x1ff, WORK_DYNAMIC,
       MERGE_DYNAMIC_FACTOR, MERGE_MIN_DYNAMIC_CHUNK);
-  work_init(&work_g_merge_static, kslice_size, 0x1ff, WORK_STATIC, 1,
+  work_init(&work_g_merge_dynamic[1], kslice_sizes[1], 0x1ff, WORK_DYNAMIC,
+      MERGE_DYNAMIC_FACTOR, MERGE_MIN_DYNAMIC_CHUNK);
+  work_init(&work_g_merge_static[0], kslice_sizes[0], 0x1ff, WORK_STATIC, 1,
+      MERGE_MIN_DYNAMIC_CHUNK);
+  work_init(&work_g_merge_static[1], kslice_sizes[1], 0x1ff, WORK_STATIC, 1,
       MERGE_MIN_DYNAMIC_CHUNK);
   for (int k = 0; k < ii.numsets; k++)
     work_init(&work_capt_merge_dynamic[k], capt_ii[k].size, 0x1ff,
         WORK_DYNAMIC, MERGE_DYNAMIC_FACTOR, MERGE_MIN_DYNAMIC_CHUNK);
-}
-
-static void stat_count_worker(struct ThreadData *thread)
-{
-  struct IdxState is;
-  Position pos = g_pos;
-  uint8_t sq2[MAX_PIECES];
-
-  uint64_t *restrict p = (uint64_t *)kslice_get_address(-1);
-
-  uint64_t cnt = 0;
-  p += thread->begin >> 6;
-  uint64_t last = thread->begin;
-  idx_state_init(&is, last, pos.sq, &ii);
-  idx_state_to_sq(&is, pos.sq, &ii);
-  for (uint64_t idx = thread->begin, end = thread->end; idx < end; idx += 64) {
-    uint64_t w = *p++;
-    while (w) {
-      uint64_t cur = idx + pop_lsb(&w);
-      idx_state_add(&is, cur - last, &ii);
-      last = cur;
-      idx_state_to_sq(&is, pos.sq, &ii);
-      mirror_diagonal2(pos.sq, sq2);
-      uint64_t idx2 = sq_to_idx(sq2);
-      cnt += (cur == idx2) ? 2 : 1;
-    }
-  }
-
-  thread->cnt += cnt;
-}
-
-static uint64_t stat_count(int stm, int s)
-{
-  if (s < 441)
-    return kslice_read_count << 1;
-
-  work_slice = s;
-
-  set_merge_active_threads(&work_g_merge_dynamic);
-  for (int tt = 0; tt < merge_num_active_threads; tt++) {
-    int t = merge_active_threads[tt];
-    g_thread_data[t].cnt = 0;
-  }
-
-  run_threaded(stat_count_worker, &work_g_merge_dynamic, 0);
-
-  uint64_t cnt = 0;
-  for (int tt = 0; tt < merge_num_active_threads; tt++) {
-    int t = merge_active_threads[tt];
-    cnt += g_thread_data[t].cnt;
-  }
-
-  return cnt;
 }
 
 static _Atomic uint64_t found_idx;
@@ -145,21 +96,26 @@ static void find_position_worker(struct ThreadData *thread)
   }
 }
 
-static void find_position(int stm, bool loss, bool cursed)
+static void find_position(int s, int stm, bool loss, bool cursed)
 {
   atomic_store_explicit(&found_idx, UINT64_MAX, memory_order_relaxed);
 
-  run_threaded(find_position_worker, &work_g_merge_dynamic, 0);
+  run_threaded(find_position_worker, &work_g_merge_dynamic[s >= 441], 0);
 
   uint64_t idx = atomic_load_explicit(&found_idx, memory_order_relaxed);
-  if (idx >= kslice_size)
+  if (idx >= kslice_sizes[s >= 441])
     return;
 
-  struct IdxState is;
   Position pos = g_pos;
   pos.stm = stm ^ loss;
-  idx_state_init(&is, idx, pos.sq, &ii);
-  idx_state_to_sq(&is, pos.sq, &ii);
+  if (s < 441) {
+    struct IdxState is;
+    idx_state_init(&is, idx, pos.sq, &ii);
+    idx_state_to_sq(&is, pos.sq, &ii);
+  } else {
+    Bitboard occ = bit(pos.sq[0]) | bit(pos.sq[1]);
+    unrank_reflection(idx, pos.sq, occ, &ii);
+  }
   pos_to_fen(&pos, mf.fen[stm][cursed], false);
   mf.found[stm][cursed] = true;
 

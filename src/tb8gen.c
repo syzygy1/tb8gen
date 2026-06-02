@@ -199,7 +199,10 @@ int main(int argc, char **argv)
   }
   ii.numsets = k;
   calc_factors(&ii);
-  kslice_size = ii.size;
+  kslice_sizes[0] = ii.size;
+  kslice_sizes[1] = reflection_size[ii.part_id];
+//  total_kslice_size = 441 * kslice_sizes[0] + 21 * kslice_sizes[1];
+//  reflection_offset = 441 * kslice_sizes[0];
 
 #if 0
   {

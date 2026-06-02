@@ -411,6 +411,13 @@ uint64_t rank_reflection(uint8_t *restrict sq, Bitboard occ, int numsets,
   return rank;
 }
 
+uint64_t sq_to_idx_ref(uint8_t *restrict sq)
+{
+  Bitboard occ = bit(sq[0]) | bit(sq[1]);
+
+  return rank_reflection(sq, occ, ii.numsets, (struct Hack *)&ii.factor);
+}
+
 static Bitboard unrank_combination(uint64_t idx, Bitboard universe, int m)
 {
   if (m == 0)
@@ -438,7 +445,7 @@ static Bitboard unrank_combination(uint64_t idx, Bitboard universe, int m)
   return _pdep_u64(dense, universe);
 }
 
-static void unrank_trivial(uint8_t *restrict sq, uint64_t idx, int g,
+static Bitboard unrank_trivial(uint8_t *restrict sq, uint64_t idx, int g,
     Bitboard occ, const struct IdxInfo *ii)
 {
   uint32_t sub[MAX_SETS];
@@ -446,9 +453,10 @@ static void unrank_trivial(uint8_t *restrict sq, uint64_t idx, int g,
     idx = divmod_recip(idx, ii->factor[k], ii->recip[k], &sub[k]);
   for (; g < ii->numsets; g++)
     occ = unrank_binomial(sub[g], ii->mult[g], sq + ii->first[g], occ);
+  return occ;
 }
 
-void unrank_reflection(uint64_t idx, uint8_t *restrict sq, Bitboard occ,
+Bitboard unrank_reflection(uint64_t idx, uint8_t *restrict sq, Bitboard occ,
     const struct IdxInfo *ii)
 {
   int part_id = ii->part_id;
@@ -520,7 +528,7 @@ void unrank_reflection(uint64_t idx, uint8_t *restrict sq, Bitboard occ,
     occ |= bb;
     for (int i = ii->first[k]; bb; i++)
       sq[i] = pop_lsb(&bb);
-    unrank_trivial(sq, idx, k + 1, occ, ii);
-    return;
+    return unrank_trivial(sq, idx, k + 1, occ, ii);
   }
+  return occ;
 }

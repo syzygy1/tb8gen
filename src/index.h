@@ -52,6 +52,9 @@ struct IdxState {
   int n;
 };
 
+//struct IdxIter {
+//};
+
 extern struct IdxInfo ii, capt_ii[MAX_SETS];
 extern int pc_to_set[MAX_PIECES];
 extern Bitboard Unrank2[62 * 61 / 2], Unrank3[62 * 61 * 60 / 6];
@@ -296,6 +299,7 @@ extern uint64_t reflection_size[30];
 void init_unrank(void);
 void calc_factors(struct IdxInfo *ii);
 uint64_t sq_to_idx(uint8_t *sq);
+uint64_t sq_to_idx_ref(uint8_t *sq);
 uint64_t capt_sq_to_idx(uint8_t *sq, int k);
 void idx_state_init(struct IdxState *is, uint64_t idx, uint8_t *restrict sq,
     const struct IdxInfo *ii);
@@ -304,7 +308,7 @@ void init_perfect_ranker(void);
 int find_partition(int len, uint8_t mult[]);
 uint64_t rank_reflection(uint8_t *restrict sq, Bitboard occ, int numsets,
     const struct Hack *h);
-void unrank_reflection(uint64_t idx, uint8_t *restrict sq, Bitboard occ,
+Bitboard unrank_reflection(uint64_t idx, uint8_t *restrict sq, Bitboard occ,
     const struct IdxInfo *ii);
 
 #endif

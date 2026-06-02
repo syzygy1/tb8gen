@@ -35,8 +35,6 @@ void collect_stats(int stm)
     for (int i = 0; i < MAX_STATS; i++)
       stats[i] += tmp[i];
   }
-  for (int i = 0; i < MAX_STATS; i++)
-    stats[i] >>= 1;
 }
 
 void print_stats(FILE *F, int stm)

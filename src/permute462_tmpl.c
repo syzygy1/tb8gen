@@ -119,7 +119,7 @@ static void NAME(convert_data_piece_ref)(struct ThreadData *thread)
   // Fill pipeline.
   for (; fill < NUM && idx < end; fill++, idx++) {
     unrank_reflection(idx, sq, occ, perm_ii);
-    uint64_t idx_dec = sq_to_idx(sq);
+    uint64_t idx_dec = sq_to_idx_ref(sq);
     __builtin_prefetch(src + idx_dec, 0, 3);
     idx_dec_buf[fill] = idx_dec;
   }
@@ -127,7 +127,7 @@ static void NAME(convert_data_piece_ref)(struct ThreadData *thread)
   // Steady-state pipeline.
   for (; idx < end; idx++) {
     unrank_reflection(idx, sq, occ, perm_ii);
-    uint64_t idx_dec = sq_to_idx(sq);
+    uint64_t idx_dec = sq_to_idx_ref(sq);
     __builtin_prefetch(src + idx_dec, 0, 3);
     dst[idx - NUM] = src[idx_dec_buf[head]];
     idx_dec_buf[head] = idx_dec;
@@ -162,14 +162,14 @@ static void NAME(convert_est_data_piece_ref)(struct ThreadData *thread)
 
       for (; fill < NUM && j < seg_size; fill++, j++) {
         unrank_reflection(segs[i] + j, sq, occ, &try_ii[p]);
-        uint64_t idx_dec = sq_to_idx(sq);
+        uint64_t idx_dec = sq_to_idx_ref(sq);
         __builtin_prefetch(table + idx_dec, 0, 3);
         idx_dec_buf[fill] = idx_dec;
       }
 
       for (; j < seg_size; j++, idx_state_inc(&is, &try_ii[p])) {
         unrank_reflection(segs[i] + j, sq, occ, &try_ii[p]);
-        uint64_t idx_dec = sq_to_idx(sq);
+        uint64_t idx_dec = sq_to_idx_ref(sq);
         __builtin_prefetch(table + idx_dec, 0, 3);
         dst[p * dsize + i * seg_size + j - NUM] = table[idx_dec_buf[head]];
         idx_dec_buf[head] = idx_dec;

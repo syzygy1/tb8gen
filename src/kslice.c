@@ -25,16 +25,17 @@
 
 uint8_t *kslice_buf[20];
 uint8_t *kslice_sub_buf[19];
-size_t kslice_size, kslice_sub_size[MAX_SETS];
+size_t kslice_sizes[2];
+size_t kslice_sub_sizes[2][MAX_SETS];
 size_t sub_offset[MAX_SETS];
 size_t sub_size[2];
 int8_t kslice_slot[463];
-uint64_t kslice_cache_lines;
+static uint64_t kslice_cache_lines[2];
 uint64_t kslice_read_cost;
 uint64_t kslice_read_count;
 
-static struct Work *work_cl;
-static struct Work *work_sub_cl[2];
+static struct Work *work_cl[2];
+static struct Work *work_sub_cl[2]; // FIXME x2?
 static bool kslice_in_use[19];
 
 static constexpr Bitboard LOWER  = 0x80c0e0f0f8fcfeffull;
@@ -129,7 +130,7 @@ INLINE size_t bits_to_aligned(size_t size)
 
 uint8_t *alloc_kslice(void)
 {
-  size_t size = bits_to_aligned(kslice_size);
+  size_t size = bits_to_aligned(kslice_sizes[0]);
   uint8_t *p = alloc_huge(size);
   if (!p)
     out_of_mem();
@@ -143,10 +144,14 @@ void kslice_setup(void)
   kslice_slot[0] = 19;
   for (int i = 0; i < 462; i++)
     kslice_slot[i + 1] = -1;
-  kslice_cache_lines = bits_to_aligned(kslice_size) >> 6;
-  work_cl = create_work(calc_work_units(kslice_cache_lines, 1, 16),
-      kslice_cache_lines, 0);
-  work_cl->schedule = WORK_STATIC;
+  kslice_cache_lines[0] = bits_to_aligned(kslice_sizes[0]) >> 6;
+  kslice_cache_lines[1] = bits_to_aligned(kslice_sizes[1]) >> 6;
+  work_cl[0] = create_work(calc_work_units(kslice_cache_lines[0], 1, 16),
+      kslice_cache_lines[0], 0);
+  work_cl[0]->schedule = WORK_STATIC;
+  work_cl[1] = create_work(calc_work_units(kslice_cache_lines[1], 1, 16),
+      kslice_cache_lines[1], 0);
+  work_cl[1]->schedule = WORK_STATIC;
   sub_size[0] = sub_size[1] = 0;
   for (int i = 0; i < ii.numsets; i++) {
     int stm = g_pos.pt[ii.first[i]] >> 3;
@@ -212,9 +217,9 @@ void kslice_release(int s)
 
 static void *work_p, *work_q;
 
-static void run_cl(void (*func)(struct ThreadData *))
+static void run_cl(void (*func)(struct ThreadData *), int s)
 {
-  run_threaded(func, work_cl, 0);
+  run_threaded(func, work_cl[s >= 441], 0);
 }
 
 static void run_sub_cl(void (*func)(struct ThreadData *), int stm)
@@ -229,16 +234,16 @@ static void set_worker(struct ThreadData *thread)
   memset(p + (thread->begin << 6), 0xff, (thread->end - thread->begin) << 6);
 }
 
-void kslice_set_addr(void *p)
+void kslice_set_addr(void *p, int s)
 {
   work_p = p;
-  run_cl(set_worker);
+  run_cl(set_worker, s);
 }
 
 void kslice_set(int s)
 {
   work_p = kslice_get_address(s);
-  run_cl(set_worker);
+  run_cl(set_worker, s);
 }
 
 static void clear_worker(struct ThreadData *thread)
@@ -248,16 +253,16 @@ static void clear_worker(struct ThreadData *thread)
   memset(p + (thread->begin << 6), 0x00, (thread->end - thread->begin) << 6);
 }
 
-void kslice_clear_addr(void *p)
+void kslice_clear_addr(void *p, int s)
 {
   work_p = p;
-  run_cl(clear_worker);
+  run_cl(clear_worker, s);
 }
 
 void kslice_clear(int s)
 {
   work_p = kslice_get_address(s);
-  run_cl(clear_worker);
+  run_cl(clear_worker, s);
 }
 
 static void or_worker(struct ThreadData *thread)
@@ -275,7 +280,7 @@ void kslice_or(int s1, int s2)
   work_p = kslice_get_address(s1);
   work_q = kslice_get_address(s2);
 
-  run_cl(or_worker);
+  run_cl(or_worker, max(s1, s2));
 }
 
 static void or_not_worker(struct ThreadData *thread)
@@ -293,7 +298,7 @@ void kslice_or_not(int s1, int s2)
   work_p = kslice_get_address(s1);
   work_q = kslice_get_address(s2);
 
-  run_cl(or_not_worker);
+  run_cl(or_not_worker, max(s1, s2));
 }
 
 static void and_worker(struct ThreadData *thread)
@@ -311,7 +316,7 @@ void kslice_and(int s1, int s2)
   work_p = kslice_get_address(s1);
   work_q = kslice_get_address(s2);
 
-  run_cl(and_worker);
+  run_cl(and_worker, max(s1, s2));
 }
 
 static void and_not_worker(struct ThreadData *thread)
@@ -329,7 +334,7 @@ void kslice_and_not(int s1, int s2)
   work_p = kslice_get_address(s1);
   work_q = kslice_get_address(s2);
 
-  run_cl(and_not_worker);
+  run_cl(and_not_worker, max(s1, s2));
 }
 
 static void not_and_worker(struct ThreadData *thread)
@@ -347,7 +352,7 @@ void kslice_not_and(int s1, int s2)
   work_p = kslice_get_address(s1);
   work_q = kslice_get_address(s2);
 
-  run_cl(not_and_worker);
+  run_cl(not_and_worker, max(s1, s2));
 }
 
 void nor_worker(struct ThreadData *thread)
@@ -365,7 +370,7 @@ void kslice_nor(int s1, int s2)
   work_p = kslice_get_address(s1);
   work_q = kslice_get_address(s2);
 
-  run_cl(nor_worker);
+  run_cl(nor_worker, max(s1, s2));
 }
 
 uint64_t kslice_write_addr(void *p, int slice, int stm, const char *name, int n,
@@ -376,7 +381,7 @@ uint64_t kslice_write_addr(void *p, int slice, int stm, const char *name, int n,
   FILE *F = file_open_write(str);
   if (num > 0) {
     file_write(&num, sizeof num, F);
-    write_data(F, p, kslice_cache_lines << 6);
+    write_data(F, p, kslice_cache_lines[slice >= 441] << 6);
   }
   uint64_t bytes = ftell(F);
   fclose(F);
@@ -424,7 +429,7 @@ bool kslice_read(int s, int slice, int stm, const char *name, int n)
   }
   if (non_empty) {
     file_read(&kslice_read_count, sizeof(uint64_t), F);
-    read_data(F, kslice_get_address(s), kslice_cache_lines << 6);
+    read_data(F, kslice_get_address(s), kslice_cache_lines[slice >= 441] << 6);
   } else
     kslice_clear(s);
   if (F) fclose(F);
@@ -450,7 +455,8 @@ void kslice_read_or(int s, int slice, int stm, const char *name, int n)
     file_read(&num, sizeof(uint64_t), F);
 //    kslice_read_count += num;
     kslice_read_cost += st.st_size;
-    read_data_or(F, kslice_get_address(s), kslice_cache_lines << 6);
+    read_data_or(F, kslice_get_address(s),
+        kslice_cache_lines[slice >= 441] << 6);
   }
   fclose(F);
 }
@@ -557,15 +563,15 @@ INLINE void clear_tail(void *p, size_t num_bits, size_t num_words)
     q[idx] = 0;
 }
 
-void kslice_clear_tail_addr(void *p)
+void kslice_clear_tail_addr(void *p, int s)
 {
   uint8_t *restrict q = p;
-  clear_tail(q, kslice_size, kslice_cache_lines << 3);
+  clear_tail(q, kslice_sizes[s >= 441], kslice_cache_lines[s >= 441] << 3);
 }
 
 void kslice_clear_tail(int s)
 {
-  kslice_clear_tail_addr(kslice_get_address(s));
+  kslice_clear_tail_addr(kslice_get_address(s), s);
 }
 
 static void count_worker(struct ThreadData *thread)
@@ -579,16 +585,16 @@ static void count_worker(struct ThreadData *thread)
   thread->cnt += cnt;
 }
 
-uint64_t kslice_count_addr(void *p)
+uint64_t kslice_count_addr(void *p, int s)
 {
-  kslice_clear_tail_addr(p);
+  kslice_clear_tail_addr(p, s);
 
   work_p = p;
 
   for (int t = 0; t < g_num_threads; t++)
     g_thread_data[t].cnt = 0;
 
-  run_cl(count_worker);
+  run_cl(count_worker, s);
 
   uint64_t cnt = 0;
   for (int t = 0; t < g_num_threads; t++)
@@ -599,7 +605,7 @@ uint64_t kslice_count_addr(void *p)
 
 uint64_t kslice_count(int s)
 {
-  return kslice_count_addr(kslice_get_address(s));
+  return kslice_count_addr(kslice_get_address(s), s);
 }
 
 uint64_t kslice_sub_count_addr(void *p, int stm)

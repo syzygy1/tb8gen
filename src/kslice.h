@@ -27,8 +27,12 @@ extern uint8_t *kslice_sub_buf[19];
 extern size_t sub_offset[MAX_SETS];
 extern int8_t kslice_slot[463];
 
-extern size_t kslice_size, kslice_sub_size[MAX_SETS];
-extern uint64_t kslice_cache_lines;
+extern size_t kslice_sizes[2];
+#define kslice_size (kslice_sizes[0])
+extern size_t kslice_sub_sizes[2][MAX_SETS];
+#define kslice_sub_size (kslice_sub_sizes[0])
+//extern size_t total_kslice_size;
+//extern size_t reflection_offset;
 
 extern uint64_t kslice_read_cost;
 extern uint64_t kslice_read_count;
@@ -89,9 +93,9 @@ void kslice_free_buffers(void);
 void kslice_reserve(int s);
 void kslice_release(int s);
 void kslice_set(int s);
-void kslice_set_addr(void *p);
+void kslice_set_addr(void *p, int s);
 void kslice_clear(int s);
-void kslice_clear_addr(void *p);
+void kslice_clear_addr(void *p, int s);
 void kslice_or(int s1, int s2);
 void kslice_or_not(int s1, int s2);
 void kslice_and(int s1, int s2);
@@ -111,9 +115,9 @@ void kslice_sub_write_addr(void *p, int slice, int stm, const char *name,
 void kslice_sub_read(int s, int slice, int stm, const char *name);
 void kslice_sub_and_not(int s1, int s2, int stm);
 void kslice_clear_tail(int s);
-void kslice_clear_tail_addr(void *p);
+void kslice_clear_tail_addr(void *p, int s);
 uint64_t kslice_count(int s);
-uint64_t kslice_count_addr(void *p);
+uint64_t kslice_count_addr(void *p, int s);
 uint64_t kslice_sub_count_addr(void *p, int stm);
 void kslice_sub_clear(int s, int stm);
 void kslice_sub_clear_addr(void *p, int stm);

@@ -63,6 +63,7 @@ static struct P10IdxInfo best_ii;
 static uint8_t perm_tmp[MAX_SETS];
 
 static uint8_t P10Square[64];
+static bool P10Ref[64];
 static uint8_t InvSquare[64];
 
 static int32_t current_size = -1;
@@ -115,7 +116,11 @@ uint64_t p10_sq_to_idx(uint8_t *restrict sq, int k2sq)
 
   Bitboard occ = bit(sq[0]) | bit(sq[1]);
   uint64_t idx = P10Square[k2sq];
-  return sq_to_idx_helper(sq, idx, occ, &ii);
+  if (!P10Ref[k2sq])
+    return sq_to_idx_helper(sq, idx, occ, &ii);
+  else
+    return idx * kslice_size
+      + rank_reflection(sq, occ, ii.numsets, (struct Hack *)&ii.factor);
 }
 
 static void generate_set_perms_helper(int n, int k)
@@ -205,6 +210,7 @@ void init_permute_piece_10(int k)
   for (int l = 0; l < 64; l ++)
     if (KKIdx[k][l] >= 0) {
       P10Square[l] = n;
+      P10Ref[l] = KKIdx[k][l] >= 441;
       InvSquare[n++] = l;
     } else
       P10Square[l] = 0xff;

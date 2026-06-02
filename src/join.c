@@ -189,7 +189,7 @@ static void join_wdl(int stm, struct tb_handle *G)
   for (int s = 0; s < 462; s++) {
     create_name(str, s, stm, "merged/wdl", -1);
     FILE *F = file_open_read(str);
-    read_data(F, table + s * kslice_size, kslice_size);
+    read_data(F, table + s * kslice_size, kslice_sizes[s >= 441]);
     fclose(F);
   }
 
@@ -210,7 +210,8 @@ static void join_dtz(int stm, struct tb_handle *G)
 
   read_merge_info(stm);
 
-  sort_values(stm, g_stats[stm], &dtzmap, 462 * kslice_size);
+  sort_values(stm, g_stats[stm], &dtzmap,
+      441 * kslice_sizes[0] + 21 * kslice_sizes[1]);
 
   if (dtzmap.wide != join_wide) {
     join_wide = dtzmap.wide;
@@ -249,7 +250,8 @@ static void join_dtz(int stm, struct tb_handle *G)
     for (int s = 0; s < 462; s++) {
       create_name(str, s, stm, "merged/dtz", -1);
       FILE *F = file_open_read(str);
-      read_data_transform_u8(F, table + s * kslice_size, kslice_size, w);
+      read_data_transform_u8(F, table + s * kslice_size,
+          kslice_sizes[s >= 441], w);
       fclose(F);
     }
 
@@ -266,7 +268,7 @@ static void join_dtz(int stm, struct tb_handle *G)
       create_name(str, s, stm, "merged/dtz", -1);
       FILE *F = file_open_read(str);
       read_data_transform_to_u8_u16(F, table + s * kslice_size,
-          kslice_size * 2, w);
+          kslice_sizes[s >= 441] * 2, w);
       fclose(F);
     }
 
@@ -278,7 +280,8 @@ static void join_dtz(int stm, struct tb_handle *G)
     for (int s = 0; s < 462; s++) {
       create_name(str, s, stm, "merged/dtz", -1);
       FILE *F = file_open_read(str);
-      read_data_transform_u16(F, table + s * kslice_size, kslice_size * 2, v);
+      read_data_transform_u16(F, table + s * kslice_size,
+          kslice_sizes[s >= 441] * 2, v);
       fclose(F);
     }
 
@@ -378,7 +381,7 @@ static void join_wdl_462(int stm)
 
     create_name(str, s, stm, "merged/wdl", -1);
     FILE *F = file_open_read(str);
-    read_data(F, table, kslice_size);
+    read_data(F, table, kslice_sizes[s >= 441]);
     fclose(F);
 
     create_name(str, s, stm, "stats", -1);
@@ -410,15 +413,14 @@ static void join_wdl_462(int stm)
       }
 
     compress_init_wdl(v_wdl);
-    uint64_t slice_size = s < 441 ? kslice_size : reflection_size[ii.part_id];
 
     uint8_t best[MAX_SETS];
     printf("Find optimal permutation for %ctm/wdl, slice = %d.\n", "wb"[stm],
         s);
     permute_piece_462(tb_table, table, best, WDL, false);
     printf("Compressing data for %ctm/wdl, slice = %d.\n", "wb"[stm], s);
-    compress_data_slice(name, stm, WDL, tb_table, slice_size, best, minfreq,
-        false, false);
+    compress_data_slice(name, stm, WDL, tb_table, kslice_sizes[s >= 441], best,
+        minfreq, false, false);
 
     if (!g_cleanup) continue;
 
@@ -436,7 +438,8 @@ static void join_dtz_462(int stm)
 
   read_merge_info(stm);
 
-  sort_values(stm, g_stats[stm], &dtzmap, 462 * kslice_size);
+  sort_values(stm, g_stats[stm], &dtzmap,
+      441 * kslice_sizes[0] + 21 * kslice_sizes[1]);
 
   if (dtzmap.wide != join_wide) {
     join_wide = dtzmap.wide;
@@ -476,7 +479,7 @@ static void join_dtz_462(int stm)
     read_data(F, stats, sizeof stats);
     fclose(F);
 
-    sort_values(stm, stats, &dtzmap, kslice_size);
+    sort_values(stm, stats, &dtzmap, kslice_sizes[s >= 441]);
     prepare_dtz_map(v, &dtzmap);
 
     if (!mi.wide) {
@@ -489,7 +492,7 @@ static void join_dtz_462(int stm)
 
       create_name(str, s, stm, "merged/dtz", -1);
       FILE *F = file_open_read(str);
-      read_data_transform_u8(F, table, kslice_size, w);
+      read_data_transform_u8(F, table, kslice_sizes[s >= 441], w);
       fclose(F);
 
     } else if (!tb_wide) {
@@ -502,7 +505,7 @@ static void join_dtz_462(int stm)
 
       create_name(str, s, stm, "merged/dtz", -1);
       FILE *F = file_open_read(str);
-      read_data_transform_to_u8_u16(F, table, kslice_size * 2, w);
+      read_data_transform_to_u8_u16(F, table, kslice_sizes[s >= 441] * 2, w);
       fclose(F);
 
     } else {
@@ -511,21 +514,20 @@ static void join_dtz_462(int stm)
 
       create_name(str, s, stm, "merged/dtz", -1);
       FILE *F = file_open_read(str);
-      read_data_transform_u16(F, table, kslice_size * 2, v);
+      read_data_transform_u16(F, table, kslice_sizes[s >= 441] * 2, v);
       fclose(F);
 
     }
 
     compress_init_dtz(&dtzmap, tb_wide);
-    uint64_t slice_size = s < 441 ? kslice_size : reflection_size[ii.part_id];
 
     uint8_t best[MAX_SETS];
     printf("Find optimal permutation for %ctm/dtz, slice = %d.\n", "wb"[stm],
         s);
     permute_piece_462(tb_table, join_table, best, DTZ, tb_wide);
     printf("Compressing data for %ctm/dtz, slice = %d.\n", "wb"[stm], s);
-    compress_data_slice(name, stm, DTZ, tb_table, slice_size, best, minfreq,
-        tb_wide, false);
+    compress_data_slice(name, stm, DTZ, tb_table, kslice_sizes[s >= 441], best,
+        minfreq, tb_wide, false);
 
     if (!g_cleanup) continue;
 
@@ -751,7 +753,7 @@ static void join_wdl_10(int stm)
       int s = KKMap[g_pos.sq[0]][g_pos.sq[1]];
       create_name(str, s, stm, "merged/wdl", -1);
       FILE *F = file_open_read(str);
-      read_data(F, table + num * kslice_size, kslice_size);
+      read_data(F, table + num * kslice_size, kslice_sizes[s >= 441]);
       fclose(F);
 
       create_name(str, s, stm, "stats", -1);
@@ -823,7 +825,8 @@ static void join_dtz_10(int stm)
   read_merge_info(stm);
 
   // Call sort_values() to set dtzmap.wide.
-  sort_values(stm, g_stats[stm], &dtzmap, 462 * kslice_size);
+  sort_values(stm, g_stats[stm], &dtzmap,
+      441 * kslice_sizes[0] + 21 * kslice_sizes[1]);
 
   if (dtzmap.wide != join_wide) {
     join_wide = dtzmap.wide;
@@ -878,6 +881,8 @@ static void join_dtz_10(int stm)
       num++;
     }
 
+    // FIXME: should perhaps double contribution of s >= 441 slices to stats.
+    // - or properly count them and reduce num * kslice_size accordingly
     sort_values(stm, stats, &dtzmap, num * kslice_size);
     prepare_dtz_map(v, &dtzmap);
 
@@ -900,7 +905,8 @@ static void join_dtz_10(int stm)
 
         create_name(str, s, stm, "merged/dtz", -1);
         FILE *F = file_open_read(str);
-        read_data_transform_u8(F, table + n * kslice_size, kslice_size, w);
+        read_data_transform_u8(F, table + n * kslice_size,
+            kslice_sizes[s >= 441], w);
         fclose(F);
 
         n++;
@@ -924,7 +930,7 @@ static void join_dtz_10(int stm)
         create_name(str, s, stm, "merged/dtz", -1);
         FILE *F = file_open_read(str);
         read_data_transform_to_u8_u16(F, table + n * kslice_size,
-            kslice_size * 2, w);
+            kslice_sizes[s >= 441] * 2, w);
         fclose(F);
 
         n++;
@@ -943,7 +949,8 @@ static void join_dtz_10(int stm)
 
         create_name(str, s, stm, "merged/dtz", -1);
         FILE *F = file_open_read(str);
-        read_data_transform_u16(F, table + n * kslice_size, kslice_size * 2, v);
+        read_data_transform_u16(F, table + n * kslice_size,
+            kslice_sizes[s >= 441] * 2, v);
         fclose(F);
 
         n++;

@@ -63,6 +63,18 @@ INLINE void NAME(merge_mark_unmoves)(int k, T *restrict const p, Bitboard occ,
   }
 }
 
+INLINE void NAME(merge_mark_ref_unmoves)(int k, T *restrict const p,
+    Bitboard occ, const uint8_t *restrict sq)
+{
+  uint8_t sq2[MAX_PIECES];
+  Bitboard b = non_king_piece_moves(g_pos.pt[k], sq[k], occ);
+  while (b) {
+    memcpy(sq2, sq, sizeof sq2);
+    sq2[k] = pop_lsb(&b);
+    p[sq_to_idx_ref(sq2)] = 0;
+  }
+}
+
 static void NAME(merge_illegal_worker)(struct ThreadData *thread)
 {
   struct IdxState is;
@@ -85,32 +97,36 @@ static void NAME(merge_illegal_worker)(struct ThreadData *thread)
   }
 }
 
+static void NAME(merge_illegal_ref_worker)(struct ThreadData *thread)
+{
+  struct IdxState is;
+  Position pos = g_pos;
+  int k = work_set;
+  int m = ii.last[k];
+  int stm = pos.stm;
+  int king_sq = pos.sq[stm ^ 1];
+
+  T *restrict const p = merge_table;
+
+  idx_state_init(&is, thread->begin, pos.sq, &capt_ii[k]);
+
+  for (uint64_t idx = thread->begin, end = thread->end; idx < end;
+      idx++, idx_state_inc(&is, &capt_ii[k]))
+  {
+    Bitboard occ = idx_state_to_sq(&is, pos.sq, &capt_ii[k]);
+    pos.sq[m] = king_sq;
+    NAME(merge_mark_ref_unmoves)(m, p, occ, pos.sq);
+  }
+}
+
 static void NAME(merge_statistics_worker)(struct ThreadData *thread)
 {
-  int s = work_slice;
   int t = thread->thread_id;
 
   T *restrict const p = merge_table;
 
-  if (s < 441) {
-    for (uint64_t idx = thread->begin, end = thread->end; idx < end; idx++)
-      thread_stats[t][NAME(mi.v_inv)[p[idx]]] += 2;
-  } else {
-    // Both kings on the diagonal, so count carefully.
-    struct IdxState is;
-    Position pos = g_pos;
-    idx_state_init(&is, thread->begin, pos.sq, &ii);
-
-    for (uint64_t idx = thread->begin, end = thread->end; idx < end;
-        idx++, idx_state_inc(&is, &ii))
-    {
-      idx_state_to_sq(&is, pos.sq, &ii);
-      uint8_t sq2[MAX_PIECES];
-      mirror_diagonal2(pos.sq, sq2);
-      uint64_t idx2 = sq_to_idx(sq2);
-      thread_stats[t][NAME(mi.v_inv)[p[idx]]] += idx == idx2 ? 2 : 1;
-    }
-  }
+  for (uint64_t idx = thread->begin, end = thread->end; idx < end; idx++)
+    thread_stats[t][NAME(mi.v_inv)[p[idx]]]++;
 }
 
 // u16:
@@ -137,7 +153,7 @@ static void NAME(merge_bitmaps)(int stm, int s)
   uint64_t stats[MAX_STATS] = { 0 };
 
   // DRAW
-  run_threaded(NAME(merge_draw_worker), &work_g_merge_static, 0);
+  run_threaded(NAME(merge_draw_worker), &work_g_merge_static[s >= 441], 0);
 
   g_pos.stm = stm;
   g_pos.sq[0] = KKSquare[s][0];
@@ -148,7 +164,11 @@ static void NAME(merge_bitmaps)(int stm, int s)
     if ((g_pos.pt[ii.first[k]] >> 3) != stm)
       continue;
     work_set = k;
-    run_threaded(NAME(merge_illegal_worker), &work_capt_merge_dynamic[k], 0);
+    if (s < 441)
+      run_threaded(NAME(merge_illegal_worker), &work_capt_merge_dynamic[k], 0);
+    else
+      run_threaded(NAME(merge_illegal_ref_worker), &work_capt_merge_dynamic[k],
+          0);
   }
 
   // losses
@@ -156,13 +176,13 @@ static void NAME(merge_bitmaps)(int stm, int s)
     if (kslice_test(s, stm, "L", n)) {
       kslice_read(-1, s, stm, "L", n);
       merge_n = MAX_STATS - 1 - n;
-      run_threaded(NAME(merge_worker), &work_g_merge_dynamic, 0);
+      run_threaded(NAME(merge_worker), &work_g_merge_dynamic[s >= 441], 0);
       if (!include_losses)
-        stats[merge_n] = stat_count(stm, s);
+        stats[merge_n] = kslice_read_count;
       if (2 * n == mf.dtz[stm ^ 1][0] && !mf.found[stm ^ 1][0])
-        find_position(stm ^ 1, true, false);
+        find_position(s, stm ^ 1, true, false);
       else if (2 * n == mf.dtz[stm ^ 1][1] && !mf.found[stm ^ 1][1])
-        find_position(stm ^ 1, true, true);
+        find_position(s, stm ^ 1, true, true);
     }
 
   // wins
@@ -170,45 +190,44 @@ static void NAME(merge_bitmaps)(int stm, int s)
     if (kslice_test(s, stm, "W", n)) {
       kslice_read(-1, s, stm, "W", n);
       merge_n = n <= DRAW_RULE ? 1 + n : 2 + n;
-      run_threaded(NAME(merge_worker), &work_g_merge_dynamic, 0);
+      run_threaded(NAME(merge_worker), &work_g_merge_dynamic[s >= 441], 0);
       if (!include_wins)
-        stats[merge_n] = stat_count(stm, s);
+        stats[merge_n] = kslice_read_count;
       if (2 * n + 1 == mf.dtz[stm][0] && !mf.found[stm][0])
-        find_position(stm, false, false);
+        find_position(s, stm, false, false);
       if (2 * n + 1 == mf.dtz[stm][1] && !mf.found[stm][1])
-        find_position(stm, false, true);
+        find_position(s, stm, false, true);
     }
 
   // CAPT_WIN
   if (sub_cnt[stm ^ 1][0]) {
     kslice_read(-1, s, stm, "capt/win", -1);
     merge_n = 1;
-    run_threaded(NAME(merge_worker), &work_g_merge_dynamic, 0);
+    run_threaded(NAME(merge_worker), &work_g_merge_dynamic[s >= 441], 0);
   }
 
   // CAPT_CWIN
   if (sub_cnt[stm ^ 1][1]) {
     kslice_read(-1, s, stm, "capt/cwin", -1);
     merge_n = 2 + DRAW_RULE;
-    run_threaded(NAME(merge_worker), &work_g_merge_dynamic, 0);
+    run_threaded(NAME(merge_worker), &work_g_merge_dynamic[s >= 441], 0);
   }
 
   // CAPT_DRAW
   if (sub_cnt[stm ^ 1][2]) {
     kslice_read(-1, s, stm, "capt/draw", -1);
     merge_n = MAX_STATS / 2;
-    run_threaded(NAME(merge_worker), &work_g_merge_dynamic, 0);
+    run_threaded(NAME(merge_worker), &work_g_merge_dynamic[s >= 441], 0);
   }
 
   // CAPT_BLOSS to be added to produce WDL files
 
-  set_merge_active_threads(&work_g_merge_static);
+  set_merge_active_threads(&work_g_merge_static[s >= 441]);
   for (int tt = 0; tt < merge_num_active_threads; tt++) {
     int t = merge_active_threads[tt];
     memset(thread_stats[t], 0, sizeof thread_stats[t]);
   }
-  work_slice = s;
-  run_threaded(NAME(merge_statistics_worker), &work_g_merge_static, 0);
+  run_threaded(NAME(merge_statistics_worker), &work_g_merge_static[s >= 441], 0);
 
   uint64_t win_tmp, cwin_tmp, bloss_tmp, loss_tmp;
   win_tmp = stats[2];
@@ -260,7 +279,8 @@ static void NAME(merge_bitmaps)(int stm, int s)
 
     create_name(str, s, stm, "merged/dtz", -1);
     F = file_open_write(str);
-    NAME(write_data_transform)(F, merge_table, kslice_size * sizeof(T), z);
+    NAME(write_data_transform)(F, merge_table,
+        kslice_sizes[s >= 441] * sizeof(T), z);
     fclose(F);
     file_rename(str);
   }
@@ -283,17 +303,18 @@ static void NAME(merge_bitmaps)(int stm, int s)
   w[NAME(mi.v)[0]] = 8;
 
   merge_w = w;
-  run_threaded(NAME(merge_transform), &work_g_merge_static, 0);
+  run_threaded(NAME(merge_transform), &work_g_merge_static[s >= 441], 0);
 
   // Replace bloss (1) with capt_bloss (5) where appropriate.
   if (sub_cnt[stm ^ 1][3]) {
     kslice_read(-1, s, stm, "capt/bloss", -1);
-    run_threaded(NAME(merge_capt_bloss_worker), &work_g_merge_dynamic, 0);
+    run_threaded(NAME(merge_capt_bloss_worker), &work_g_merge_dynamic[s >= 441],
+        0);
   }
 
   create_name(str, s, stm, "merged/wdl", -1);
   F = file_open_write(str);
-  NAME(write_data_as_u8)(F, (T *)merge_table, kslice_size);
+  NAME(write_data_as_u8)(F, (T *)merge_table, kslice_sizes[s >= 441]);
   fclose(F);
   file_rename(str);
 }
