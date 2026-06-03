@@ -138,6 +138,8 @@ static void calc_sub_kslices(int stm)
   g_pos.stm = stm;
 
   for (int s = 0; s < 462; s++) {
+    show_progress("sub", -1, s, 462, false);
+
     uint64_t c[5], cnt_ilgl = 0;
 
     if (kslice_test_count(s, stm, name[4], -1, &c[4])) {
@@ -181,6 +183,8 @@ static void calc_sub_kslices(int stm)
     file_write(&sub_cnt[stm][i], 8, F);
   fclose(F);
   file_rename(done);
+
+  show_progress("sub", -1, 462, 462, true);
 }
 
 static bool work_legality;
@@ -326,10 +330,12 @@ static void calc_capt(int stm, int wdl, int n)
 
   struct KSliceIterator iter;
   uint64_t num, cnt = 0;
+  int num_done = 0;
 
   kslice_iter_init(&iter, stm);
   int s, s1;
   while (kslice_iter_next(&iter, &s)) {
+    show_progress(capt_name, -1, num_done++, 462, false);
 
     if (kslice_test(s, stm ^ 1, sub_name, -1)) {
       while (kslice_iter_in(&iter, &s1)) {
@@ -364,6 +370,8 @@ static void calc_capt(int stm, int wdl, int n)
   fclose(F);
   file_rename(str);
 
+  show_progress(capt_name, -1, num_done, 462, true);
+
   printf("capt_%s_%c = %lu\n", wdl_name[2 + wdl], "wb"[stm], cnt);
 }
 
@@ -383,10 +391,13 @@ static void calc_capt_bloss(int stm)
 
   struct KSliceIterator iter;
   uint64_t dummy;
+  int num_done = 0;
 
   kslice_iter_init(&iter, stm);
   int s, s1;
   while (kslice_iter_next(&iter, &s)) {
+    show_progress("bloss", -1, num_done++, 462, false);
+
     while (kslice_iter_in(&iter, &s1))
       if (!partial || !kslice_test_count(s1, stm, "capt/bloss", -1, &dummy)) {
         done = false;
@@ -407,6 +418,8 @@ static void calc_capt_bloss(int stm)
   }
 
   create_empty(str);
+
+  show_progress("bloss", -1, num_done, 462, true);
 }
 
 static void predecessors_worker(struct ThreadData *thread)
@@ -677,6 +690,8 @@ static void calc_illegal_and_mate(void)
   uint64_t broken[2] = { 0 }, loss0[2] = { 0 }, num;
 
   for (int s = 0; s < 462; s++) {
+    show_progress("mate", -1, s, 462, false);
+
     if (partial) {
       char str[64];
       create_name(str, s, BLACK, "L", 0);
@@ -728,6 +743,8 @@ static void calc_illegal_and_mate(void)
   fclose(F);
   file_rename("0/done");
 
+  show_progress("mate", -1, 462, 462, true);
+
   printf("broken_w = %lu\n", broken[WHITE]);
   printf("broken_b = %lu\n", broken[BLACK]);
   printf("l0_w = %lu\n", loss0[WHITE]);
@@ -749,6 +766,7 @@ static bool calc_L(int stm, int n, bool more_l)
 
   struct KSliceIterator iter;
   bool partial = true;
+  int num_done = 0;
 
   if (dir_exists(n, stm, "L"))
     goto skip_X;
@@ -763,6 +781,8 @@ static bool calc_L(int stm, int n, bool more_l)
   kslice_iter_init(&iter, stm);
   int s, s1;
   while (kslice_iter_next(&iter, &s)) {
+    show_progress("X", n, num_done++, 462, false);
+
     bool pred_sub =   (n == 1 && sub_cnt[stm ^ 1][4])
                    || (n == DRAW_RULE + 1 && sub_cnt[stm ^ 1][3]);
     bool pred = more_l && kslice_test(s, stm ^ 1, "W", n - 1);
@@ -805,6 +825,7 @@ static bool calc_L(int stm, int n, bool more_l)
         kslice_write(s, s, stm, "X", n, UINT64_MAX);
       }
   }
+  show_progress("X", n, num_done++, 462, true);
 
   create_dir(n, stm, "L");
   partial = false;
@@ -812,10 +833,12 @@ static bool calc_L(int stm, int n, bool more_l)
 skip_X:
 
   uint64_t cnt = 0;
+  num_done = 0;
 
   // Verify potential losses.
   kslice_iter_init(&iter, stm);
   while (kslice_iter_next(&iter, &s)) {
+    show_progress("L", n, num_done++, 462, false);
 
     if (kslice_test(s, stm, "X", n)) {
       while (kslice_iter_in(&iter, &s1)) {
@@ -843,6 +866,8 @@ skip_X:
   fclose(F);
   file_rename(str);
 
+  show_progress("L", n, num_done++, 462, true);
+
   printf("l%d_%c = %lu\n", n, "wb"[stm], cnt);
   return cnt != 0;
 }
@@ -860,6 +885,7 @@ static bool calc_W(int stm, int n, bool more_w)
 
   struct KSliceIterator iter;
   uint64_t cnt = 0, num;
+  int num_done = 0;
 
   bool partial = dir_exists(n, stm, "W"), done = partial;
 
@@ -870,6 +896,8 @@ static bool calc_W(int stm, int n, bool more_w)
   kslice_iter_init(&iter, stm);
   int s, s1;
   while (kslice_iter_next(&iter, &s)) {
+    show_progress("W", n, num_done++, 462, false);
+
     bool pred_sub =   (n == 1 && sub_cnt[stm ^ 1][0])
                    || (n == DRAW_RULE + 1 && sub_cnt[stm ^ 1][1]);
     bool pred = more_w && kslice_test(s, stm ^ 1, "L", n - 1);
@@ -919,6 +947,8 @@ static bool calc_W(int stm, int n, bool more_w)
   file_write(&g_stats[stm][stats_n(n)], 8, F);
   fclose(F);
   file_rename(str);
+
+  show_progress("W", n, num_done++, 462, true);
 
   printf("w%d_%c = %lu\n", n, "wb"[stm], cnt);
   return cnt != 0;

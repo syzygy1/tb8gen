@@ -12,6 +12,7 @@
 #include <stddef.h>
 #include <stdio.h>
 #include <stdint.h>
+#include <time.h>
 #include <unistd.h>
 #ifndef _WIN32
 #include <unistd.h>
@@ -866,4 +867,65 @@ void create_name_10(char *str, int k, int stm, const char *name)
 {
   int sq = InvTriangle[k];
   sprintf(str, "%s/%c/%c%c", name, "wb"[stm], 'a' + (sq & 7), '1' + (sq >> 3));
+}
+
+static double now_sec(void)
+{
+    struct timespec ts;
+    clock_gettime(CLOCK_MONOTONIC, &ts);
+    return (double)ts.tv_sec + (double)ts.tv_nsec * 1e-9;
+}
+
+static void fmt_time(char *buf, size_t n, double sec)
+{
+    unsigned s = sec < 0 ? 0 : (unsigned)(sec + 0.5);
+    snprintf(buf, n, "%02u:%02u:%02u", s / 3600, (s / 60) % 60, s % 60);
+}
+
+void show_progress(const char *str, int n, int k, int total, bool final)
+{
+  static const char *spin[] = {"⠋","⠙","⠹","⠸","⠼","⠴","⠦","⠧","⠇","⠏"};
+  static unsigned frame;
+  static double t0, last = -1.0;
+  static bool init;
+
+  if (!init) {
+    t0 = now_sec();
+    init = true;
+  }
+
+  double t = now_sec();
+  if (!final && t - last < 0.25)
+    return;
+
+  last = t;
+
+  double elapsed = t - t0;
+  double frac = total ? (double)k / total : 0.0;
+  double eta = frac > 0.0 ? elapsed * (1.0 - frac) / frac : -1.0;
+
+  char pass[16] = "";
+  if (n >= 0)
+    snprintf(pass, sizeof pass, "ply %d ", n);
+
+  char ebuf[16], etabuf[16];
+  fmt_time(ebuf, sizeof ebuf, elapsed);
+  fmt_time(etabuf, sizeof etabuf, eta);
+
+  fprintf(stderr,
+      "\r\033[K%s %s %s  kslice %3u/%u  %5.1f%%  elapsed %s  ETA %s",
+      spin[frame++ % 10],
+      str,
+      pass,
+      k, total,
+      100.0 * frac,
+      ebuf,
+      frac > 0.0 ? etabuf : "--:--:--");
+
+  if (final) {
+    fputc('\n', stderr);
+    last = -1.0;
+  }
+
+  fflush(stderr);
 }
