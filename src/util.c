@@ -703,7 +703,7 @@ static void read_data_worker(int t)
         dst[idx + i] = v8[buf[i]];
       break;
     case U16U16:
-      uint8_t *restrict v16 = cmprs_v;
+      uint16_t *restrict v16 = cmprs_v;
       uint16_t *restrict buf16 = state->buffer;
       for (size_t i = 0; i < chunk / 2; i++)
         ((uint16_t *)(dst + idx))[i] = v16[buf16[i]];
