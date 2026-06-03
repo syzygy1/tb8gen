@@ -185,6 +185,7 @@ void create_empty(const char *name);
 
 void copy_data(FILE *F, FILE *G, size_t num);
 void write_data(FILE *F, void *src, size_t size);
+void write_data_cache_aligned(FILE *F, void *src, size_t size);
 void write_data_transform_u8(FILE *F, void *src, size_t size, uint8_t *v);
 void write_data_transform_u16(FILE *F, void *src, size_t size,
     uint16_t *v);
