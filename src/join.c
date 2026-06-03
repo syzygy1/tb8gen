@@ -449,7 +449,7 @@ static void join_dtz_462(int stm)
   if (dtzmap.wide != tb_wide) {
     tb_wide = dtzmap.wide;
     free(tb_table);
-    tb_table = alloc_huge((tb_size + 1) * (1 + tb_wide));
+    tb_table = alloc_huge((kslice_size + 1) * (1 + tb_wide));
     if (!tb_table)
       out_of_mem();
   }
@@ -836,7 +836,7 @@ static void join_dtz_10(int stm)
   if (dtzmap.wide != tb_wide) {
     tb_wide = dtzmap.wide;
     free(tb_table);
-    tb_table = alloc_huge((tb_size + 1) * (1 + tb_wide));
+    tb_table = alloc_huge((58 * kslice_size + 1) * (1 + tb_wide));
     if (!tb_table)
       out_of_mem();
   }
