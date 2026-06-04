@@ -1399,7 +1399,7 @@ NOINLINE struct Tbase *init_tbase(struct TbEntry *entry, const char *str,
     }
 
     int version = data[4];
-    if (version > 2)
+    if (version > 1)
       return nullptr;
 
     const uint8_t *p = data + 4 + entry->num;
@@ -1496,7 +1496,7 @@ NOINLINE struct TbTable2 *init_new_table(struct TbEntry *entry,
       tb_size *= table->factor[i];
       n -= m;
     }
-    if (tb->version == 2 && tsq >= 441) {
+    if (tsq >= 441) {
       table->part_id = find_partition(k, mult);
       tb_size = reflection_size[table->part_id];
     }
@@ -1932,7 +1932,7 @@ INLINE int probe_table(Position *pos, int s, const int type)
     }
 
     // Calculate index.
-    if (tb->layout != LT_PIECE_KK || tsq < 441 || tb->version == 1) {
+    if (tb->layout != LT_PIECE_KK || tsq < 441) {
       static const int extra[] = { 1, 0, 2, 1, 0, 0 };
       int numsets = entry->numsets + extra[tb->layout - LT_PIECE_K];
       for (int k = 0; k < numsets; k++) {
