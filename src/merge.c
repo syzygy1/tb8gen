@@ -201,8 +201,9 @@ void merge(int stm)
   if (file_exists(str))
     return;
 
-  char phase[16];
-  snprintf(phase, sizeof phase, "merge/%c", "wb"[stm]);
+  char phase[32];
+  snprintf(phase, sizeof phase, "merging %s slices",
+      stm == WHITE ? "white" : "black");
 
   uint64_t *stats = g_stats[stm];
 

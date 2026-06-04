@@ -880,8 +880,10 @@ static void fmt_duration(char buf[32], double t)
 {
   uint32_t secs = t;
   uint32_t days  = secs / 86400;
-  uint32_t hours = (secs / 3600) % 24;
-  uint32_t mins  = (secs / 60) % 60;
+  secs %= 86400;
+  uint32_t hours = secs / 3600;
+  secs %= 3600;
+  uint32_t mins  = secs / 60;
   secs %= 60;
 
   if (days)
@@ -924,11 +926,11 @@ void show_progress(const char *phase, int k, int total, bool final)
 
   if (!final) {
     double frac = (double)k / total;
-    double eta = k > 0 ? (t - t0) * (1.0 - frac) / frac : 0.0;
     char etabuf[32];
-    fmt_duration(etabuf, eta);
-    fprintf(stderr, "\r\033[K%s  %s  %3u/%u  [%s]", ebuf, phase, k, total,
-        k > 0 ? etabuf : "--h--m-- s");
+    if (k > 0)
+      fmt_duration(etabuf, (t - t0) * (1.0 - frac) / frac);
+    fprintf(stderr, "\r\033[K%s  %s  %3u/%u  [%s left]", ebuf, phase, k, total,
+        k > 0 ? etabuf : "--");
   }
   else {
     fprintf(stderr, "\r\033[k%s  %s\033[K\n", ebuf, phase);

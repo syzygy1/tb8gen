@@ -19,6 +19,9 @@
 #include "util.h"
 
 const char *wdl_name[5] = { "loss", "bloss", "draw", "cwin", "win" };
+const char *side[2] = { "white", "black" };
+const char *clr_L[4] = { "31", "32", "33", "34" };
+const char *clr_W[4] = { "94", "93", "92", "91" };
 
 uint64_t sub_cnt[2][5];
 int max_iteration;
@@ -65,18 +68,18 @@ static int work_slice, work_set;
 
 static struct Work work_g_dynamic, work_g_static, work_capt_dynamic[MAX_SETS];
 
-static constexpr uint64_t GENERATE_MIN_DYNAMIC_CHUNK = 1ULL << 9;
+static constexpr uint64_t GENERATE_MIN_CHUNK = 1ULL << 9;
 static constexpr int GENERATE_DYNAMIC_FACTOR = 4;
 
 void init_generation_work(void)
 {
   work_init(&work_g_dynamic, kslice_size, 0x1ff, WORK_DYNAMIC,
-      GENERATE_DYNAMIC_FACTOR, GENERATE_MIN_DYNAMIC_CHUNK);
+      GENERATE_DYNAMIC_FACTOR, GENERATE_MIN_CHUNK);
   work_init(&work_g_static, kslice_size, 0x1ff, WORK_STATIC, 1,
-      GENERATE_MIN_DYNAMIC_CHUNK);
+      GENERATE_MIN_CHUNK);
   for (int k = 0; k < ii.numsets; k++)
     work_init(&work_capt_dynamic[k], capt_ii[k].size, 0x1ff, WORK_DYNAMIC,
-        GENERATE_DYNAMIC_FACTOR, GENERATE_MIN_DYNAMIC_CHUNK);
+        GENERATE_DYNAMIC_FACTOR, GENERATE_MIN_CHUNK);
 }
 
 static void calc_sub_worker(struct ThreadData *thread)
@@ -129,8 +132,8 @@ static void calc_sub_kslices(int stm)
     return;
   }
 
-  char phase[16];
-  snprintf(phase, sizeof phase, "sub/%c", "wb"[stm]);
+  char phase[64];
+  snprintf(phase, sizeof phase, "probing subtables for %s", side[stm]);
 
   char name[5][16];
   for (int i = 0; i < 5; i++) {
@@ -327,8 +330,9 @@ static void calc_capt(int stm, int wdl, int n)
     return;
   }
 
-  char phase[16];
-  snprintf(phase, sizeof phase, "%s/%c", capt_name, "wb"[stm]);
+  char phase[64];
+  snprintf(phase, sizeof phase, "calculating %s captures for %s",
+      wdl_name[2 + wdl], side[stm]);
 
   bool partial = dir_exists(-1, stm, capt_name), done = partial;
 
@@ -376,7 +380,8 @@ static void calc_capt(int stm, int wdl, int n)
   fclose(F);
   file_rename(str);
 
-  snprintf(phase, sizeof phase, "%s/%c  %lu", capt_name, "wb"[stm], cnt);
+  snprintf(phase, sizeof phase, "%s %s captures: %lu", side[stm],
+      wdl_name[wdl + 2], cnt);
   show_progress(phase, num_done, 462, true);
 }
 
@@ -398,10 +403,13 @@ static void calc_capt_bloss(int stm)
   uint64_t dummy;
   int num_done = 0;
 
+  char phase[64];
+  snprintf(phase, sizeof phase, "calculating bloss captures for %s", side[stm]);
+
   kslice_iter_init(&iter, stm);
   int s, s1;
   while (kslice_iter_next(&iter, &s)) {
-    show_progress("bloss", num_done++, 462, false);
+    show_progress(phase, num_done++, 462, false);
 
     while (kslice_iter_in(&iter, &s1))
       if (!partial || !kslice_test_count(s1, stm, "capt/bloss", -1, &dummy)) {
@@ -424,7 +432,8 @@ static void calc_capt_bloss(int stm)
 
   create_empty(str);
 
-  show_progress("bloss", num_done, 462, true);
+  snprintf(phase, sizeof phase, "%s bloss captures done", side[stm]);
+  show_progress(phase, num_done, 462, true);
 }
 
 static void predecessors_worker(struct ThreadData *thread)
@@ -695,7 +704,7 @@ static void calc_illegal_and_mate(void)
   uint64_t broken[2] = { 0 }, loss0[2] = { 0 }, num;
 
   for (int s = 0; s < 462; s++) {
-    show_progress("illegals + mates", s, 462, false);
+    show_progress("calculating illegal and mate positions", s, 462, false);
 
     if (partial) {
       char str[64];
@@ -748,14 +757,14 @@ static void calc_illegal_and_mate(void)
   fclose(F);
   file_rename("0/done");
 
-  char phase[64];
-  snprintf(phase, sizeof phase, "mates (%lu, %lu), illegals (%lu, %lu)",
+  char phase[128];
+  snprintf(phase, sizeof phase, "illegal: %lu/%lu, mate: %lu/%lu",
       broken[WHITE], broken[BLACK], loss0[WHITE], loss0[BLACK]);
   show_progress(phase, 462, 462, true);
 }
 
 // Calculate stm losses in n from stm^1 wins in n-1 (n > 1) or
-// from stm^1 wins in sub tables reached through captures (n == 1).
+// from stm^1 wins in subtables reached through captures (n == 1).
 static bool calc_L(int stm, int n, bool more_l)
 {
   char str[64];
@@ -841,7 +850,8 @@ skip_X:
 
   uint64_t cnt = 0;
   num_done = 0;
-  snprintf(phase, sizeof phase, "%d/L/%c", n, "wb"[stm]);
+  snprintf(phase, sizeof phase, "\x1b[%sm%d/L/%c\x1b[0m",
+      clr_L[(2 * n + stm) & 3], n, "wb"[stm]);
 
   // Verify potential losses.
   kslice_iter_init(&iter, stm);
@@ -874,7 +884,8 @@ skip_X:
   fclose(F);
   file_rename(str);
 
-  snprintf(phase, sizeof phase, "%d/L/%c  %lu", n, "wb"[stm], cnt);
+  snprintf(phase, sizeof phase, "\x1b[%sm%d/L/%c  %lu\x1b[0m",
+      clr_L[(2 * n + stm) & 3], n, "wb"[stm], cnt);
   show_progress(phase, num_done, 462, true);
 
   return cnt != 0;
@@ -902,7 +913,8 @@ static bool calc_W(int stm, int n, bool more_w)
   create_dir(n, stm, "W");
   create_dir(n, stm, "wins");
 
-  snprintf(phase, sizeof phase, "%d/W/%c", n, "wb"[stm]);
+  snprintf(phase, sizeof phase, "\x1b[%sm%d/W/%c\x1b[0m",
+      clr_W[(2 * n + stm) & 3], n, "wb"[stm]);
 
   // Calculate wins in n = predecessors(L(n-1))
   kslice_iter_init(&iter, stm);
@@ -960,7 +972,8 @@ static bool calc_W(int stm, int n, bool more_w)
   fclose(F);
   file_rename(str);
 
-  snprintf(phase, sizeof phase, "%d/W/%c  %lu", n, "wb"[stm], cnt);
+  snprintf(phase, sizeof phase, "\x1b[%sm%d/W/%c  %lu\x1b[0m",
+      clr_W[(2 * n + stm) & 3], n, "wb"[stm], cnt);
   show_progress(phase, num_done, 462, true);
 
   return cnt != 0;
