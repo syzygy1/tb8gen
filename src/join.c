@@ -552,7 +552,7 @@ void join_final_462(int type)
   uint8_t *p = buf;
   write_le_u32(p, magic2[type]);
   p += 4;
-  *p++ = 2; // version number
+  *p++ = 1; // version number
   *p++ = g_pos.num;
   for (int i = 2; i < g_pos.num; i++)
     *p++ = (g_pos.pt[i] & 7) | ((g_pos.pt[i] & 8) << 4);
