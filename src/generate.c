@@ -110,7 +110,7 @@ static void calc_sub_worker(struct ThreadData *thread)
     } else {
       int v = probe_wdl(&pos, -2, 2);
       kslice_bit_set(p[v + 2], idx);
-      // add sub_win to sub_cwin
+      // Add sub_win to sub_cwin.
       if (v == 2)
         kslice_bit_set(p[3], idx);
     }
@@ -418,8 +418,11 @@ static void calc_capt_bloss(int stm)
       }
 
     if (!done) {
+      // Subtract sub_win from sub_cwin.
+      kslice_sub_read(-1, s, stm ^ 1, "sub/win");
       kslice_sub_read(s, s, stm ^ 1, "sub/cwin");
-      predecessors_sub(stm, s, true);
+      kslice_sub_and_not(s, -1, stm ^ 1);
+      predecessors_sub(stm, s, false);
     }
 
     while (kslice_iter_out(&iter, &s))
