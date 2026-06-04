@@ -212,6 +212,6 @@ void create_name_p(char *s, int sq, int stm, const char *name);
 void create_name_sq(char *s, int s1, int s2, int stm, const char *name, int n);
 #endif
 
-void show_progress(const char *str, int n, int k, int total, bool final);
+void show_progress(const char *str, int k, int total, bool final);
 
 #endif

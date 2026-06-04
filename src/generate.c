@@ -129,6 +129,9 @@ static void calc_sub_kslices(int stm)
     return;
   }
 
+  char phase[16];
+  snprintf(phase, sizeof phase, "sub/%c", "wb"[stm]);
+
   char name[5][16];
   for (int i = 0; i < 5; i++) {
     strcat(strcpy(name[i], "sub/"), wdl_name[i]);
@@ -138,7 +141,7 @@ static void calc_sub_kslices(int stm)
   g_pos.stm = stm;
 
   for (int s = 0; s < 462; s++) {
-    show_progress("sub", -1, s, 462, false);
+    show_progress(phase, s, 462, false);
 
     uint64_t c[5], cnt_ilgl = 0;
 
@@ -184,7 +187,7 @@ static void calc_sub_kslices(int stm)
   fclose(F);
   file_rename(done);
 
-  show_progress("sub", -1, 462, 462, true);
+  show_progress(phase, 462, 462, true);
 }
 
 static bool work_legality;
@@ -324,6 +327,9 @@ static void calc_capt(int stm, int wdl, int n)
     return;
   }
 
+  char phase[16];
+  snprintf(phase, sizeof phase, "%s/%c", capt_name, "wb"[stm]);
+
   bool partial = dir_exists(-1, stm, capt_name), done = partial;
 
   create_dir(-1, stm, capt_name);
@@ -335,7 +341,7 @@ static void calc_capt(int stm, int wdl, int n)
   kslice_iter_init(&iter, stm);
   int s, s1;
   while (kslice_iter_next(&iter, &s)) {
-    show_progress(capt_name, -1, num_done++, 462, false);
+    show_progress(phase, num_done++, 462, false);
 
     if (kslice_test(s, stm ^ 1, sub_name, -1)) {
       while (kslice_iter_in(&iter, &s1)) {
@@ -370,9 +376,8 @@ static void calc_capt(int stm, int wdl, int n)
   fclose(F);
   file_rename(str);
 
-  show_progress(capt_name, -1, num_done, 462, true);
-
-  printf("capt_%s_%c = %lu\n", wdl_name[2 + wdl], "wb"[stm], cnt);
+  snprintf(phase, sizeof phase, "%s/%c  %lu", capt_name, "wb"[stm], cnt);
+  show_progress(phase, num_done, 462, true);
 }
 
 static void calc_capt_bloss(int stm)
@@ -396,7 +401,7 @@ static void calc_capt_bloss(int stm)
   kslice_iter_init(&iter, stm);
   int s, s1;
   while (kslice_iter_next(&iter, &s)) {
-    show_progress("bloss", -1, num_done++, 462, false);
+    show_progress("bloss", num_done++, 462, false);
 
     while (kslice_iter_in(&iter, &s1))
       if (!partial || !kslice_test_count(s1, stm, "capt/bloss", -1, &dummy)) {
@@ -419,7 +424,7 @@ static void calc_capt_bloss(int stm)
 
   create_empty(str);
 
-  show_progress("bloss", -1, num_done, 462, true);
+  show_progress("bloss", num_done, 462, true);
 }
 
 static void predecessors_worker(struct ThreadData *thread)
@@ -690,7 +695,7 @@ static void calc_illegal_and_mate(void)
   uint64_t broken[2] = { 0 }, loss0[2] = { 0 }, num;
 
   for (int s = 0; s < 462; s++) {
-    show_progress("mate", -1, s, 462, false);
+    show_progress("illegals + mates", s, 462, false);
 
     if (partial) {
       char str[64];
@@ -743,12 +748,10 @@ static void calc_illegal_and_mate(void)
   fclose(F);
   file_rename("0/done");
 
-  show_progress("mate", -1, 462, 462, true);
-
-  printf("broken_w = %lu\n", broken[WHITE]);
-  printf("broken_b = %lu\n", broken[BLACK]);
-  printf("l0_w = %lu\n", loss0[WHITE]);
-  printf("l0_b = %lu\n", loss0[BLACK]);
+  char phase[64];
+  snprintf(phase, sizeof phase, "mates (%lu, %lu), illegals (%lu, %lu)",
+      broken[WHITE], broken[BLACK], loss0[WHITE], loss0[BLACK]);
+  show_progress(phase, 462, 462, true);
 }
 
 // Calculate stm losses in n from stm^1 wins in n-1 (n > 1) or
@@ -764,6 +767,8 @@ static bool calc_L(int stm, int n, bool more_l)
     return g_stats[stm][MAX_STATS - 1 - n] != 0;
   }
 
+  char phase[64];
+
   struct KSliceIterator iter;
   bool partial = true;
   int num_done = 0;
@@ -777,11 +782,13 @@ static bool calc_L(int stm, int n, bool more_l)
 
   create_dir(n, stm, "X");
 
+  snprintf(phase, sizeof phase, "%d/X/%c", n, "wb"[stm]);
+
   // Calculate potential losses in n = predecessors(W(n-1))
   kslice_iter_init(&iter, stm);
   int s, s1;
   while (kslice_iter_next(&iter, &s)) {
-    show_progress("X", n, num_done++, 462, false);
+    show_progress(phase, num_done++, 462, false);
 
     bool pred_sub =   (n == 1 && sub_cnt[stm ^ 1][4])
                    || (n == DRAW_RULE + 1 && sub_cnt[stm ^ 1][3]);
@@ -825,7 +832,7 @@ static bool calc_L(int stm, int n, bool more_l)
         kslice_write(s, s, stm, "X", n, UINT64_MAX);
       }
   }
-  show_progress("X", n, num_done++, 462, true);
+  show_progress(phase, num_done++, 462, true);
 
   create_dir(n, stm, "L");
   partial = false;
@@ -834,11 +841,12 @@ skip_X:
 
   uint64_t cnt = 0;
   num_done = 0;
+  snprintf(phase, sizeof phase, "%d/L/%c", n, "wb"[stm]);
 
   // Verify potential losses.
   kslice_iter_init(&iter, stm);
   while (kslice_iter_next(&iter, &s)) {
-    show_progress("L", n, num_done++, 462, false);
+    show_progress(phase, num_done++, 462, false);
 
     if (kslice_test(s, stm, "X", n)) {
       while (kslice_iter_in(&iter, &s1)) {
@@ -866,9 +874,9 @@ skip_X:
   fclose(F);
   file_rename(str);
 
-  show_progress("L", n, num_done++, 462, true);
+  snprintf(phase, sizeof phase, "%d/L/%c  %lu", n, "wb"[stm], cnt);
+  show_progress(phase, num_done, 462, true);
 
-  printf("l%d_%c = %lu\n", n, "wb"[stm], cnt);
   return cnt != 0;
 }
 
@@ -883,6 +891,8 @@ static bool calc_W(int stm, int n, bool more_w)
     return g_stats[stm][stats_n(n)] != 0;
   }
 
+  char phase[64];
+
   struct KSliceIterator iter;
   uint64_t cnt = 0, num;
   int num_done = 0;
@@ -892,11 +902,13 @@ static bool calc_W(int stm, int n, bool more_w)
   create_dir(n, stm, "W");
   create_dir(n, stm, "wins");
 
+  snprintf(phase, sizeof phase, "%d/W/%c", n, "wb"[stm]);
+
   // Calculate wins in n = predecessors(L(n-1))
   kslice_iter_init(&iter, stm);
   int s, s1;
   while (kslice_iter_next(&iter, &s)) {
-    show_progress("W", n, num_done++, 462, false);
+    show_progress(phase, num_done++, 462, false);
 
     bool pred_sub =   (n == 1 && sub_cnt[stm ^ 1][0])
                    || (n == DRAW_RULE + 1 && sub_cnt[stm ^ 1][1]);
@@ -948,9 +960,9 @@ static bool calc_W(int stm, int n, bool more_w)
   fclose(F);
   file_rename(str);
 
-  show_progress("W", n, num_done++, 462, true);
+  snprintf(phase, sizeof phase, "%d/W/%c  %lu", n, "wb"[stm], cnt);
+  show_progress(phase, num_done, 462, true);
 
-  printf("w%d_%c = %lu\n", n, "wb"[stm], cnt);
   return cnt != 0;
 }
 

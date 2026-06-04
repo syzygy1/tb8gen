@@ -876,55 +876,63 @@ static double now_sec(void)
     return (double)ts.tv_sec + (double)ts.tv_nsec * 1e-9;
 }
 
-static void fmt_time(char *buf, size_t n, double sec)
+static void fmt_duration(char buf[32], double t)
 {
-    unsigned s = sec < 0 ? 0 : (unsigned)(sec + 0.5);
-    snprintf(buf, n, "%02u:%02u:%02u", s / 3600, (s / 60) % 60, s % 60);
+  uint32_t secs = t;
+  uint32_t days  = secs / 86400;
+  uint32_t hours = (secs / 3600) % 24;
+  uint32_t mins  = (secs / 60) % 60;
+  secs %= 60;
+
+  if (days)
+    snprintf(buf, 32, "%ud %02uh %02um %02us", days, hours, mins, secs);
+  else if (hours)
+    snprintf(buf, 32, "%uh %02um %02us", hours, mins, secs);
+  else if (mins)
+    snprintf(buf, 32, "%um %02us", mins, secs);
+  else
+    snprintf(buf, 32, "%us", secs);
 }
 
-void show_progress(const char *str, int n, int k, int total, bool final)
+void show_progress(const char *phase, int k, int total, bool final)
 {
-  static const char *spin[] = {"⠋","⠙","⠹","⠸","⠼","⠴","⠦","⠧","⠇","⠏"};
-  static unsigned frame;
-  static double t0, last = -1.0;
-  static bool init;
+  static double t_init, t0, last = 0.0;
+  static bool init = true, first = true, disable = false;
 
-  if (!init) {
-    t0 = now_sec();
-    init = true;
-  }
+  if (disable)
+    return;
 
   double t = now_sec();
+
+  if (first) {
+    t0 = t;
+    first = false;
+    if (init) {
+      if (!isatty(STDERR_FILENO))
+        disable = true;
+      t_init = t0;
+      init = false;
+    }
+  }
   if (!final && t - last < 0.25)
     return;
 
   last = t;
 
-  double elapsed = t - t0;
-  double frac = total ? (double)k / total : 0.0;
-  double eta = frac > 0.0 ? elapsed * (1.0 - frac) / frac : -1.0;
+  char ebuf[32];
+  fmt_duration(ebuf, t - t_init);
 
-  char pass[16] = "";
-  if (n >= 0)
-    snprintf(pass, sizeof pass, "ply %d ", n);
-
-  char ebuf[16], etabuf[16];
-  fmt_time(ebuf, sizeof ebuf, elapsed);
-  fmt_time(etabuf, sizeof etabuf, eta);
-
-  fprintf(stderr,
-      "\r\033[K%s %s %s  kslice %3u/%u  %5.1f%%  elapsed %s  ETA %s",
-      spin[frame++ % 10],
-      str,
-      pass,
-      k, total,
-      100.0 * frac,
-      ebuf,
-      frac > 0.0 ? etabuf : "--:--:--");
-
-  if (final) {
-    fputc('\n', stderr);
-    last = -1.0;
+  if (!final) {
+    double frac = (double)k / total;
+    double eta = k > 0 ? (t - t0) * (1.0 - frac) / frac : 0.0;
+    char etabuf[32];
+    fmt_duration(etabuf, eta);
+    fprintf(stderr, "\r\033[K%s  %s  %3u/%u  [%s]", ebuf, phase, k, total,
+        k > 0 ? etabuf : "--h--m-- s");
+  }
+  else {
+    fprintf(stderr, "\r\033[k%s  %s\033[K\n", ebuf, phase);
+    first = true;
   }
 
   fflush(stderr);

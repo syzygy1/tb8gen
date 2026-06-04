@@ -201,6 +201,9 @@ void merge(int stm)
   if (file_exists(str))
     return;
 
+  char phase[16];
+  snprintf(phase, sizeof phase, "merge/%c", "wb"[stm]);
+
   uint64_t *stats = g_stats[stm];
 
   create_dir(-1, stm, "stats");
@@ -335,11 +338,11 @@ void merge(int stm)
       out_of_mem();
 
     for (int s = 0; s < 462; s++) {
-      show_progress("merge", -1, s, 462, false);
+      show_progress(phase, s, 462, false);
       merge_bitmaps_u8(stm, s);
       delete_bitmaps(stm, s);
     }
-    show_progress("merge", -1, 462, 462, true);
+    show_progress(phase, 462, 462, true);
 
     free(merge_table);
 
@@ -355,11 +358,11 @@ void merge(int stm)
       out_of_mem();
 
     for (int s = 0; s < 462; s++) {
-      show_progress("merge", -1, s, 462, false);
+      show_progress(phase, s, 462, false);
       merge_bitmaps_u16(stm, s);
       delete_bitmaps(stm, s);
     }
-    show_progress("merge", -1, 462, 462, true);
+    show_progress(phase, 462, 462, true);
 
     free(merge_table);
 
