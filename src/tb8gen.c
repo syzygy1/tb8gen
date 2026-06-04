@@ -284,16 +284,24 @@ int main(int argc, char **argv)
   printf("\n");
 
   // Estimate sizes of different DTZ formats.
-  double ewh, ebl, elo, ewi;
-  ewh = entropy_one_sided(WHITE);
-  ebl = entropy_one_sided(BLACK);
-  elo = entropy_loss_only(WHITE) + (symmetric? 0.0 : entropy_loss_only(BLACK));
-  ewi = entropy_win_only(WHITE) + (symmetric ? 0.0 : entropy_win_only(BLACK));
+  double ewh = entropy_one_sided(WHITE);
+  double ebl = entropy_one_sided(BLACK);
+  double elo_w = entropy_loss_only(WHITE);
+  double elo_b = entropy_loss_only(BLACK);
+  double elo = elo_w + (symmetric ? 0.0 : elo_b);
+  double ewi_w = entropy_win_only(WHITE);
+  double ewi_b = entropy_win_only(WHITE);
+  double ewi = ewi_w + (symmetric ? 0.0 : ewi_b);
 
   printf("entropy wtm  = %lf\n", ewh);
   printf("entropy btm  = %lf\n", ebl);
-  printf("entropy loss = %lf\n", elo);
-  printf("entropy win  = %lf\n\n", ewi);
+  if (!symmetric) {
+    printf("entropy loss = %lf (%lf + %lf)\n", elo, elo_w, elo_b);
+    printf("entropy win  = %lf (%lf + %lf)\n\n", ewi, ewi_w, ewi_b);
+  } else {
+    printf("entropy loss = %lf\n", elo);
+    printf("entropy win  = %lf\n\n", ewi);
+  }
 
   // Add 0.1% of overhead for having a table for each side.
   // Perhaps this should be higher?
@@ -304,7 +312,6 @@ int main(int argc, char **argv)
 
   // Determine the DTZ format to use.
   one_sided = !symmetric && min(ewh, ebl) < min(elo, ewi);
-//  one_sided = true;
   wins_only = ewi <= elo;
   one_sided_stm = ewh <= ebl ? WHITE : BLACK;
 

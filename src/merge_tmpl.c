@@ -262,9 +262,7 @@ static void NAME(merge_bitmaps)(int stm, int s)
     return;
 
   if (!one_sided || stm == one_sided_stm) {
-    T z[MAX];
-    for (int i = 0; i < MAX; i++)
-      z[i] = 0;
+    T z[MAX] = { 0 };
 
     if (one_sided || wins_only) {
       for (int i = 2; i <= DRAW_RULE + 1; i++)

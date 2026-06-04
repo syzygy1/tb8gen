@@ -185,6 +185,7 @@ void create_empty(const char *name);
 
 void copy_data(FILE *F, FILE *G, size_t num);
 void write_data(FILE *F, void *src, size_t size);
+void write_data_cache_aligned(FILE *F, void *src, size_t size);
 void write_data_transform_u8(FILE *F, void *src, size_t size, uint8_t *v);
 void write_data_transform_u16(FILE *F, void *src, size_t size,
     uint16_t *v);
@@ -210,5 +211,7 @@ void create_name_r(char *str, int s, int r, int stm, const char *name, int n);
 void create_name_p(char *s, int sq, int stm, const char *name);
 void create_name_sq(char *s, int s1, int s2, int stm, const char *name, int n);
 #endif
+
+void show_progress(const char *str, int k, int total, bool final);
 
 #endif

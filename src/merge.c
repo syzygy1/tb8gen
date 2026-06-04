@@ -157,6 +157,10 @@ void merge(int stm)
   if (file_exists(str))
     return;
 
+  char phase[32];
+  snprintf(phase, sizeof phase, "merging %s slices",
+      stm == WHITE ? "white" : "black");
+
   uint64_t *stats = g_stats[stm];
 
   create_dir(-1, stm, "stats");
@@ -291,9 +295,11 @@ void merge(int stm)
       out_of_mem();
 
     for (int s = 0; s < 462; s++) {
+      show_progress(phase, s, 462, false);
       merge_bitmaps_u8(stm, s);
       delete_bitmaps(stm, s);
     }
+    show_progress(phase, 462, 462, true);
 
     free(merge_table);
 
@@ -309,9 +315,11 @@ void merge(int stm)
       out_of_mem();
 
     for (int s = 0; s < 462; s++) {
+      show_progress(phase, s, 462, false);
       merge_bitmaps_u16(stm, s);
       delete_bitmaps(stm, s);
     }
+    show_progress(phase, 462, 462, true);
 
     free(merge_table);
 

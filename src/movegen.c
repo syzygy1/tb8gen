@@ -138,5 +138,5 @@ void pos_to_fen(Position *pos, char *fen, bool flipped)
     if (i)
       *fen++ = '/';
   }
-  sprintf(fen, " %c - -", "wb"[pos->stm ^ flipped]);
+  sprintf(fen, " %c - - 0 1", "wb"[pos->stm ^ flipped]);
 }

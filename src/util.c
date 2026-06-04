@@ -12,6 +12,7 @@
 #include <stddef.h>
 #include <stdio.h>
 #include <stdint.h>
+#include <time.h>
 #include <unistd.h>
 #ifndef _WIN32
 #include <unistd.h>
@@ -20,6 +21,10 @@
 #include <sys/types.h>
 #include <errno.h>
 #include <fcntl.h>
+#endif
+
+#if defined(__AVX512F__) || defined(__AVX2__)
+#include <immintrin.h>
 #endif
 
 #include <zstd.h>
@@ -291,7 +296,7 @@ static void init(void)
     LOCK_INIT(cmprs_mutex);
     compress_bound = ZSTD_compressBound(MAX_COPYSIZE);
     for (int i = 0; i < COMPRESSION_THREADS; i++) {
-      cmprs_state[i].buffer = malloc(MAX_COPYSIZE);
+      cmprs_state[i].buffer = alloc_aligned(MAX_COPYSIZE, 64);
       cmprs_state[i].frame = malloc(HEADER_SIZE + compress_bound);
       cmprs_state[i].c_ctx = ZSTD_createCCtx();
       cmprs_state[i].d_ctx = ZSTD_createDCtx();
@@ -433,17 +438,91 @@ void create_empty(const char *name)
     close(fd);
 }
 
-static size_t compress(struct CompressState *state, void *dst, void *src,
+INLINE size_t compress(struct CompressState *state, void *dst, void *src,
     size_t chunk)
 {
   return ZSTD_compressCCtx(state->c_ctx, dst, compress_bound, src, chunk,
       ZSTD_LEVEL);
 }
 
-static void decompress(struct CompressState *state, void *dst, size_t chunk,
+INLINE void decompress(struct CompressState *state, void *dst, size_t chunk,
     void *src, size_t compressed)
 {
   ZSTD_decompressDCtx(state->d_ctx, dst, chunk, src, compressed);
+}
+
+INLINE void decompress_or(struct CompressState *state, uint8_t *dst,
+    size_t compressed)
+{
+  ZSTD_inBuffer in = { state->frame->data, compressed, 0 };
+  uint8_t *buf = state->buffer;
+
+  for (;;) {
+    ZSTD_outBuffer out = { buf, 64 * 1024, 0 };
+
+    size_t res = ZSTD_decompressStream(state->d_ctx, &out, &in);
+    if (ZSTD_isError(res)) {
+      fprintf(stderr, "zstd error: %s\n", ZSTD_getErrorName(res));
+      exit(EXIT_FAILURE);
+    }
+
+    assert((out.pos & 0x3f) == 0);
+
+#ifdef __AVX512F__
+
+    for (size_t off = 0; off < out.pos; off += 64) {
+      __m512i d = _mm512_load_si512((const void *)(buf + off));
+
+      if (_mm512_test_epi64_mask(d, d) == 0)
+        continue;
+
+      uint8_t *p = dst + off;
+
+      __m512i old = _mm512_load_si512((const void *)p);
+      _mm512_store_si512((void *)p, _mm512_or_si512(old, d));
+    }
+
+#elifdef __AVX2__
+
+    for (size_t off = 0; off < out.pos; off += 64) {
+      __m256i d0 = _mm256_load_si256((const __m256i *)(buf + off));
+      __m256i d1 = _mm256_load_si256((const __m256i *)(buf + off + 32));
+
+      if (_mm256_testz_si256(d0, d0) && _mm256_testz_si256(d1, d1))
+        continue;
+
+      uint8_t *p = dst + off;
+
+      __m256i old0 = _mm256_load_si256((const __m256i *)(p));
+      __m256i old1 = _mm256_load_si256((const __m256i *)(p + 32));
+
+      _mm256_store_si256((__m256i *)(p), _mm256_or_si256(old0, d0));
+      _mm256_store_si256((__m256i *)(p + 32), _mm256_or_si256(old1, d1));
+    }
+
+#else
+
+    for (size_t off = 0; off < out.pos; off += 8) {
+      uint64_t d = *(uint64_t *)(buf + off);
+
+      if (!d) continue;
+
+      uint64_t *p = (uint64_t *)(dst + off);
+      *p |= d;
+    }
+
+#endif
+
+    dst += out.pos;
+
+    if (res == 0)
+      break;
+  }
+
+  if (in.pos != in.size) {
+    fprintf(stderr, "Trailing compressed data in decompress_or().\n");
+    exit(EXIT_FAILURE);
+  }
 }
 
 void copy_data(FILE *F, FILE *G, size_t size)
@@ -559,6 +638,16 @@ void write_data(FILE *F, void *src, size_t size)
   run_compression(write_data_worker);
 }
 
+void write_data_cache_aligned(FILE *F, void *src, size_t size)
+{
+  init();
+
+  prepare_write_data(F, src, size, 64);
+  cmprs_v = nullptr;
+  cmprs_type = COPY;
+  run_compression(write_data_worker);
+}
+
 void write_data_as_u8_u8(FILE *F, void *src, size_t size)
 {
   write_data(F, src, size);
@@ -597,6 +686,10 @@ static void read_data_worker(int t)
     cmprs_size -= chunk;
     UNLOCK(cmprs_mutex);
     size_t idx = state->frame->idx;
+    if (cmprs_type == U8_OR) {
+      decompress_or(state, dst + idx, cmprs_chunk);
+      continue;
+    }
     if (cmprs_type == COPY) {
       decompress(state, dst + idx, chunk, state->frame->data, cmprs_chunk);
       continue;
@@ -610,7 +703,7 @@ static void read_data_worker(int t)
         dst[idx + i] = v8[buf[i]];
       break;
     case U16U16:
-      uint8_t *restrict v16 = cmprs_v;
+      uint16_t *restrict v16 = cmprs_v;
       uint16_t *restrict buf16 = state->buffer;
       for (size_t i = 0; i < chunk / 2; i++)
         ((uint16_t *)(dst + idx))[i] = v16[buf16[i]];
@@ -620,11 +713,6 @@ static void read_data_worker(int t)
       buf16 = state->buffer;
       for (size_t i = 0; i < chunk / 2; i++)
         dst[idx / 2 + i] = v8[buf16[i]];
-      break;
-    case U8_OR:
-      buf = state->buffer;
-      for (size_t i = 0; i < chunk; i++)
-        dst[idx + i] |= buf[i];
       break;
     }
   }
@@ -779,4 +867,75 @@ void create_name_10(char *str, int k, int stm, const char *name)
 {
   int sq = InvTriangle[k];
   sprintf(str, "%s/%c/%c%c", name, "wb"[stm], 'a' + (sq & 7), '1' + (sq >> 3));
+}
+
+static double now_sec(void)
+{
+    struct timespec ts;
+    clock_gettime(CLOCK_MONOTONIC, &ts);
+    return (double)ts.tv_sec + (double)ts.tv_nsec * 1e-9;
+}
+
+static void fmt_duration(char buf[32], double t)
+{
+  uint32_t secs = t;
+  uint32_t days  = secs / 86400;
+  secs %= 86400;
+  uint32_t hours = secs / 3600;
+  secs %= 3600;
+  uint32_t mins  = secs / 60;
+  secs %= 60;
+
+  if (days)
+    snprintf(buf, 32, "%ud %02uh %02um %02us", days, hours, mins, secs);
+  else if (hours)
+    snprintf(buf, 32, "%uh %02um %02us", hours, mins, secs);
+  else if (mins)
+    snprintf(buf, 32, "%um %02us", mins, secs);
+  else
+    snprintf(buf, 32, "%us", secs);
+}
+
+void show_progress(const char *phase, int k, int total, bool final)
+{
+  static double t_init, t0, last = 0.0;
+  static bool init = true, first = true, disable = false;
+
+  if (disable)
+    return;
+
+  double t = now_sec();
+
+  if (first) {
+    t0 = t;
+    first = false;
+    if (init) {
+      if (!isatty(STDERR_FILENO))
+        disable = true;
+      t_init = t0;
+      init = false;
+    }
+  }
+  if (!final && t - last < 0.25)
+    return;
+
+  last = t;
+
+  char ebuf[32];
+  fmt_duration(ebuf, t - t_init);
+
+  if (!final) {
+    double frac = (double)k / total;
+    char etabuf[32];
+    if (k > 0)
+      fmt_duration(etabuf, (t - t0) * (1.0 - frac) / frac);
+    fprintf(stderr, "\r\033[K%s  %s  %3u/%u  [%s left]", ebuf, phase, k, total,
+        k > 0 ? etabuf : "--");
+  }
+  else {
+    fprintf(stderr, "\r\033[k%s  %s\033[K\n", ebuf, phase);
+    first = true;
+  }
+
+  fflush(stderr);
 }
