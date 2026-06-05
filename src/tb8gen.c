@@ -233,30 +233,18 @@ int main(int argc, char **argv)
 
   // Initialize RankInfo structs for running through positions with
   // a captured piece.
-#if 0
-  for (k = 0; k < ii.numsets; k++) {
+  for (k = 0; k < ri.numsets; k++) {
     capt_ri[k] = ri;
     capt_ri[k].mult[k]--;
     if (capt_ri[k].mult[k] == 0) {
-      for (int i = k + 1; i < ii.numsets; i++) {
+      for (int i = k + 1; i < ri.numsets; i++) {
         capt_ri[k].first[i - 1] = capt_ri[k].first[i];
         capt_ri[k].mult[i - 1] = capt_ri[k].mult[i];
         capt_ri[k].last[i - 1] = capt_ri[k].last[i];
       }
-      capt_ii[k].numsets--;
+      capt_ri[k].numsets--;
     }
-    calc_factors(&capt_ii[k]);
-    kslice_sub_size[k] = capt_ii[k].size;
-  }
-#endif
-  for (k = 0; k < ri.numsets; k++) {
-    uint8_t mult2[MAX_SETS];
-    memcpy(mult2, mult, sizeof mult2);
-    mult2[k]--;
-    if (mult2[k] == 0)
-      for (int i = k + 1; i < ri.numsets; i++)
-        mult[i - 1] = mult[i];
-    *capt_ri = rank_info[rank_mult(mult2)];
+    calc_factors(&capt_ri[k]);
     kslice_sub_size[k] = capt_ri[k].sizes[0];
   }
 
@@ -295,7 +283,7 @@ int main(int argc, char **argv)
   double elo_b = entropy_loss_only(BLACK);
   double elo = elo_w + (symmetric ? 0.0 : elo_b);
   double ewi_w = entropy_win_only(WHITE);
-  double ewi_b = entropy_win_only(WHITE);
+  double ewi_b = entropy_win_only(BLACK);
   double ewi = ewi_w + (symmetric ? 0.0 : ewi_b);
 
   printf("entropy wtm  = %lf\n", ewh);

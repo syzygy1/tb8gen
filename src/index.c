@@ -123,7 +123,7 @@ static void unrank_mult(int idx, uint8_t mult[MAX_SETS])
 int rank_mult(uint8_t mult[MAX_SETS])
 {
   int idx = 0, s = 0;
-  for (int k = 0; k < MAX_PIECES && mult[k]; k++) {
+  for (int k = 0; k < MAX_SETS && mult[k]; k++) {
     s += mult[k];
     idx |= bit(s - 1);
   }
@@ -386,7 +386,7 @@ void init_ranking(void)
 
   // Initialize RankInfo[] structs.
 
-  for (int id = 1; id < 64; id++) {
+  for (int id = 0; id < 64; id++) {
     struct RankInfo *ri = &rank_info[id];
     uint8_t *m = ri->mult;
     unrank_mult(id, m);
