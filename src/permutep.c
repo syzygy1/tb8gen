@@ -102,7 +102,7 @@ uint64_t p_sq_to_idx(uint8_t *restrict sq)
   int s0 = (sq[0] > sq[2]);
   int s1 = (sq[1] > sq[2]) + (sq[1] > sq[0]);
   uint64_t idx = (sq[0] - s0) * 62 + (sq[1] - s1);
-  return sq_to_idx_helper(sq, idx, occ, &ii);
+  return sq_to_idx_helper(sq, idx, occ, &ri);
 }
 
 static void generate_set_perms_helper(int n, int k)
@@ -171,16 +171,16 @@ static void generate_test_list(uint64_t size, int n)
 
 void init_permute_pawn_p(void)
 {
-  assume(ii.numsets + 2 <= MAX_SETS);
+  assume(ri.numsets + 2 <= MAX_SETS);
   //int stm = g_pos.stm;
-  p_ii.numsets = ii.numsets + 2;
+  p_ii.numsets = ri.numsets + 2;
   p_ii.first[0] = 0; // stm ?
   p_ii.mult[0] = 1;
   p_ii.first[1] = 1; // stm^1 ?
   p_ii.mult[1] = 1;
-  for (int i = 0; i < ii.numsets; i++) {
-    p_ii.first[i + 2] = ii.first[i];
-    p_ii.mult[i + 2] = ii.mult[i];
+  for (int i = 0; i < ri.numsets; i++) {
+    p_ii.first[i + 2] = ri.first[i];
+    p_ii.mult[i + 2] = ri.mult[i];
   }
   for (int i = 0, n = 63; i < p_ii.numsets; i++) {
     p_ii.factor[i] = Binomial[p_ii.mult[i]][n];

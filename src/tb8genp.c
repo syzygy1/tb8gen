@@ -110,8 +110,7 @@ int main(int argc, char **argv)
   }
 
   init_movegen();
-  init_unrank();
-  init_perfect_ranker();
+  init_ranking();
   init_tablebases(path);
   init_threads();
 
@@ -194,35 +193,34 @@ int main(int argc, char **argv)
       g_pos.pcs[BLACK][k++] = i;
   g_pos.pcs[BLACK][k] = -1;
 
-  // Initialize main IdxInfo struct.
+  // Initialize main RankInfo struct.
+  uint8_t mult[MAX_SETS] = { 0 };
   k = 0;
   for (int i = 3; i < numpcs;) {
     int j = i;
     for (; i < numpcs && pt[i] == pt[j]; i++)
       pc_to_set[i] = k;
-    ii.first[k] = j;
-    ii.mult[k] = i - j;
-    ii.last[k] = i - 1;
+    mult[k] = i - j;
     k++;
   }
-  ii.numsets = k;
-  calc_factors(&ii);
+  ri = rank_info[rank_mult(mult)];
+  kslice_size = ri.sizes[0];
 
   // Initialize IdxInfo structs for running through positions with
   // a captured piece.
-  for (k = 0; k < ii.numsets; k++) {
-    capt_ii[k] = ii;
-    capt_ii[k].mult[k]--;
-    if (capt_ii[k].mult[k] == 0) {
-      for (int i = k + 1; i < ii.numsets; i++) {
-        capt_ii[k].first[i - 1] = capt_ii[k].first[i];
-        capt_ii[k].mult[i - 1] = capt_ii[k].mult[i];
-        capt_ii[k].last[i - 1] = capt_ii[k].last[i];
+  for (k = 0; k < ri.numsets; k++) {
+    capt_ri[k] = ri;
+    capt_ri[k].mult[k]--;
+    if (capt_ri[k].mult[k] == 0) {
+      for (int i = k + 1; i < ri.numsets; i++) {
+        capt_ri[k].first[i - 1] = capt_ri[k].first[i];
+        capt_ri[k].mult[i - 1] = capt_ri[k].mult[i];
+        capt_ri[k].last[i - 1] = capt_ri[k].last[i];
       }
-      capt_ii[k].numsets--;
+      capt_ri[k].numsets--;
     }
-    calc_factors(&capt_ii[k]);
-    kslice_sub_size[k] = capt_ii[k].size;
+    calc_factors(&capt_ri[k]);
+    kslice_sub_size[k] = capt_ri[k].sizes[0];
   }
 
   kslice_setup();
@@ -230,8 +228,8 @@ int main(int argc, char **argv)
   // Align work units on cache lines of 64 x 8 = 512 positions.
   work_g = create_work(g_total_work, kslice_size, 0x1ff);
   work_g16 = create_work(g_total_work, k16slice_alloc_size << 3, 0x1ff);
-  for (int i = 0; i < ii.numsets; i++)
-    work_capt[i] = create_work(g_total_work, capt_ii[i].size, 0x1ff);
+  for (int i = 0; i < ri.numsets; i++)
+    work_capt[i] = create_work(g_total_work, capt_ri[i].sizes[0], 0x1ff);
   init_generation_work();
 
   for (int i = 0; i < 24; i++) {

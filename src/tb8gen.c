@@ -185,7 +185,7 @@ int main(int argc, char **argv)
       g_pos.pcs[BLACK][k++] = i;
   g_pos.pcs[BLACK][k] = -1;
 
-  // Initialize main IdxInfo struct.
+  // Initialize main RankInfo struct.
   uint8_t mult[MAX_SETS] = { 0 };
   k = 0;
   for (int i = 2; i < numpcs;) {

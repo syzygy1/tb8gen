@@ -7,6 +7,11 @@
 #ifndef TB8GEN_H
 #define TB8GEN_H
 
+#include <stdint.h>
+
+#include "movegen.h"
+#include "stats.h"
+
 struct DtzFormat {
   bool one_sided, wins_only;
   int one_sided_stm;

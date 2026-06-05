@@ -1142,7 +1142,8 @@ static bool calc_W(int stm, int n, bool more_w)
   while (kslice_iter_next(&iter, &s)) {
     show_progress(phase, num_done++, 462, false);
 
-    bool pred_sub = n == DRAW_RULE + 1 && sub_cnt[stm ^ 1][1];
+    bool pred_sub =   (n == 1             && sub_cnt[stm ^ 1][0])
+                   || (n == DRAW_RULE + 1 && sub_cnt[stm ^ 1][1]);
     bool pred = more_w && kslice_test(s, stm ^ 1, "L", n - 1);
 
     if (pred_sub || pred) {
@@ -1154,8 +1155,8 @@ static bool calc_W(int stm, int n, bool more_w)
           kslice_clear(s1);
         }
 
-      if (pred_sub && !done) {
-        kslice_sub_read(s, s, stm ^ 1, n == 1 ? "sub/loss" : "sub/bloss");
+      if (n == DRAW_RULE + 1 && sub_cnt[stm ^ 1][1] && !done) {
+        kslice_sub_read(s, s, stm ^ 1, "sub/bloss");
         predecessors_sub(stm, s, false);
       }
 
@@ -1168,7 +1169,7 @@ static bool calc_W(int stm, int n, bool more_w)
     while (kslice_iter_out(&iter, &s)) {
       if (!partial || !kslice_test_count(s, stm, "W", n, &num)) {
         // We should probably do the same for n == DRAW_RULE + 1.
-        if (n == 1 && sub_cnt[stm ^ 1][1]) {
+        if (n == 1 && sub_cnt[stm ^ 1][0]) {
           kslice_read(-1, s, stm, "capt/win", -1);
           kslice_or(s, -1);
         }

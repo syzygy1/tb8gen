@@ -40,7 +40,7 @@ struct PKIdxState {
   int n;
 };
 
-struct IdxInfo pk_ii;
+struct RankInfo pk_ri;
 
 extern uint64_t tb_size;
 
@@ -101,7 +101,7 @@ uint64_t pk_sq_to_idx(uint8_t *restrict sq, int stm)
 
   int s0 = (sq[stm ^ 1] > sq[stm]) + (sq[stm ^ 1] > sq[2]);
   uint64_t idx = (sq[stm ^ 1] - s0);
-  return sq_to_idx_helper(sq, idx, occ, &ii);
+  return sq_to_idx_helper(sq, idx, occ, &ri);
 }
 
 static void generate_set_perms_helper(int n, int k)
@@ -170,24 +170,24 @@ static void generate_test_list(uint64_t size, int n)
 
 void init_permute_pawn_pk(int stm)
 {
-  assume(ii.numsets + 1 <= MAX_SETS);
+  assume(ri.numsets + 1 <= MAX_SETS);
   g_pos.stm = stm;
-  pk_ii.numsets = ii.numsets + 1;
-  pk_ii.first[0] = stm ^ 1;
-  pk_ii.mult[0] = 1;
-  for (int i = 0; i < ii.numsets; i++) {
-    pk_ii.first[i + 1] = ii.first[i];
-    pk_ii.mult[i + 1] = ii.mult[i];
+  pk_ri.numsets = ri.numsets + 1;
+  pk_ri.first[0] = stm ^ 1;
+  pk_ri.mult[0] = 1;
+  for (int i = 0; i < ri.numsets; i++) {
+    pk_ri.first[i + 1] = ri.first[i];
+    pk_ri.mult[i + 1] = ri.mult[i];
   }
-  for (int i = 0, n = 62; i < pk_ii.numsets; i++) {
-    pk_ii.factor[i] = Binomial[pk_ii.mult[i]][n];
-    n -= pk_ii.mult[i];
+  for (int i = 0, n = 62; i < pk_ri.numsets; i++) {
+    pk_ri.factor[i] = Binomial[pk_ri.mult[i]][n];
+    n -= pk_ri.mult[i];
   }
 
-  generate_set_perms(pk_ii.numsets);
+  generate_set_perms(pk_ri.numsets);
 
-  for (int i = 0; i < pk_ii.numsets; i++)
-    set_pt[i] = g_pos.pt[pk_ii.first[i]];
+  for (int i = 0; i < pk_ri.numsets; i++)
+    set_pt[i] = g_pos.pt[pk_ri.first[i]];
 
   tb_size = 62 * kslice_size;
   generate_test_list(tb_size, g_pos.num - 2);
@@ -252,7 +252,7 @@ static void estimate_compression_pawn(void *table, int num_cands, bool wide,
     free_code(c);
     printf("[%2d]", p);
     printf(";");
-    for (int i = 0; i < pk_ii.numsets; i++) {
+    for (int i = 0; i < pk_ri.numsets; i++) {
       int k = set_perm_list[trylist[p]][i];
       printf(" %c", PieceChar[set_pt[k]]);
     }
@@ -285,25 +285,25 @@ static int64_t estimate_compression(void *table, int *bestp, bool wide,
   for (i = 0; i < num_set_perms; i++)
     compest[i] = 0;
 
-  for (k = 0; k < pk_ii.numsets - 1; k++) {
-    int pos0 = pk_ii.numsets - k - 2;
-    int pos1 = pk_ii.numsets - k - 1;
+  for (k = 0; k < pk_ri.numsets - 1; k++) {
+    int pos0 = pk_ri.numsets - k - 2;
+    int pos1 = pk_ri.numsets - k - 1;
     best = UINT64_MAX;
     num_cands = 0;
-    for (p = 0; p < pk_ii.numsets; p++) {
-      for (i = pos1 + 1; i < pk_ii.numsets; i++)
+    for (p = 0; p < pk_ri.numsets; p++) {
+      for (i = pos1 + 1; i < pk_ri.numsets; i++)
 	if (p == bestperm[i]) break;
-      if (i < pk_ii.numsets) continue;
-      for (q = 0; q < pk_ii.numsets; q++) {
+      if (i < pk_ri.numsets) continue;
+      for (q = 0; q < pk_ri.numsets; q++) {
 	if (q == p) continue;
-	for (i = pos1 + 1; i < pk_ii.numsets; i++)
+	for (i = pos1 + 1; i < pk_ri.numsets; i++)
 	  if (q == bestperm[i]) break;
-	if (i < pk_ii.numsets) continue;
-	// look for permutation ending with p,q,bestperm[pos1+1..pk_ii.numsets-1]
+	if (i < pk_ri.numsets) continue;
+	// look for permutation ending with p,q,bestperm[pos1+1..pk_ri.numsets-1]
 	for (i = 0; i < num_set_perms; i++) {
-	  for (j = pos1 + 1; j < pk_ii.numsets; j++)
+	  for (j = pos1 + 1; j < pk_ri.numsets; j++)
 	    if (set_perm_list[i][j] != bestperm[j]) break;
-	  if (j < pk_ii.numsets) continue;
+	  if (j < pk_ri.numsets) continue;
 	  if (   set_perm_list[i][pos0] == p
               && set_perm_list[i][pos1] == q) break;
 	}
@@ -323,11 +323,11 @@ static int64_t estimate_compression(void *table, int *bestp, bool wide,
 	if (trylist[i] > trylist[j])
           Swap(trylist[i], trylist[j]);
     for (i = 0; i < num_cands; i++) {
-      try_ii[i].numsets = pk_ii.numsets;
-      for (j = 0; j < pk_ii.numsets; j++) {
+      try_ii[i].numsets = pk_ri.numsets;
+      for (j = 0; j < pk_ri.numsets; j++) {
         p = set_perm_list[trylist[i]][j];
-        try_ii[i].mult[j] = pk_ii.mult[p];
-        try_ii[i].first[j] = pk_ii.first[p];
+        try_ii[i].mult[j] = pk_ri.mult[p];
+        try_ii[i].first[j] = pk_ri.first[p];
       }
       for (int l = 0, n = 62; l < try_ii[i].numsets; l++) {
         try_ii[i].factor[l] = Binomial[try_ii[i].mult[l]][n];
@@ -355,14 +355,14 @@ void permute_pawn_pk(void *tb_table, void *table, uint8_t *best, int type,
 
   estimate_compression(table, &bestp, wide, type == WDL);
 
-  for (int i = 0; i < pk_ii.numsets; i++)
+  for (int i = 0; i < pk_ri.numsets; i++)
     best[i] = set_perm_list[bestp][i];
 
-  best_ii.numsets = pk_ii.numsets;
-  for (int i = 0; i < pk_ii.numsets; i++) {
+  best_ii.numsets = pk_ri.numsets;
+  for (int i = 0; i < pk_ri.numsets; i++) {
     int k = best[i];
-    best_ii.mult[i] = pk_ii.mult[k];
-    best_ii.first[i] = pk_ii.first[k];
+    best_ii.mult[i] = pk_ri.mult[k];
+    best_ii.first[i] = pk_ri.first[k];
   }
   for (int i = 0, n = 62; i < best_ii.numsets; i++) {
     best_ii.factor[i] = Binomial[best_ii.mult[i]][n];
@@ -370,7 +370,7 @@ void permute_pawn_pk(void *tb_table, void *table, uint8_t *best, int type,
   }
 
   printf("\nbest permutation: ");
-  for (int i = 0; i < pk_ii.numsets; i++) {
+  for (int i = 0; i < pk_ri.numsets; i++) {
     for (int j = 0; j < best_ii.mult[i]; j++)
       printf("%c", PieceChar[set_pt[best[i]]]);
   }

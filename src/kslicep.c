@@ -189,7 +189,7 @@ void kslice_setup(void)
       s++;
     }
 
-  kslice_size = ii.size;
+  kslice_size = ri.sizes[0];
   kslice_alloc_size = bits_to_aligned(kslice_size);
   k16slice_alloc_size = 16 * bits_to_aligned(kslice_size);
   for (int i = 0; i < 16; i++)
@@ -204,16 +204,16 @@ void kslice_setup(void)
   work_cl16 = create_work(g_total_work, k16slice_cache_lines, 0);
 
   sub_size[0] = sub_size[1] = 0;
-  for (int i = 0; i < ii.numsets; i++) {
-    int stm = g_pos.pt[ii.first[i]] >> 3;
+  for (int i = 0; i < ri.numsets; i++) {
+    int stm = g_pos.pt[ri.first[i]] >> 3;
     sub_offset[i] = sub_size[stm];
     kslice_sub_alloc_size[i] = bits_to_aligned(kslice_sub_size[i]);
     sub_size[stm] += 16 * kslice_sub_alloc_size[i];
   }
   // FIXME: it seems psub_offset[i] == sub_offset[i]...
   size_t psize = 0;
-  for (int i = 0; i < ii.numsets; i++)
-    if ((g_pos.pt[ii.first[i]] >> 3) == WHITE) {
+  for (int i = 0; i < ri.numsets; i++)
+    if ((g_pos.pt[ri.first[i]] >> 3) == WHITE) {
       psub_offset[i] = psize; // sub_size[BLACK];
       psize += 16 * kslice_sub_alloc_size[i];
 //      sub_size[BLACK] += 16 * kslice_sub_alloc_size[i];
