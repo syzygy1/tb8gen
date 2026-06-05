@@ -67,20 +67,20 @@ static void NAME(convert_est_data_piece)(struct ThreadData *thread)
 
   for (int p = 0; p < num_cands; p++) {
     for (int i = thread->begin; i < thread->end; i++) {
-      idx_state_init(&is, segs[i], sq, try_ri[p]);
+      idx_state_init(&is, segs[i], sq, &try_ri[p]);
       int j = 0, fill = 0, head = 0;
 
       for (; fill < NUM && j < seg_size;
-          fill++, j++, idx_state_inc(&is, try_ri[p]))
+          fill++, j++, idx_state_inc(&is, &try_ri[p]))
       {
-        idx_state_to_sq(&is, sq, try_ri[p]);
+        idx_state_to_sq(&is, sq, &try_ri[p]);
         uint64_t idx_dec = sq_to_idx(sq);
         __builtin_prefetch(table + idx_dec, 0, 3);
         idx_dec_buf[fill] = idx_dec;
       }
 
-      for (; j < seg_size; j++, idx_state_inc(&is, try_ri[p])) {
-        idx_state_to_sq(&is, sq, try_ri[p]);
+      for (; j < seg_size; j++, idx_state_inc(&is, &try_ri[p])) {
+        idx_state_to_sq(&is, sq, &try_ri[p]);
         uint64_t idx_dec = sq_to_idx(sq);
         __builtin_prefetch(table + idx_dec, 0, 3);
         dst[p * dsize + i * seg_size + j - NUM] = table[idx_dec_buf[head]];
@@ -161,14 +161,14 @@ static void NAME(convert_est_data_piece_ref)(struct ThreadData *thread)
       int j = 0, fill = 0, head = 0;
 
       for (; fill < NUM && j < seg_size; fill++, j++) {
-        unrank_reflection(segs[i] + j, sq, occ, try_ri[p]);
+        unrank_reflection(segs[i] + j, sq, occ, &try_ri[p]);
         uint64_t idx_dec = sq_to_idx_ref(sq);
         __builtin_prefetch(table + idx_dec, 0, 3);
         idx_dec_buf[fill] = idx_dec;
       }
 
-      for (; j < seg_size; j++, idx_state_inc(&is, try_ri[p])) {
-        unrank_reflection(segs[i] + j, sq, occ, try_ri[p]);
+      for (; j < seg_size; j++, idx_state_inc(&is, &try_ri[p])) {
+        unrank_reflection(segs[i] + j, sq, occ, &try_ri[p]);
         uint64_t idx_dec = sq_to_idx_ref(sq);
         __builtin_prefetch(table + idx_dec, 0, 3);
         dst[p * dsize + i * seg_size + j - NUM] = table[idx_dec_buf[head]];

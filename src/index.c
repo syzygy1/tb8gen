@@ -16,7 +16,7 @@ struct RankInfo ri, capt_ri[MAX_SETS];
 int pc_to_set[MAX_PIECES];
 Bitboard Unrank2[62 * 61 / 2], Unrank3[62 * 61 * 60 / 6];
 uint32_t Binomial[8][64];
-uint8_t MirrorMask[64];
+uint64_t MirrorMask[64];
 bool FlipTest[64][64];
 
 const int16_t KKIdx[10][64] = {
@@ -105,7 +105,11 @@ const int16_t KKIdx[10][64] = {
 uint8_t KKSquare[462][2];
 int16_t KKMap[64][64];
 
-struct RankInfo rank_info[64];
+// Regular RankInfo structs used for generation.
+
+struct RankInfo rank_info_61[32];
+struct RankInfo rank_info_62[64];
+struct RankInfo rank_info_63[64];
 
 static void unrank_mult(int idx, uint8_t mult[MAX_SETS])
 {
@@ -132,7 +136,7 @@ int rank_mult(uint8_t mult[MAX_SETS])
 
 static_assert(MAX_SETS == 6);
 
-static uint8_t partition[30][MAX_SETS] = {
+static uint8_t partition[30][7] = {
   { 0 },
   { 1 },
   { 2 }, { 1, 1},
@@ -144,9 +148,7 @@ static uint8_t partition[30][MAX_SETS] = {
          { 2, 2, 2 }, { 2, 2, 1, 1 }, { 2, 1, 1, 1, 1 }, { 1, 1, 1, 1, 1, 1}
 };
 
-static int8_t next_partition[30][8];
-
-int find_partition(int len, uint8_t mult[])
+static int find_partition(int len, uint8_t mult[])
 {
   uint8_t m[MAX_SETS] = { 0 };
 
@@ -257,16 +259,17 @@ void init_ranking(void)
   static constexpr Bitboard LOWER  = 0x80c0e0f0f8fcfeffull;
 
   for (int s = 0; s < 64; s++)
-    MirrorMask[s] = ((s & 0x04) ? 0x07 : 0x00) | ((s & 0x20) ? 0x38 : 0x00);
+    MirrorMask[s] =  ((s & 0x04) ? 0x0707070707070707ull : 0)
+                   | ((s & 0x20) ? 0x3838383838383838ull : 0);
 
   for (int i = 0; i < 64; i++)
     for (int j = 0; j < 64; j++) {
-      int s1 = i ^ MirrorMask[i];
-      int s2 = j ^ MirrorMask[i];
+      int s1 = i ^ (MirrorMask[i] & 0xff);
+      int s2 = j ^ (MirrorMask[i] & 0xff);
       if (!(bit(s1) & A1D1D4) || ((bit(s1) & A1D4) && !(bit(s2) & LOWER))) {
         FlipTest[i][j] = true;
-        s1 = FlipDiag[s1];
-        s2 = FlipDiag[s2];
+        s1 = ((s1 & 7) << 3) | (s1 >> 3);
+        s2 = ((s2 & 7) << 3) | (s2 >> 3);
       }
       KKMap[i][j] = KKIdx[Triangle[s1]][s2];
     }
@@ -299,6 +302,7 @@ void init_ranking(void)
       id++;
     }
 
+  int8_t next_partition[30][7];
   memset(next_partition, -1, sizeof next_partition);
 
   uint8_t mult[7];
@@ -329,7 +333,7 @@ void init_ranking(void)
     for (int p = 25; p <= 28; p++)
       for (int s = 0; s <= 6; s++) {
         uint64_t total = 0;
-        for (int d = 0; d <= min(p, m / 2); d++) {
+        for (int d = 0; d <= min(p - 25, m / 2); d++) {
           int rem = m - 2 * d;
           uint64_t per_full = 0;
           if (rem <= s)
@@ -354,7 +358,7 @@ void init_ranking(void)
         int p = unfold_ps[ps][0];
         int s = unfold_ps[ps][1];
         uint64_t prefix = 0;
-        for (int d = 0; d <= min(p, m / 2); d++) {
+        for (int d = 0; d <= min(p - 25, m / 2); d++) {
           int rem = m - 2 * d;
           uint64_t diag_tail = 0;
           uint64_t diag_block = 0;
@@ -387,26 +391,54 @@ void init_ranking(void)
   // Initialize RankInfo[] structs.
 
   for (int id = 0; id < 64; id++) {
-    struct RankInfo *ri = &rank_info[id];
+    struct RankInfo *ri = &rank_info_62[id];
     uint8_t *m = ri->mult;
     unrank_mult(id, m);
     int n = 0;
     while (n < MAX_PIECES && m[n])
-      ri->num += m[n++];
+      n++;
     ri->numsets = n;
     int part_id = find_partition(n, m);
     for (int k = 0, p = part_id; k < n; k++) {
       ri->transition_id[k] = transition_id[p][m[k]];
       p = next_partition[p][m[k]];
     }
-    calc_factors(ri);
+    calc_factors(ri, 62);
     ri->sizes[1] = count[part_id][28 - 25][6];
-    int i = has_pawns ? 3 : 2;
+    int i = 2;
     for (int k = 0; k < ri->numsets; k++) {
       ri->first[k] = i;
       ri->last[k] = i + m[k] - 1;
       i += m[k];
     }
+  }
+
+  for (int id = 0; id < 32; id++) {
+    struct RankInfo *ri = &rank_info_61[id];
+    uint8_t *m = ri->mult;
+    unrank_mult(id, m);
+    int n = 0;
+    while (n < MAX_PIECES && m[n])
+      n++;
+    ri->numsets = n;
+    calc_factors(ri, 61);
+    int i = 3;
+    for (int k = 0; k < ri->numsets; k++) {
+      ri->first[k] = i;
+      ri->last[k] = i + m[k] - 1;
+      i += m[k];
+    }
+  }
+
+  for (int id = 0; id < 64; id++) {
+    struct RankInfo *ri = &rank_info_63[id];
+    uint8_t *m = ri->mult;
+    unrank_mult(id, m);
+    int n = 0;
+    while (n < MAX_PIECES && m[n])
+      n++;
+    ri->numsets = n;
+    calc_factors(ri, 63);
   }
 }
 
@@ -428,17 +460,15 @@ uint64_t capt_sq_to_idx(uint8_t *restrict sq, int k)
   return sq_to_idx_helper(sq, 0, occ, &capt_ri[k]);
 }
 
-void calc_factors(struct RankInfo *ri)
+void calc_factors(struct RankInfo *ri, int n)
 {
-  for (int i = 0, n = has_pawns ? 61 : 62; i < ri->numsets; i++) {
+  uint64_t f = 1;
+  for (int i = 0; i < ri->numsets; i++) {
     ri->factor[i] = Binomial[ri->mult[i]][n];
     ri->recip[i] = recip(ri->factor[i]);
+    f *= ri->factor[i];
     n -= ri->mult[i];
   }
-
-  uint64_t f = 1;
-  for (int i = ri->numsets - 1; i >= 0; i--)
-    f *= ri->factor[i];
   ri->sizes[0] = f;
 }
 
@@ -467,13 +497,13 @@ static uint64_t rank_combination(Bitboard subset, Bitboard universe)
   return r;
 }
 
-static uint64_t rank_trivial_from(uint8_t *restrict sq, int k, Bitboard occ,
-    const struct RankInfo *ri)
+uint64_t rank_trivial_from(uint8_t *restrict sq, int k, Bitboard occ,
+    const uint8_t *restrict first, const struct RankInfo *ri)
 {
   uint64_t idx = 0;
   for (; k < ri->numsets; k++) {
     size_t s;
-    int i = ri->first[k];
+    int i = first[k];
     int m = ri->mult[k];
     if (m == 1) {
       s = rank_among_free(sq[i], occ);
@@ -512,7 +542,7 @@ INLINE uint64_t count_broken_residual_before(int rem, int p, int s, int one)
 }
 
 uint64_t rank_reflection(uint8_t *restrict sq, Bitboard occ,
-    const struct RankInfo *ri)
+    const uint8_t *restrict first, const struct RankInfo *ri)
 {
   Bitboard pair_mask = LOWER_DIAG_MASK;
   Bitboard diag_mask = MAIN_DIAG_MASK & ~occ;
@@ -523,7 +553,7 @@ uint64_t rank_reflection(uint8_t *restrict sq, Bitboard occ,
     int m = ri->mult[k];
     Bitboard bb = 0;
     for (int i = 0; i < m; i++)
-      bb |= bit(sq[ri->first[k] + i]);
+      bb |= bit(sq[first[k] + i]);
     occ |= bb;
     int tid = ri->transition_id[k];
 
@@ -539,38 +569,36 @@ uint64_t rank_reflection(uint8_t *restrict sq, Bitboard occ,
     pair_mask &= ~full_mask;
     p -= d;
 
-    if (!one_mask) {
-      rank += rank_combination(bb, diag_mask) * c->diag_tail;
-      diag_mask &= ~bb;
-      s = popcnt(diag_mask);
-      continue;
+    if (one_mask) {
+      // The current set breaks symmetry.
+      int one = popcnt(one_mask);     // Number of 2-orbits half filled.
+      int f = popcnt(bb & diag_mask); // Number of 1-orbits filled.
+      rank += c->diag_block;
+      uint64_t r = count_broken_residual_before(c->rem, p, s, one);
+
+      uint64_t rone = rank_combination(one_mask, pair_mask);
+      r += (rone * binom(s, f) + rank_combination(bb, diag_mask)) << (one - 1);
+      rank += r * c->broken_tail;
+
+      // Canonical orientation: orient_mask <= bitwise complement within oo bits.
+      uint32_t orient_mask = _pext_u64(bb, one_mask);
+      uint32_t comp = (~orient_mask) & ((1u << one) - 1u);
+      uint32_t canon = orient_mask < comp ? orient_mask : comp;
+      // Among 2^oo orientations paired with complements, canonical ones are
+      // exactly 0 .. 2^(oo-1)-1 after min(x,~x) for this ordering.
+      assert(canon < (1u << (one - 1)));
+      rank += canon * c->broken_tail;
+
+      if (comp < orient_mask) {
+        mirror_diagonal(sq);
+        occ = flip_main_diag(occ);
+      }
+      return rank + rank_trivial_from(sq, k + 1, occ, first, ri);
     }
 
-    int one = popcnt(one_mask);     // Number of 2-orbits half filled.
-    int f = popcnt(bb & diag_mask); // Number of 1-orbits filled.
-    rank += c->diag_block;
-    uint64_t r = count_broken_residual_before(c->rem, p, s, one);
-
-    uint64_t rone = rank_combination(one_mask, pair_mask);
-    r += (rone * binom(s, f) + rank_combination(bb, diag_mask)) << (one - 1);
-    rank += r * c->broken_tail;
-
-    // Canonical orientation: orient_mask <= bitwise complement within oo bits.
-    uint32_t orient_mask = _pext_u64(bb, one_mask);
-    uint32_t mask = (1u << one) - 1u;
-    uint32_t comp = (~orient_mask) & mask;
-    uint32_t canon = orient_mask < comp ? orient_mask : comp;
-    // Among 2^oo orientations paired with complements, canonical ones are
-    // exactly 0 .. 2^(oo-1)-1 after min(x,~x) for this ordering.
-    assert(canon < (1u << (one - 1)));
-    rank += canon * c->broken_tail;
-
-    if (comp < orient_mask) {
-      for (int i = 2; i < MAX_PIECES; i++)
-        sq[i] = FlipDiag[sq[i]];
-      occ = flip_main_diag(occ);
-    }
-    return rank + rank_trivial_from(sq, k + 1, occ, ri);
+    rank += rank_combination(bb, diag_mask) * c->diag_tail;
+    diag_mask &= ~bb;
+    s = popcnt(diag_mask);
   }
   return rank;
 }
@@ -579,7 +607,7 @@ uint64_t sq_to_idx_ref(uint8_t *restrict sq)
 {
   Bitboard occ = bit(sq[0]) | bit(sq[1]);
 
-  return rank_reflection(sq, occ, &ri);
+  return rank_reflection(sq, occ, ri.first, &ri);
 }
 
 static Bitboard unrank_combination(uint64_t idx, Bitboard universe, int m)

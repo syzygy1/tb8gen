@@ -129,7 +129,7 @@ int main(int argc, char **argv)
   int numpcs = k;
 
   if (layout < 0 || layout > 2)
-    layout = numpcs <= 6 ? 0 : numpcs == 7 ? 1 : 2;
+    layout = numpcs <= 5 ? 0 : numpcs == 6 ? 1 : 2;
 
   if (!color) exit(EXIT_FAILURE);
 
@@ -195,7 +195,7 @@ int main(int argc, char **argv)
     mult[k] = i - j;
     k++;
   }
-  ri = rank_info[rank_mult(mult)];
+  ri = rank_info_62[rank_mult(mult)];
   kslice_sizes[0] = ri.sizes[0];
   kslice_sizes[1] = ri.sizes[1];
 
@@ -244,7 +244,7 @@ int main(int argc, char **argv)
       }
       capt_ri[k].numsets--;
     }
-    calc_factors(&capt_ri[k]);
+    calc_factors(&capt_ri[k], 62);
     kslice_sub_size[k] = capt_ri[k].sizes[0];
   }
 

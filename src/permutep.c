@@ -42,7 +42,7 @@ struct PIdxState {
 
 struct PIdxInfo p_ii;
 
-extern uint64_t tb_size;
+uint64_t tb_size;
 
 static constexpr int MAX_PERMS = 1*2*3*4*5*6*7;
 static constexpr int MAX_CANDS = 6*7;

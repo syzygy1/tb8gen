@@ -128,15 +128,12 @@ INLINE uint64_t calc_idx_piece(uint8_t *restrict sq, uint8_t *restrict pidx,
     return 462 * kslice_size;
     // table[total_kslice_size] is set to the don't care value.
   else if (s < 441) {
-    // FIXME: improve efficiency
-    uint8_t sq3[MAX_PIECES];
-    normalize(sq2, sq3);
-    return (unsigned)s * kslice_size + sq_to_idx(sq3);
+    normalize(sq2);
+    return (unsigned)s * kslice_size + sq_to_idx(sq2);
   }
   else {
-    uint8_t sq3[MAX_PIECES];
-    normalize(sq2, sq3);
-    return (unsigned)s * kslice_size + sq_to_idx_ref(sq3);
+    normalize_quadrant(sq2);
+    return (unsigned)s * kslice_size + sq_to_idx_ref(sq2);
   }
 }
 

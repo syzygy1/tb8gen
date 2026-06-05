@@ -132,8 +132,8 @@ int main(int argc, char **argv)
     }
   int numpcs = k;
 
-  if (layout <= 0 || layout > 2)
-    layout = numpcs <= 7 ? 1 : numpcs == 8 ? 1 : 2;
+  if (layout < 1 || layout > 2)
+    layout = numpcs <= 6 ? 1 : 2;
 
   if (!color) exit(EXIT_FAILURE);
 
@@ -203,7 +203,7 @@ int main(int argc, char **argv)
     mult[k] = i - j;
     k++;
   }
-  ri = rank_info[rank_mult(mult)];
+  ri = rank_info_61[rank_mult(mult)];
   kslice_size = ri.sizes[0];
 
   // Initialize IdxInfo structs for running through positions with
@@ -219,7 +219,7 @@ int main(int argc, char **argv)
       }
       capt_ri[k].numsets--;
     }
-    calc_factors(&capt_ri[k]);
+    calc_factors(&capt_ri[k], 61);
     kslice_sub_size[k] = capt_ri[k].sizes[0];
   }
 

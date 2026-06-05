@@ -41,8 +41,8 @@ static uint64_t compest[MAX_PERMS];
 static uint8_t set_pt[MAX_SETS];
 
 static int trylist[MAX_CANDS];
-static struct RankInfo *try_ri[MAX_CANDS];
-static struct RankInfo *best_ri;
+static struct RankInfo try_ri[MAX_CANDS];
+static struct RankInfo best_ri;
 
 static uint8_t perm_tmp[MAX_SETS];
 
@@ -265,18 +265,22 @@ static int64_t estimate_compression(void *table, int *bestp, bool wide,
 	if (trylist[i] > trylist[j])
           Swap(trylist[i], trylist[j]);
     for (i = 0; i < num_cands; i++) {
-      uint8_t mult[MAX_SETS] = { 0 };
+      uint8_t m[MAX_SETS] = { 0 };
       for (j = 0; j < num_sets; j++) {
         p = set_perm_list[trylist[i]][j];
-        mult[j] = ri.mult[p];
+        m[j] = ri.mult[p];
       }
-      try_ri[i] = &rank_info[rank_mult(mult)];
+      try_ri[i] = rank_info_62[rank_mult(m)];
+      for (j = 0; j < num_sets; j++) {
+        p = set_perm_list[trylist[i]][j];
+        try_ri[i].first[j] = ri.first[p];
+      }
     }
     estimate_compression_piece(table, num_cands, wide, wdl, reflection);
     for (i = 0; i < num_cands; i++) {
       if (compest[trylist[i]] < best) {
-	best = compest[trylist[i]];
-	bp = trylist[i];
+        best = compest[trylist[i]];
+        bp = trylist[i];
       }
     }
     bestperm[pos1] = set_perm_list[bp][pos1];
@@ -308,21 +312,23 @@ void permute_piece_462(void *tb_table, void *table, uint8_t *best, int type,
   for (int i = 0; i < num_sets; i++)
     best[i] = set_perm_list[bestp][i];
 
-  uint8_t mult[MAX_SETS] = { 0 };
+  uint8_t m[MAX_SETS] = { 0 };
   for (int i = 0; i < num_sets; i++)
-    mult[i] = ri.mult[best[i]];
-  best_ri = &rank_info[rank_mult(mult)];
+    m[i] = ri.mult[best[i]];
+  best_ri = rank_info_62[rank_mult(m)];
+  for (int i = 0; i < num_sets; i++)
+    best_ri.first[i] = ri.first[best[i]];
 
   printf("\nbest permutation: ");
   for (int i = 0; i < num_sets; i++) {
-    for (int j = 0; j < best_ri->mult[i]; j++)
+    for (int j = 0; j < best_ri.mult[i]; j++)
       printf("%c", PieceChar[set_pt[best[i]]]);
   }
   printf("\n");
 
   convert_data.src = table;
   convert_data.dst = tb_table;
-  convert_data.perm_ri = best_ri;
+  convert_data.perm_ri = &best_ri;
 
   if (g_compress_type == 1)
     return;

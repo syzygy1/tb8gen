@@ -38,7 +38,7 @@ INLINE void mark_king_unmoves(int stm, Bitboard occ, uint8_t *restrict sq)
   Bitboard b = king_attacks(sq[stm]) & ~(occ | king_attacks(sq[stm ^ 1]));
   while (b) {
     sq[stm] = pop_lsb(&b);
-    normalize(sq, sq2);
+    normalize2(sq, sq2);
     int s2 = KKMap[sq2[0]][sq2[1]];
     uint8_t *p = kslice_get_address(s2);
     uint64_t idx = s2 < 441 ? sq_to_idx(sq2) : sq_to_idx_ref(sq2);
@@ -336,7 +336,7 @@ static void calc_capt(int stm, int wdl, int n)
   if (!sub_cnt[stm ^ 1][2 - wdl])
     return;
 
-  char capt_name[64], sub_name[64];
+  char capt_name[32], sub_name[32];
   strcat(strcpy(capt_name, "capt/"), wdl_name[2 + wdl]);
   strcat(strcpy(sub_name , "sub/" ), wdl_name[2 - wdl]);
 
@@ -546,7 +546,7 @@ INLINE bool check_king_moves(int stm, Bitboard occ, uint8_t *restrict sq)
     int j = get_idx(sq, to);
     if ((g_pos.pt[j] >> 3) == stm) continue;
     sq[stm] = to;
-    normalize(sq, sq2);
+    normalize2(sq, sq2);
     int l = pc_to_set[j];
     sq2[j] = sq2[ri.last[l]];
     int s2 = KKMap[sq2[0]][sq2[1]];
@@ -560,7 +560,7 @@ INLINE bool check_king_moves(int stm, Bitboard occ, uint8_t *restrict sq)
   b &= ~occ;
   while (b) {
     sq[stm] = pop_lsb(&b);
-    normalize(sq, sq2);
+    normalize2(sq, sq2);
     int s2 = KKMap[sq2[0]][sq2[1]];
     uint64_t idx = s2 < 441 ? sq_to_idx(sq2) : sq_to_idx_ref(sq2);
     uint8_t *p = kslice_get_address(s2);

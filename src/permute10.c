@@ -118,7 +118,7 @@ uint64_t p10_sq_to_idx(uint8_t *restrict sq, int k2sq)
   uint64_t idx = P10Square[k2sq];
   return  !P10Ref[k2sq]
         ? sq_to_idx_helper(sq, idx, occ, &ri)
-        : idx * kslice_size + rank_reflection(sq, occ, &ri);
+        : idx * kslice_size + rank_reflection(sq, occ, ri.first, &ri);
 }
 
 static void generate_set_perms_helper(int n, int k)

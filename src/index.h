@@ -9,6 +9,7 @@
 
 #include <assert.h>
 #include <inttypes.h>
+#include <string.h>
 #include <x86intrin.h>
 
 #include "defs.h"
@@ -29,9 +30,7 @@ static constexpr bool has_pawns = true;
 static constexpr int MAX_MULT = MAX_PIECES - (has_pawns ? 3 : 2);
 
 struct RankInfo {
-  uint8_t num;
   uint8_t numsets;
-  uint8_t partition_id;
   uint8_t first[MAX_SETS];
   uint8_t mult[MAX_SETS];
   uint8_t last[MAX_SETS];
@@ -41,7 +40,19 @@ struct RankInfo {
   uint64_t sizes[2];
 };
 
-extern struct RankInfo rank_info[64];
+// Indexing used by permute10.c deviates a bit.
+// Now the non-leading king is permuted together with the non-pawn pieces.
+struct RankInfo10 {
+  uint8_t numsets;
+  uint8_t k2;                 // Set index of the non-leading king.
+  uint8_t first[MAX_SETS];
+  uint8_t mult[MAX_SETS];
+  uint32_t factor[MAX_SETS];
+};
+
+extern struct RankInfo rank_info_61[32];
+extern struct RankInfo rank_info_62[64];
+extern struct RankInfo rank_info_63[64];
 
 struct IdxState {
   uint32_t sub[MAX_SETS];
@@ -53,9 +64,8 @@ extern struct RankInfo ri, capt_ri[MAX_SETS];
 extern int pc_to_set[MAX_PIECES];
 extern Bitboard Unrank2[62 * 61 / 2], Unrank3[62 * 61 * 60 / 6];
 extern uint32_t Binomial[8][64];
-extern uint8_t MirrorMask[64];
+extern uint64_t MirrorMask[64];
 extern bool FlipTest[64][64];
-extern const uint8_t FlipDiag[64];
 extern const int16_t KKIdx[10][64];
 extern uint8_t KKSquare[462][2];
 extern int16_t KKMap[64][64];
@@ -223,35 +233,54 @@ INLINE uint64_t sq_to_idx_helper(uint8_t *restrict sq, uint64_t idx,
   return idx;
 }
 
-// Mirror wK to A1-D1-D4 and, if wK on A1-D4, then bK to A1-H1-H8.
-INLINE void normalize(const uint8_t *restrict sq, uint8_t *restrict sq2)
+INLINE uint64_t mirror_diagonal_u64(uint64_t v)
 {
-  assume(g_pos.num <= MAX_PIECES);
+  return  ((v & 0x0707070707070707ULL) << 3)
+        | ((v & 0x3838383838383838ULL) >> 3);
+}
 
-  for (int i = 0; i < g_pos.num; i++)
-    sq2[i] = sq[i] ^ MirrorMask[sq[0]];
+INLINE void mirror_diagonal(uint8_t *sq)
+{
+  uint64_t v;
+  memcpy(&v, sq, 8);
+  v = mirror_diagonal_u64(v);
+  memcpy(sq, &v, 8);
+}
 
+INLINE void normalize(uint8_t *sq)
+{
+  uint64_t v;
+  memcpy(&v, sq, 8);
+  v ^= MirrorMask[sq[0]];
   if (FlipTest[sq[0]][sq[1]])
-    for (int i = 0; i < g_pos.num; i++)
-      sq2[i] = FlipDiag[sq2[i]];
+    v = mirror_diagonal_u64(v);
+  memcpy(sq, &v, 8);
 }
 
-INLINE void mirror_diagonal(uint8_t *restrict sq)
+INLINE void normalize_quadrant(uint8_t *sq)
 {
-  assume(g_pos.num <= MAX_PIECES);
-
-  for (int i = 2; i < g_pos.num; i++)
-    sq[i] = FlipDiag[sq[i]];
+  uint64_t v;
+  memcpy(&v, sq, 8);
+  v ^= MirrorMask[sq[0]];
+  memcpy(sq, &v, 8);
 }
 
-INLINE void mirror_diagonal2(uint8_t *restrict sq, uint8_t *restrict sq2)
+INLINE void mirror_diagonal2(const uint8_t *restrict sq, uint8_t *restrict sq2)
 {
-  assume(g_pos.num <= MAX_PIECES);
+  uint64_t v;
+  memcpy(&v, sq, 8);
+  v = mirror_diagonal_u64(v);
+  memcpy(sq2, &v, 8);
+}
 
-  sq2[0] = sq[0];
-  sq2[1] = sq[1];
-  for (int i = 2; i < g_pos.num; i++)
-    sq2[i] = FlipDiag[sq[i]];
+INLINE void normalize2(const uint8_t *restrict sq, uint8_t *restrict sq2)
+{
+  uint64_t v;
+  memcpy(&v, sq, 8);
+  v ^= MirrorMask[sq[0]];
+  if (FlipTest[sq[0]][sq[1]])
+    v = mirror_diagonal_u64(v);
+  memcpy(sq2, &v, 8);
 }
 
 INLINE void idx_state_inc(struct IdxState *is, const struct RankInfo *ii)
@@ -298,16 +327,17 @@ INLINE Bitboard idx_state_to_sq(struct IdxState *is, uint8_t *restrict sq,
 void init_ranking(void);
 int rank_mult(uint8_t mult[MAX_SETS]);
 
-void calc_factors(struct RankInfo *ri);
+void calc_factors(struct RankInfo *ri, int n);
 uint64_t sq_to_idx(uint8_t *sq);
 uint64_t sq_to_idx_ref(uint8_t *sq);
 uint64_t capt_sq_to_idx(uint8_t *sq, int k);
 void idx_state_init(struct IdxState *is, uint64_t idx, uint8_t *restrict sq,
     const struct RankInfo *ri);
 
-int find_partition(int len, uint8_t mult[]);
+uint64_t rank_trivial_from(uint8_t *restrict sq, int k, Bitboard occ,
+    const uint8_t *restrict first, const struct RankInfo *ri);
 uint64_t rank_reflection(uint8_t *restrict sq, Bitboard occ,
-    const struct RankInfo *ri);
+    const uint8_t *restrict first, const struct RankInfo *ri);
 Bitboard unrank_reflection(uint64_t idx, uint8_t *restrict sq, Bitboard occ,
     const struct RankInfo *ri);
 

@@ -515,7 +515,7 @@ static void read_wins(int s, int slice, int stm, int n)
 
 static void calc_capt(int stm, int wdl)
 {
-  char capt_name[64], pcapt_name[64], sub_name[64], psub_name[64];
+  char capt_name[32], pcapt_name[32], sub_name[32], psub_name[32];
   strcat(strcpy(capt_name , "capt/" ), wdl_name[2 + wdl]);
   strcat(strcpy(pcapt_name, "pcapt/"), wdl_name[2 + wdl]);
   strcat(strcpy(sub_name  , "sub/"  ), wdl_name[2 - wdl]);

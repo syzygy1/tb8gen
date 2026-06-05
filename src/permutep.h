@@ -9,6 +9,8 @@
 
 #include <inttypes.h>
 
+extern uint64_t tb_size;
+
 void init_permute_pawn_p(void);
 void permute_pawn_p(void *tb_table, void *table, uint8_t *best, int type,
     bool wide);

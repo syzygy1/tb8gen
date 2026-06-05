@@ -334,6 +334,7 @@ const uint8_t InvTriangle[10] = {
   1, 2, 3, 10, 11, 19, 0, 9, 18, 27
 };
 
+#if 0
 const uint8_t FlipDiag[64] = {
    0,  8, 16, 24, 32, 40, 48, 56,
    1,  9, 17, 25, 33, 41, 49, 57,
@@ -344,6 +345,7 @@ const uint8_t FlipDiag[64] = {
    6, 14, 22, 30, 38, 46, 54, 62,
    7, 15, 23, 31, 39, 47, 55, 63
 };
+#endif
 
 static const uint8_t Lower[64] = {
   28,  0,  1,  2,  3,  4,  5,  6,
@@ -530,8 +532,7 @@ INLINE size_t encode(uint8_t *p, struct EncInfo *ei, struct TbEntry *entry,
     for (int i = 0; i < n; i++)
       if (OffDiag[p[i]]) {
         if (OffDiag[p[i]] > 0 && i < (entry->kk_enc ? 2 : 3))
-          for (int j = 0; j < n; j++)
-            p[j] = FlipDiag[p[j]];
+          mirror_diagonal(p);
         break;
       }
 
@@ -1349,76 +1350,73 @@ NOINLINE struct TbTable2 *init_new_table(struct TbEntry *entry,
     dist_format = tb->layout >= LT_PAWN_P ? *data++ : 0;
   }
 
-  uint8_t mult[MAX_SETS] = { 0 };
+  // Determine the multiplicity signature for non-king pieces and pawns.
+  uint8_t first[MAX_SETS], mult[MAX_SETS] = { 0 };
   int k = 0;
   for (int i = 2; i < entry->num; i++) {
-    if (i == 2 || tb->pt[i] != tb->pt[i - 1])
+    if (i == 2 || tb->pt[i] != tb->pt[i - 1]) {
+      first[k] = i;
       mult[k++] = 0;
+    }
     mult[k - 1]++;
   }
-  struct RankInfo *ri = &rank_info[rank_mult(mult)];
 
   static constexpr uint8_t knum[] = { 58, 58, 58, 55, 55, 55, 33, 30, 30, 30 };
   uint64_t tb_size = 1;
   if (tb->layout == LT_PIECE_KK) {
-    table->ri = ri;
-    tb_size = ri->sizes[tsq >= 441];
+    uint8_t m[MAX_SETS] = { 0 };
+    for (int i = 0; i < k; i++) {
+      table->first[i] = first[data[i]];
+      m[i] = mult[data[i]];
+    }
+    table->ri = &rank_info_62[rank_mult(m)];
+    tb_size = table->ri->sizes[tsq >= 441];
     data += k;
   }
   else if (tb->layout == LT_PIECE_K) {
-    // FIXME!!!
-#if 0
+    // For now we'll just alloc rather than precompute it.
+    struct RankInfo10 *ri10 = malloc(sizeof *ri10);
+    if (!ri10)
+      out_of_mem();
+    tb_size = 1;
+    ri10->numsets = k + 1;
     for (int i = 0, n = 62; i < k + 1; i++) {
       if (data[i] == 0) {
-        table->first[i] = table->mult[i] = 0;
-        table->factor[i] = knum[tsq];
+        table->first[i] = ri10->mult[i] = 0;
+        ri10->factor[i] = knum[tsq];
       } else {
         table->first[i] = first[data[i] - 1];
         int m = mult[data[i] - 1];
-        table->mult[i] = m;
-        table->factor[i] = Binomial[m][n];
+        ri10->mult[i] = m;
+        ri10->factor[i] = Binomial[m][n];
         n -= m;
       }
-      tb_size *= table->factor[i];
+      tb_size *= ri10->factor[i];
     }
+    table->ri_10 = ri10;
     data += k + 1;
-#endif
   }
   else if (tb->layout == LT_PAWN_P) {
-#if 0
-    for (int i = 0, n = 63; i < k + 1; i++) {
-      int l = data[i];
-      if (l < 2) {
-        table->first[i] = l;
-        table->mult[i] = 1;
-      } else {
-        table->first[i] = first[l - 1];
-        table->mult[i] = mult[l - 1];
-      }
-      table->factor[i] = Binomial[table->mult[i]][n];
-      n -= table->mult[i];
-      tb_size *= table->factor[i];
+    assert(k + 2 <= MAX_SETS);
+    uint8_t m[MAX_SETS];
+    for (int i = 0; i < k + 1; i++) {
+      table->first[i] = data[i] < 2 ? data[i] : first[data[i] - 1];
+      m[i] = data[i] < 2 ? 1 : mult[data[i] - 1];
     }
+    table->ri = &rank_info_63[rank_mult(m)];
+    tb_size = table->ri->sizes[0];
     data += k + 1;
-#endif
   }
   else if (tb->layout == LT_PAWN_PK) {
-#if 0
-    for (int i = 0, n = 62; i < k; i++) {
-      int l = data[i];
-      if (l == 0) {
-        table->first[i] = 1;
-        table->mult[i] = 1;
-      } else {
-        table->first[i] = first[l];
-        table->mult[i] = mult[l];
-      }
-      table->factor[i] = Binomial[table->mult[i]][n];
-      n -= table->mult[i];
-      tb_size *= table->factor[i];
+    assert(k + 1 <= MAX_SETS);
+    uint8_t m[MAX_SETS];
+    for (int i = 0; i < k; i++) {
+      table->first[i] = data[i] == 0 ? 1 : first[data[i]];
+      m[i] = data[i] == 0 ? 1 : mult[data[i]];
     }
+    table->ri = &rank_info_62[rank_mult(m)];
+    tb_size = table->ri->sizes[0];
     data += k;
-#endif
   }
   data += (uintptr_t)data & 1;
 
@@ -1732,13 +1730,7 @@ INLINE int probe_table(Position *pos, int s, const int type)
         Swap(p[0], p[1]);
 
       // Normalize the pawnless position.
-      uint8_t mask = MirrorMask[p[0]];
-      for (int i = 0; i < entry->num; i++)
-        p[i] ^= mask;
-
-      if (FlipTest[p[0]][p[1]])
-        for (int i = 0; i < entry->num; i++)
-          p[i] = FlipDiag[p[i]];
+      normalize(p);
 
       tsq = tb->layout == LT_PIECE_K ? Triangle[p[0]] : KKMap[p[0]][p[1]];
 
@@ -1802,16 +1794,24 @@ INLINE int probe_table(Position *pos, int s, const int type)
     }
 
     // Calculate index.
-    const struct RankInfo *ri = table->ri;
-    if (tb->layout != LT_PIECE_KK || tsq < 441) {
-      static const int extra[] = { 1, 0, 2, 1, 0, 0 };
-      int numsets = entry->numsets + extra[tb->layout - LT_PIECE_K];
-      for (int k = 0; k < numsets; k++) {
+    if (    tb->layout > LT_PIECE_KK
+        || (tb->layout == LT_PIECE_KK && tsq < 441))
+    {
+      const struct RankInfo *ri = table->ri;
+      idx = rank_trivial_from(p, 0, occ, table->first, ri);
+    }
+    else if (tb->layout == LT_PIECE_KK) {
+      const struct RankInfo *ri = table->ri;
+      idx = rank_reflection(p, occ, table->first, ri);
+    }
+    else if (tb->layout == LT_PIECE_K) {
+      const struct RankInfo10 *ri = table->ri_10;
+      for (int k = 0; k < ri->numsets; k++) {
         size_t s = 0;
         if (ri->mult[k] == 0)
           s = Off10[tsq][p[1]];
         else {
-          int m = ri->first[k];
+          int m = table->first[k];
           sort_squares(ri->mult[k], &p[m]);
           Bitboard occ2 = occ;
           for (int i = 0; i < ri->mult[k]; i++, m++) {
@@ -1823,8 +1823,6 @@ INLINE int probe_table(Position *pos, int s, const int type)
         }
         idx = idx * ri->factor[k] + s;
       }
-    } else {
-      idx = rank_reflection(p, occ, ri);
     }
 
     const uint8_t *w = decompress_pairs(table->precomp, idx);

@@ -31,7 +31,7 @@ static void NAME(convert_data_piece)(struct ThreadData *thread)
       fill++, idx++, p10_idx_state_inc(&is, perm_ii))
   {
     p10_idx_state_to_sq(&is, sq, perm_ii, stm);
-    normalize(sq, sq2);
+    normalize2(sq, sq2);
     uint64_t idx_dec = p10_sq_to_idx(sq2, sq[stm ^ 1]);
     __builtin_prefetch(src + idx_dec, 0, 3);
     idx_dec_buf[fill] = idx_dec;
@@ -40,7 +40,7 @@ static void NAME(convert_data_piece)(struct ThreadData *thread)
   // Steady-state pipeline.
   for (; idx < end; idx++, p10_idx_state_inc(&is, perm_ii)) {
     p10_idx_state_to_sq(&is, sq, perm_ii, stm);
-    normalize(sq, sq2);
+    normalize2(sq, sq2);
     uint64_t idx_dec = p10_sq_to_idx(sq2, sq[stm ^ 1]);
     __builtin_prefetch(src + idx_dec, 0, 3);
     dst[idx - NUM] = src[idx_dec_buf[head]];
@@ -78,7 +78,7 @@ static void NAME(convert_est_data_piece)(struct ThreadData *thread)
           fill++, j++, p10_idx_state_inc(&is, &try_ii[p]))
       {
         p10_idx_state_to_sq(&is, sq, &try_ii[p], stm);
-        normalize(sq, sq2);
+        normalize2(sq, sq2);
         uint64_t idx_dec = p10_sq_to_idx(sq2, sq[stm ^ 1]);
         __builtin_prefetch(table + idx_dec, 0, 3);
         idx_dec_buf[fill] = idx_dec;
@@ -86,7 +86,7 @@ static void NAME(convert_est_data_piece)(struct ThreadData *thread)
 
       for (; j < seg_size; j++, p10_idx_state_inc(&is, &try_ii[p])) {
         p10_idx_state_to_sq(&is, sq, &try_ii[p], stm);
-        normalize(sq, sq2);
+        normalize2(sq, sq2);
         uint64_t idx_dec = p10_sq_to_idx(sq2, sq[stm ^ 1]);
         __builtin_prefetch(table + idx_dec, 0, 3);
         dst[p * dsize + i * seg_size + j - NUM] = table[idx_dec_buf[head]];
