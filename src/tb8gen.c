@@ -106,9 +106,8 @@ int main(int argc, char **argv)
   }
 
   init_movegen();
-  init_unrank();
+  init_ranking();
   init_tablebases(path);
-  init_perfect_ranker();
   init_threads();
 
   for (int i = 0; i < 16; i++)
@@ -187,22 +186,18 @@ int main(int argc, char **argv)
   g_pos.pcs[BLACK][k] = -1;
 
   // Initialize main IdxInfo struct.
+  uint8_t mult[MAX_SETS] = { 0 };
   k = 0;
   for (int i = 2; i < numpcs;) {
     int j = i;
     for (; i < numpcs && pt[i] == pt[j]; i++)
       pc_to_set[i] = k;
-    ii.first[k] = j;
-    ii.mult[k] = i - j;
-    ii.last[k] = i - 1;
+    mult[k] = i - j;
     k++;
   }
-  ii.numsets = k;
-  calc_factors(&ii);
-  kslice_sizes[0] = ii.size;
-  kslice_sizes[1] = reflection_size[ii.part_id];
-//  total_kslice_size = 441 * kslice_sizes[0] + 21 * kslice_sizes[1];
-//  reflection_offset = 441 * kslice_sizes[0];
+  ri = rank_info[rank_mult(mult)];
+  kslice_sizes[0] = ri.sizes[0];
+  kslice_sizes[1] = ri.sizes[1];
 
 #if 0
   {
@@ -211,19 +206,17 @@ int main(int argc, char **argv)
     sq[0] = 0;
     sq[1] = 63;
     Bitboard occ = bit(sq[0]) | bit(sq[1]);
-    uint64_t size = reflection_size[ii.part_id];
+    uint64_t size = ri.sizes[1];
     printf("Testing perfecting indexing on %lu positions.\n", size);
     struct timespec start, end;
     timespec_get(&start, TIME_UTC);
     for (uint64_t idx = 0; idx < size; idx++) {
-      unrank_reflection(idx, sq, occ, &ii);
-      uint64_t rk = rank_reflection(sq, occ, ii.numsets,
-          (struct Hack *)&ii.factor);
+      unrank_reflection(idx, sq, occ, &ri);
+      uint64_t rk = rank_reflection(sq, occ, ri.numsets, &ri);
       if (rk != idx) {
         printf("%lu != %lu\n", idx, rk);
-        unrank_reflection(idx, sq, occ, &ii);
-        uint64_t rk = rank_reflection(sq, occ, ii.numsets,
-           (struct Hack *)&ii.factor);
+        unrank_reflection(idx, sq, occ, &ri);
+        uint64_t rk = rank_reflection(sq, occ, ri.numsets, &ri);
         printf("%lu != %lu\n", idx, rk);
         exit(EXIT_FAILURE);
       }
@@ -238,29 +231,41 @@ int main(int argc, char **argv)
   }
 #endif
 
-  // Initialize IdxInfo structs for running through positions with
+  // Initialize RankInfo structs for running through positions with
   // a captured piece.
+#if 0
   for (k = 0; k < ii.numsets; k++) {
-    capt_ii[k] = ii;
-    capt_ii[k].mult[k]--;
-    if (capt_ii[k].mult[k] == 0) {
+    capt_ri[k] = ri;
+    capt_ri[k].mult[k]--;
+    if (capt_ri[k].mult[k] == 0) {
       for (int i = k + 1; i < ii.numsets; i++) {
-        capt_ii[k].first[i - 1] = capt_ii[k].first[i];
-        capt_ii[k].mult[i - 1] = capt_ii[k].mult[i];
-        capt_ii[k].last[i - 1] = capt_ii[k].last[i];
+        capt_ri[k].first[i - 1] = capt_ri[k].first[i];
+        capt_ri[k].mult[i - 1] = capt_ri[k].mult[i];
+        capt_ri[k].last[i - 1] = capt_ri[k].last[i];
       }
       capt_ii[k].numsets--;
     }
     calc_factors(&capt_ii[k]);
     kslice_sub_size[k] = capt_ii[k].size;
   }
+#endif
+  for (k = 0; k < ri.numsets; k++) {
+    uint8_t mult2[MAX_SETS];
+    memcpy(mult2, mult, sizeof mult2);
+    mult2[k]--;
+    if (mult2[k] == 0)
+      for (int i = k + 1; i < ri.numsets; i++)
+        mult[i - 1] = mult[i];
+    *capt_ri = rank_info[rank_mult(mult2)];
+    kslice_sub_size[k] = capt_ri[k].sizes[0];
+  }
 
   kslice_setup();
 
   // Align work units on cache lines of 64 x 8 = 512 positions.
-  work_g = create_work(g_total_work, kslice_size, 0x1ff);
-  for (int i = 0; i < ii.numsets; i++)
-    work_capt[i] = create_work(g_total_work, capt_ii[i].size, 0x1ff);
+  work_g = create_work(g_total_work, kslice_sizes[0], 0x1ff);
+  for (int i = 0; i < ri.numsets; i++)
+    work_capt[i] = create_work(g_total_work, capt_ri[i].sizes[0], 0x1ff);
   init_generation_work();
   init_merge_work();
 

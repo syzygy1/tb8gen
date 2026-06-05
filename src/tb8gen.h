@@ -9,6 +9,7 @@
 
 #include <stdint.h>
 
+#include "movegen.h"
 #include "stats.h"
 
 extern struct MaxFen mf;

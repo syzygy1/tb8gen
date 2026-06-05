@@ -61,8 +61,8 @@ void init_merge_work(void)
       MERGE_MIN_DYNAMIC_CHUNK);
   work_init(&work_g_merge_static[1], kslice_sizes[1], 0x1ff, WORK_STATIC, 1,
       MERGE_MIN_DYNAMIC_CHUNK);
-  for (int k = 0; k < ii.numsets; k++)
-    work_init(&work_capt_merge_dynamic[k], capt_ii[k].size, 0x1ff,
+  for (int k = 0; k < ri.numsets; k++)
+    work_init(&work_capt_merge_dynamic[k], capt_ri[k].sizes[0], 0x1ff,
         WORK_DYNAMIC, MERGE_DYNAMIC_FACTOR, MERGE_MIN_DYNAMIC_CHUNK);
 }
 
@@ -110,11 +110,11 @@ static void find_position(int s, int stm, bool loss, bool cursed)
   pos.stm = stm ^ loss;
   if (s < 441) {
     struct IdxState is;
-    idx_state_init(&is, idx, pos.sq, &ii);
-    idx_state_to_sq(&is, pos.sq, &ii);
+    idx_state_init(&is, idx, pos.sq, &ri);
+    idx_state_to_sq(&is, pos.sq, &ri);
   } else {
     Bitboard occ = bit(pos.sq[0]) | bit(pos.sq[1]);
-    unrank_reflection(idx, pos.sq, occ, &ii);
+    unrank_reflection(idx, pos.sq, occ, &ri);
   }
   pos_to_fen(&pos, mf.fen[stm][cursed], false);
   mf.found[stm][cursed] = true;

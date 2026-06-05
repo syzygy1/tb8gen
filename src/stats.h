@@ -7,6 +7,8 @@
 #ifndef STATS_H
 #define STATS_H
 
+#include <stdio.h>
+
 struct MaxFen {
   int dtz[2][2];
   char fen[2][2][48];

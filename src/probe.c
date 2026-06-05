@@ -61,8 +61,6 @@ static constexpr uint64_t MaterialPieceKey[16] = {
         0x7c94001000000000ULL
 };
 
-uint32_t Binomial[8][64];
-
 static uint64_t material_key_from_counts(int white_cnts[8], int black_cnts[8])
 {
   uint64_t key = 0;
@@ -446,93 +444,6 @@ const uint8_t PawnMap[48] = {
   48, 49, 50, 51, 52, 53, 54, 55
 };
 
-const int16_t KKIdx[10][64] = {
-  {  -1,  -1,  -1,   0,   1,   2,   3,   4,
-     -1,  -1,  -1,   5,   6,   7,   8,   9,
-     10,  11,  12,  13,  14,  15,  16,  17,
-     18,  19,  20,  21,  22,  23,  24,  25,
-     26,  27,  28,  29,  30,  31,  32,  33,
-     34,  35,  36,  37,  38,  39,  40,  41,
-     42,  43,  44,  45,  46,  47,  48,  49,
-     50,  51,  52,  53,  54,  55,  56,  57  },
-  {  58,  -1,  -1,  -1,  59,  60,  61,  62,
-     63,  -1,  -1,  -1,  64,  65,  66,  67,
-     68,  69,  70,  71,  72,  73,  74,  75,
-     76,  77,  78,  79,  80,  81,  82,  83,
-     84,  85,  86,  87,  88,  89,  90,  91,
-     92,  93,  94,  95,  96,  97,  98,  99,
-    100, 101, 102, 103, 104, 105, 106, 107,
-    108, 109, 110, 111, 112, 113, 114, 115  },
-  { 116, 117,  -1,  -1,  -1, 118, 119, 120,
-    121, 122,  -1,  -1,  -1, 123, 124, 125,
-    126, 127, 128, 129, 130, 131, 132, 133,
-    134, 135, 136, 137, 138, 139, 140, 141,
-    142, 143, 144, 145, 146, 147, 148, 149,
-    150, 151, 152, 153, 154, 155, 156, 157,
-    158, 159, 160, 161, 162, 163, 164, 165,
-    166, 167, 168, 169, 170, 171, 172, 173  },
-  { 174,  -1,  -1,  -1, 175, 176, 177, 178,
-    179,  -1,  -1,  -1, 180, 181, 182, 183,
-    184,  -1,  -1,  -1, 185, 186, 187, 188,
-    189, 190, 191, 192, 193, 194, 195, 196,
-    197, 198, 199, 200, 201, 202, 203, 204,
-    205, 206, 207, 208, 209, 210, 211, 212,
-    213, 214, 215, 216, 217, 218, 219, 220,
-    221, 222, 223, 224, 225, 226, 227, 228  },
-  { 229, 230,  -1,  -1,  -1, 231, 232, 233,
-    234, 235,  -1,  -1,  -1, 236, 237, 238,
-    239, 240,  -1,  -1,  -1, 241, 242, 243,
-    244, 245, 246, 247, 248, 249, 250, 251,
-    252, 253, 254, 255, 256, 257, 258, 259,
-    260, 261, 262, 263, 264, 265, 266, 267,
-    268, 269, 270, 271, 272, 273, 274, 275,
-    276, 277, 278, 279, 280, 281, 282, 283  },
-  { 284, 285, 286, 287, 288, 289, 290, 291,
-    292, 293,  -1,  -1,  -1, 294, 295, 296,
-    297, 298,  -1,  -1,  -1, 299, 300, 301,
-    302, 303,  -1,  -1,  -1, 304, 305, 306,
-    307, 308, 309, 310, 311, 312, 313, 314,
-    315, 316, 317, 318, 319, 320, 321, 322,
-    323, 324, 325, 326, 327, 328, 329, 330,
-    331, 332, 333, 334, 335, 336, 337, 338  },
-  {  -1,  -1, 339, 340, 341, 342, 343, 344,
-     -1,  -1, 345, 346, 347, 348, 349, 350,
-     -1,  -1, 441, 351, 352, 353, 354, 355,
-     -1,  -1,  -1, 442, 356, 357, 358, 359,
-     -1,  -1,  -1,  -1, 443, 360, 361, 362,
-     -1,  -1,  -1,  -1,  -1, 444, 363, 364,
-     -1,  -1,  -1,  -1,  -1,  -1, 445, 365,
-     -1,  -1,  -1,  -1,  -1,  -1,  -1, 446  },
-  {  -1,  -1,  -1, 366, 367, 368, 369, 370,
-     -1,  -1,  -1, 371, 372, 373, 374, 375,
-     -1,  -1,  -1, 376, 377, 378, 379, 380,
-     -1,  -1,  -1, 447 ,381, 382, 383, 384,
-     -1,  -1,  -1,  -1 ,448, 385, 386, 387,
-     -1,  -1,  -1,  -1 , -1, 449, 388, 389,
-     -1,  -1,  -1,  -1 , -1,  -1, 450, 390,
-     -1,  -1,  -1,  -1 , -1,  -1,  -1, 451  },
-  { 452, 391, 392, 393 ,394, 395, 396, 397,
-     -1,  -1,  -1,  -1 ,398, 399, 400, 401,
-     -1,  -1,  -1,  -1 ,402, 403, 404, 405,
-     -1,  -1,  -1,  -1 ,406, 407, 408, 409,
-     -1,  -1,  -1,  -1 ,453, 410, 411, 412,
-     -1,  -1,  -1,  -1 , -1, 454, 413, 414,
-     -1,  -1,  -1,  -1 , -1,  -1, 455, 415,
-     -1,  -1,  -1,  -1 , -1,  -1,  -1, 456  },
-  { 457, 416, 417, 418 ,419, 420, 421, 422,
-     -1, 458, 423, 424 ,425, 426, 427, 428,
-     -1,  -1,  -1,  -1 , -1, 429, 430, 431,
-     -1,  -1,  -1,  -1 , -1, 432, 433, 434,
-     -1,  -1,  -1,  -1 , -1, 435, 436, 437,
-     -1,  -1,  -1,  -1 , -1, 459, 438, 439,
-     -1,  -1,  -1,  -1 , -1,  -1, 460, 440,
-     -1,  -1,  -1,  -1 , -1,  -1,  -1, 461  }
-};
-
-uint8_t KKSquare[462][2];
-int16_t KKMap[64][64];
-uint8_t MirrorMask[64];
-bool FlipTest[64][64];
 int16_t KKPIdx[64][64];
 
 static const uint8_t FileToFile[] = { 0, 1, 2, 3, 3, 2, 1, 0 };
@@ -544,42 +455,9 @@ static uint8_t Off10[10][64];
 
 void init_indices(void)
 {
-  for (int i = 0; i < 10; i++)
-    for (int j = 0; j < 64; j++)
-      if (KKIdx[i][j] >= 0) {
-	KKSquare[KKIdx[i][j]][0] = InvTriangle[i];
-	KKSquare[KKIdx[i][j]][1] = j;
-      }
-
-  static constexpr Bitboard A1D1D4 = 0x080c0e0full;
-  static constexpr Bitboard A1D4   = 0x08040201ull;
-  static constexpr Bitboard LOWER  = 0x80c0e0f0f8fcfeffull;
-
-  for (int s = 0; s < 64; s++)
-    MirrorMask[s] = ((s & 0x04) ? 0x07 : 0x00) | ((s & 0x20) ? 0x38 : 0x00);
-
-  for (int i = 0; i < 64; i++)
-    for (int j = 0; j < 64; j++) {
-      int s1 = i ^ MirrorMask[i];
-      int s2 = j ^ MirrorMask[i];
-      if (!(bit(s1) & A1D1D4) || ((bit(s1) & A1D4) && !(bit(s2) & LOWER))) {
-        FlipTest[i][j] = true;
-        s1 = FlipDiag[s1];
-        s2 = FlipDiag[s2];
-      }
-      KKMap[i][j] = KKIdx[Triangle[s1]][s2];
-    }
-
   for (int i = 0, s = 0; i < 64; i++)
     for (int j = 0; j < 64; j++)
       KKPIdx[i][j] = king_attacks(i) & bit(j) ? -1 : s++;
-
-  // Binomial[k][n] = Bin(n, k)
-  for (int j = 0; j < 64; j++)
-    Binomial[0][j] = 1;
-  for (int i = 1; i < 8; i++)
-    for (int j = 1; j < 64; j++)
-      Binomial[i][j] = Binomial[i - 1][j - 1] + Binomial[i][j - 1];
 
   for (int i = 0; i < 6; i++) {
     size_t s = 0;
@@ -1471,38 +1349,25 @@ NOINLINE struct TbTable2 *init_new_table(struct TbEntry *entry,
     dist_format = tb->layout >= LT_PAWN_P ? *data++ : 0;
   }
 
-  uint8_t first[MAX_SETS];
-  uint8_t mult[MAX_SETS];
+  uint8_t mult[MAX_SETS] = { 0 };
   int k = 0;
-  for (int i = 2, l = 0; i < entry->num; i++) {
-    if (tb->pt[i] != l) {
-      l = tb->pt[i];
-      first[k] = i;
-      mult[k] = 0;
-      k++;
-    }
-    assume(k >= 1);
+  for (int i = 2; i < entry->num; i++) {
+    if (i == 2 || tb->pt[i] != tb->pt[i - 1])
+      mult[k++] = 0;
     mult[k - 1]++;
   }
+  struct RankInfo *ri = &rank_info[rank_mult(mult)];
 
   static constexpr uint8_t knum[] = { 58, 58, 58, 55, 55, 55, 33, 30, 30, 30 };
   uint64_t tb_size = 1;
   if (tb->layout == LT_PIECE_KK) {
-    for (int i = 0, n = 62; i < k; i++) {
-      table->first[i] = first[data[i]];
-      int m = mult[data[i]];
-      table->mult[i] = m;
-      table->factor[i] = Binomial[m][n];
-      tb_size *= table->factor[i];
-      n -= m;
-    }
-    if (tsq >= 441) {
-      table->part_id = find_partition(k, mult);
-      tb_size = reflection_size[table->part_id];
-    }
+    table->ri = ri;
+    tb_size = ri->sizes[tsq >= 441];
     data += k;
   }
   else if (tb->layout == LT_PIECE_K) {
+    // FIXME!!!
+#if 0
     for (int i = 0, n = 62; i < k + 1; i++) {
       if (data[i] == 0) {
         table->first[i] = table->mult[i] = 0;
@@ -1517,8 +1382,10 @@ NOINLINE struct TbTable2 *init_new_table(struct TbEntry *entry,
       tb_size *= table->factor[i];
     }
     data += k + 1;
+#endif
   }
   else if (tb->layout == LT_PAWN_P) {
+#if 0
     for (int i = 0, n = 63; i < k + 1; i++) {
       int l = data[i];
       if (l < 2) {
@@ -1533,8 +1400,10 @@ NOINLINE struct TbTable2 *init_new_table(struct TbEntry *entry,
       tb_size *= table->factor[i];
     }
     data += k + 1;
+#endif
   }
   else if (tb->layout == LT_PAWN_PK) {
+#if 0
     for (int i = 0, n = 62; i < k; i++) {
       int l = data[i];
       if (l == 0) {
@@ -1549,6 +1418,7 @@ NOINLINE struct TbTable2 *init_new_table(struct TbEntry *entry,
       tb_size *= table->factor[i];
     }
     data += k;
+#endif
   }
   data += (uintptr_t)data & 1;
 
@@ -1932,29 +1802,29 @@ INLINE int probe_table(Position *pos, int s, const int type)
     }
 
     // Calculate index.
+    const struct RankInfo *ri = table->ri;
     if (tb->layout != LT_PIECE_KK || tsq < 441) {
       static const int extra[] = { 1, 0, 2, 1, 0, 0 };
       int numsets = entry->numsets + extra[tb->layout - LT_PIECE_K];
       for (int k = 0; k < numsets; k++) {
         size_t s = 0;
-        if (table->mult[k] == 0)
+        if (ri->mult[k] == 0)
           s = Off10[tsq][p[1]];
         else {
-          int m = table->first[k];
-          sort_squares(table->mult[k], &p[m]);
+          int m = ri->first[k];
+          sort_squares(ri->mult[k], &p[m]);
           Bitboard occ2 = occ;
-          for (int i = 0; i < table->mult[k]; i++, m++) {
+          for (int i = 0; i < ri->mult[k]; i++, m++) {
             int rank = rank_among_free(p[m], occ);
             occ2 |= bit(p[m]);
             s += Binomial[i + 1][rank];
           }
           occ = occ2;
         }
-        idx = idx * table->factor[k] + s;
+        idx = idx * ri->factor[k] + s;
       }
     } else {
-      idx = rank_reflection(p, occ, entry->numsets,
-          (struct Hack *)&table->factor);
+      idx = rank_reflection(p, occ, ri);
     }
 
     const uint8_t *w = decompress_pairs(table->precomp, idx);

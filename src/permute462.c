@@ -41,8 +41,8 @@ static uint64_t compest[MAX_PERMS];
 static uint8_t set_pt[MAX_SETS];
 
 static int trylist[MAX_CANDS];
-static struct IdxInfo try_ii[MAX_CANDS];
-static struct IdxInfo best_ii;
+static struct RankInfo *try_ri[MAX_CANDS];
+static struct RankInfo *best_ri;
 
 static uint8_t perm_tmp[MAX_SETS];
 
@@ -112,12 +112,12 @@ static void generate_test_list(uint64_t size, int n)
 
 void init_permute_piece_462(void)
 {
-  num_sets = ii.numsets;
+  num_sets = ri.numsets;
 
   generate_set_perms(num_sets);
 
   for (int i = 0; i < num_sets; i++)
-    set_pt[i] = g_pos.pt[ii.first[i]];
+    set_pt[i] = g_pos.pt[ri.first[i]];
 
   generate_test_list(kslice_size, g_pos.num - 2);
   work_convert = create_work(g_total_work, kslice_size, 0);
@@ -127,7 +127,7 @@ void init_permute_piece_462(void)
 static struct {
   void *src;
   void *dst;
-  struct IdxInfo *perm_ii;
+  struct RankInfo *perm_ri;
 } convert_data;
 
 static struct {
@@ -265,14 +265,12 @@ static int64_t estimate_compression(void *table, int *bestp, bool wide,
 	if (trylist[i] > trylist[j])
           Swap(trylist[i], trylist[j]);
     for (i = 0; i < num_cands; i++) {
-      try_ii[i].numsets = num_sets;
+      uint8_t mult[MAX_SETS] = { 0 };
       for (j = 0; j < num_sets; j++) {
         p = set_perm_list[trylist[i]][j];
-        try_ii[i].mult[j] = ii.mult[p];
-        try_ii[i].first[j] = ii.first[p];
-        try_ii[i].last[j] = ii.last[p];
+        mult[j] = ri.mult[p];
       }
-      calc_factors(&try_ii[i]);
+      try_ri[i] = &rank_info[rank_mult(mult)];
     }
     estimate_compression_piece(table, num_cands, wide, wdl, reflection);
     for (i = 0; i < num_cands; i++) {
@@ -293,7 +291,7 @@ void permute_piece_462(void *tb_table, void *table, uint8_t *best, int type,
 {
   int s = KKMap[g_pos.sq[0]][g_pos.sq[1]];
   bool reflection = s >= 441;
-  uint64_t size = reflection ? reflection_size[ii.part_id] : kslice_size;
+  uint64_t size = kslice_sizes[reflection];
 
   if (size != slice_size) {
     generate_test_list(size, g_pos.num - 2);
@@ -310,24 +308,21 @@ void permute_piece_462(void *tb_table, void *table, uint8_t *best, int type,
   for (int i = 0; i < num_sets; i++)
     best[i] = set_perm_list[bestp][i];
 
-  best_ii.numsets = num_sets;
-  for (int i = 0; i < num_sets; i++) {
-    int k = best[i];
-    best_ii.mult[i] = ii.mult[k];
-    best_ii.first[i] = ii.first[k];
-  }
-  calc_factors(&best_ii);
+  uint8_t mult[MAX_SETS] = { 0 };
+  for (int i = 0; i < num_sets; i++)
+    mult[i] = ri.mult[best[i]];
+  best_ri = &rank_info[rank_mult(mult)];
 
   printf("\nbest permutation: ");
   for (int i = 0; i < num_sets; i++) {
-    for (int j = 0; j < best_ii.mult[i]; j++)
+    for (int j = 0; j < best_ri->mult[i]; j++)
       printf("%c", PieceChar[set_pt[best[i]]]);
   }
   printf("\n");
 
   convert_data.src = table;
   convert_data.dst = tb_table;
-  convert_data.perm_ii = &best_ii;
+  convert_data.perm_ri = best_ri;
 
   if (g_compress_type == 1)
     return;

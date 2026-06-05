@@ -12,77 +12,127 @@
 #include "probe.h"
 #include "types.h"
 
-struct IdxInfo ii, capt_ii[MAX_SETS];
+struct RankInfo ri, capt_ri[MAX_SETS];
 int pc_to_set[MAX_PIECES];
 Bitboard Unrank2[62 * 61 / 2], Unrank3[62 * 61 * 60 / 6];
+uint32_t Binomial[8][64];
+uint8_t MirrorMask[64];
+bool FlipTest[64][64];
 
-void init_unrank(void)
+const int16_t KKIdx[10][64] = {
+  {  -1,  -1,  -1,   0,   1,   2,   3,   4,
+     -1,  -1,  -1,   5,   6,   7,   8,   9,
+     10,  11,  12,  13,  14,  15,  16,  17,
+     18,  19,  20,  21,  22,  23,  24,  25,
+     26,  27,  28,  29,  30,  31,  32,  33,
+     34,  35,  36,  37,  38,  39,  40,  41,
+     42,  43,  44,  45,  46,  47,  48,  49,
+     50,  51,  52,  53,  54,  55,  56,  57  },
+  {  58,  -1,  -1,  -1,  59,  60,  61,  62,
+     63,  -1,  -1,  -1,  64,  65,  66,  67,
+     68,  69,  70,  71,  72,  73,  74,  75,
+     76,  77,  78,  79,  80,  81,  82,  83,
+     84,  85,  86,  87,  88,  89,  90,  91,
+     92,  93,  94,  95,  96,  97,  98,  99,
+    100, 101, 102, 103, 104, 105, 106, 107,
+    108, 109, 110, 111, 112, 113, 114, 115  },
+  { 116, 117,  -1,  -1,  -1, 118, 119, 120,
+    121, 122,  -1,  -1,  -1, 123, 124, 125,
+    126, 127, 128, 129, 130, 131, 132, 133,
+    134, 135, 136, 137, 138, 139, 140, 141,
+    142, 143, 144, 145, 146, 147, 148, 149,
+    150, 151, 152, 153, 154, 155, 156, 157,
+    158, 159, 160, 161, 162, 163, 164, 165,
+    166, 167, 168, 169, 170, 171, 172, 173  },
+  { 174,  -1,  -1,  -1, 175, 176, 177, 178,
+    179,  -1,  -1,  -1, 180, 181, 182, 183,
+    184,  -1,  -1,  -1, 185, 186, 187, 188,
+    189, 190, 191, 192, 193, 194, 195, 196,
+    197, 198, 199, 200, 201, 202, 203, 204,
+    205, 206, 207, 208, 209, 210, 211, 212,
+    213, 214, 215, 216, 217, 218, 219, 220,
+    221, 222, 223, 224, 225, 226, 227, 228  },
+  { 229, 230,  -1,  -1,  -1, 231, 232, 233,
+    234, 235,  -1,  -1,  -1, 236, 237, 238,
+    239, 240,  -1,  -1,  -1, 241, 242, 243,
+    244, 245, 246, 247, 248, 249, 250, 251,
+    252, 253, 254, 255, 256, 257, 258, 259,
+    260, 261, 262, 263, 264, 265, 266, 267,
+    268, 269, 270, 271, 272, 273, 274, 275,
+    276, 277, 278, 279, 280, 281, 282, 283  },
+  { 284, 285, 286, 287, 288, 289, 290, 291,
+    292, 293,  -1,  -1,  -1, 294, 295, 296,
+    297, 298,  -1,  -1,  -1, 299, 300, 301,
+    302, 303,  -1,  -1,  -1, 304, 305, 306,
+    307, 308, 309, 310, 311, 312, 313, 314,
+    315, 316, 317, 318, 319, 320, 321, 322,
+    323, 324, 325, 326, 327, 328, 329, 330,
+    331, 332, 333, 334, 335, 336, 337, 338  },
+  {  -1,  -1, 339, 340, 341, 342, 343, 344,
+     -1,  -1, 345, 346, 347, 348, 349, 350,
+     -1,  -1, 441, 351, 352, 353, 354, 355,
+     -1,  -1,  -1, 442, 356, 357, 358, 359,
+     -1,  -1,  -1,  -1, 443, 360, 361, 362,
+     -1,  -1,  -1,  -1,  -1, 444, 363, 364,
+     -1,  -1,  -1,  -1,  -1,  -1, 445, 365,
+     -1,  -1,  -1,  -1,  -1,  -1,  -1, 446  },
+  {  -1,  -1,  -1, 366, 367, 368, 369, 370,
+     -1,  -1,  -1, 371, 372, 373, 374, 375,
+     -1,  -1,  -1, 376, 377, 378, 379, 380,
+     -1,  -1,  -1, 447 ,381, 382, 383, 384,
+     -1,  -1,  -1,  -1 ,448, 385, 386, 387,
+     -1,  -1,  -1,  -1 , -1, 449, 388, 389,
+     -1,  -1,  -1,  -1 , -1,  -1, 450, 390,
+     -1,  -1,  -1,  -1 , -1,  -1,  -1, 451  },
+  { 452, 391, 392, 393 ,394, 395, 396, 397,
+     -1,  -1,  -1,  -1 ,398, 399, 400, 401,
+     -1,  -1,  -1,  -1 ,402, 403, 404, 405,
+     -1,  -1,  -1,  -1 ,406, 407, 408, 409,
+     -1,  -1,  -1,  -1 ,453, 410, 411, 412,
+     -1,  -1,  -1,  -1 , -1, 454, 413, 414,
+     -1,  -1,  -1,  -1 , -1,  -1, 455, 415,
+     -1,  -1,  -1,  -1 , -1,  -1,  -1, 456  },
+  { 457, 416, 417, 418 ,419, 420, 421, 422,
+     -1, 458, 423, 424 ,425, 426, 427, 428,
+     -1,  -1,  -1,  -1 , -1, 429, 430, 431,
+     -1,  -1,  -1,  -1 , -1, 432, 433, 434,
+     -1,  -1,  -1,  -1 , -1, 435, 436, 437,
+     -1,  -1,  -1,  -1 , -1, 459, 438, 439,
+     -1,  -1,  -1,  -1 , -1,  -1, 460, 440,
+     -1,  -1,  -1,  -1 , -1,  -1,  -1, 461  }
+};
+
+uint8_t KKSquare[462][2];
+int16_t KKMap[64][64];
+
+struct RankInfo rank_info[64];
+
+static void unrank_mult(int idx, uint8_t mult[MAX_SETS])
 {
-  int idx = 0;
-  for (int s1 = 1; s1 < 62; s1++)
-    for (int s0 = 0; s0 < s1; s0++)
-      Unrank2[idx++] = bit(s0) | bit(s1);
-
-  idx = 0;
-  for (int s2 = 2; s2 < 62; s2++)
-    for (int s1 = 1; s1 < s2; s1++)
-      for (int s0 = 0; s0 < s1; s0++)
-        Unrank3[idx++] = bit(s0) | bit(s1) | bit(s2);
-}
-
-uint64_t sq_to_idx(uint8_t *restrict sq)
-{
-  Bitboard occ = bit(sq[0]) | bit(sq[1]);
-  if (has_pawns)
-    occ |= bit(sq[2]);
-
-  return sq_to_idx_helper(sq, 0, occ, &ii);
-}
-
-uint64_t capt_sq_to_idx(uint8_t *restrict sq, int k)
-{
-  Bitboard occ = bit(sq[0]) | bit(sq[1]);
-  if (has_pawns)
-    occ |= bit(sq[2]);
-
-  return sq_to_idx_helper(sq, 0, occ, &capt_ii[k]);
-}
-
-void calc_factors(struct IdxInfo *ii)
-{
-  for (int i = 0, n = has_pawns ? 61 : 62; i < ii->numsets; i++) {
-    ii->factor[i] = Binomial[ii->mult[i]][n];
-    ii->recip[i] = recip(ii->factor[i]);
-    n -= ii->mult[i];
+  int k = 0;
+  uint32_t b = idx;
+  while (b) {
+    int s = stdc_first_trailing_one(b);
+    b >>= s;
+    mult[k++] = s;
   }
-
-  uint64_t f = 1;
-  for (int i = ii->numsets - 1; i >= 0; i--)
-    f *= ii->factor[i];
-  ii->size = f;
-
-  uint8_t mult[6];
-  for (int i = 0; i < ii->numsets; i++)
-    mult[i] = ii->mult[i];
-  ii->part_id = find_partition(ii->numsets, mult);
+  while (k < MAX_SETS)
+    mult[k++] = 0;
 }
 
-void idx_state_init(struct IdxState *is, uint64_t idx, uint8_t *restrict sq,
-    const struct IdxInfo *ii)
+int rank_mult(uint8_t mult[MAX_SETS])
 {
-  for (int k = ii->numsets - 1; k >= 0; k--)
-    idx = divmod_recip(idx, ii->factor[k], ii->recip[k], &is->sub[k]);
-  is->n = 0;
-  is->occ[0] = has_pawns ? bit(sq[0]) | bit(sq[1]) | bit(sq[2])
-                         : bit(sq[0]) | bit(sq[1]);
+  int idx = 0, s = 0;
+  for (int k = 0; k < MAX_PIECES && mult[k]; k++) {
+    s += mult[k];
+    idx |= bit(s - 1);
+  }
+  return idx;
 }
 
-// Perfect indexing code for positions with Ks on the diagonal starts here.
+static_assert(MAX_SETS == 6);
 
-static constexpr Bitboard LOWER_DIAG_MASK = UINT64_C(0x0080c0e0f0f8fcfe);
-static constexpr Bitboard MAIN_DIAG_MASK = UINT64_C(0x8040201008040201);
-
-static uint8_t partition[30][7] = {
+static uint8_t partition[30][MAX_SETS] = {
   { 0 },
   { 1 },
   { 2 }, { 1, 1},
@@ -95,9 +145,27 @@ static uint8_t partition[30][7] = {
 };
 
 static int8_t next_partition[30][8];
-static uint8_t transition_id[30][8];
 
-uint64_t reflection_size[30];
+int find_partition(int len, uint8_t mult[])
+{
+  uint8_t m[MAX_SETS] = { 0 };
+
+  for (int i = 0; i < len; i++)
+    m[i] = mult[i];
+
+  for (int i = 0; i < len; i++)
+    for (int j = i + 1; j < len; j++)
+      if (m[i] < m[j])
+        Swap(m[i], m[j]);
+
+  for (int i = 0; i < 30; i++)
+    if (memcmp(m, partition[i], 6) == 0)
+      return i;
+
+  assume(0);
+}
+
+static uint8_t transition_id[30][8];
 
 // Per transition, one case per number of 2-orbits filled.
 struct TransitionCase {
@@ -148,27 +216,6 @@ INLINE int fold_ps(int p, int s)
   return used_p * 7 - used_p * used_p + used_s;
 }
 
-static uint8_t unfold_ps[12][2];
-
-int find_partition(int len, uint8_t mult[])
-{
-  uint8_t m[6] = { 0 };
-
-  for (int i = 0; i < len; i++)
-    m[i] = mult[i];
-
-  for (int i = 0; i < len; i++)
-    for (int j = i + 1; j < len; j++)
-      if (m[i] < m[j])
-        Swap(m[i], m[j]);
-
-  for (int i = 0; i < 30; i++)
-    if (memcmp(m, partition[i], 6) == 0)
-      return i;
-
-  assume(0);
-}
-
 static uint64_t count_broken_residual_cases(int m, int p, int s, int d)
 {
   int rem = m - 2 * d;
@@ -194,8 +241,56 @@ static uint64_t count_trivial_part(int part_id, int free)
   return r;
 }
 
-void init_perfect_ranker(void)
+static uint8_t unfold_ps[12][2];
+
+void init_ranking(void)
 {
+  for (int i = 0; i < 10; i++)
+    for (int j = 0; j < 64; j++)
+      if (KKIdx[i][j] >= 0) {
+        KKSquare[KKIdx[i][j]][0] = InvTriangle[i];
+        KKSquare[KKIdx[i][j]][1] = j;
+      }
+
+  static constexpr Bitboard A1D1D4 = 0x080c0e0full;
+  static constexpr Bitboard A1D4   = 0x08040201ull;
+  static constexpr Bitboard LOWER  = 0x80c0e0f0f8fcfeffull;
+
+  for (int s = 0; s < 64; s++)
+    MirrorMask[s] = ((s & 0x04) ? 0x07 : 0x00) | ((s & 0x20) ? 0x38 : 0x00);
+
+  for (int i = 0; i < 64; i++)
+    for (int j = 0; j < 64; j++) {
+      int s1 = i ^ MirrorMask[i];
+      int s2 = j ^ MirrorMask[i];
+      if (!(bit(s1) & A1D1D4) || ((bit(s1) & A1D4) && !(bit(s2) & LOWER))) {
+        FlipTest[i][j] = true;
+        s1 = FlipDiag[s1];
+        s2 = FlipDiag[s2];
+      }
+      KKMap[i][j] = KKIdx[Triangle[s1]][s2];
+    }
+
+  // Binomial[k][n] = Bin(n, k)
+  for (int j = 0; j < 64; j++)
+    Binomial[0][j] = 1;
+  for (int i = 1; i < 8; i++)
+    for (int j = 1; j < 64; j++)
+      Binomial[i][j] = Binomial[i - 1][j - 1] + Binomial[i][j - 1];
+
+  int idx = 0;
+  for (int s1 = 1; s1 < 62; s1++)
+    for (int s0 = 0; s0 < s1; s0++)
+      Unrank2[idx++] = bit(s0) | bit(s1);
+
+  idx = 0;
+  for (int s2 = 2; s2 < 62; s2++)
+    for (int s1 = 1; s1 < s2; s1++)
+      for (int s0 = 0; s0 < s1; s0++)
+        Unrank3[idx++] = bit(s0) | bit(s1) | bit(s2);
+
+  // Initialize tables for perfect ranking when kings are on the diagonal.
+
   int id = 0;
   for (int used_p = 0; 2 * used_p <= 5; used_p++)
     for (int used_s = 0; 2 * used_p + used_s <= 5; used_s++) {
@@ -247,7 +342,6 @@ void init_perfect_ranker(void)
         }
         count[id][p - 25][s] = total;
       }
-    reflection_size[id] = count[id][28 - 25][6];
   }
 
   id = 0;
@@ -289,7 +383,79 @@ void init_perfect_ranker(void)
       transition_id[part_id][m] = id++;
     }
   }
+
+  // Initialize RankInfo[] structs.
+
+  for (int id = 1; id < 64; id++) {
+    struct RankInfo *ri = &rank_info[id];
+    uint8_t *m = ri->mult;
+    unrank_mult(id, m);
+    int n = 0;
+    while (n < MAX_PIECES && m[n])
+      ri->num += m[n++];
+    ri->numsets = n;
+    int part_id = find_partition(n, m);
+    for (int k = 0, p = part_id; k < n; k++) {
+      ri->transition_id[k] = transition_id[p][m[k]];
+      p = next_partition[p][m[k]];
+    }
+    calc_factors(ri);
+    ri->sizes[1] = count[part_id][28 - 25][6];
+    int i = has_pawns ? 3 : 2;
+    for (int k = 0; k < ri->numsets; k++) {
+      ri->first[k] = i;
+      ri->last[k] = i + m[k] - 1;
+      i += m[k];
+    }
+  }
 }
+
+uint64_t sq_to_idx(uint8_t *restrict sq)
+{
+  Bitboard occ = bit(sq[0]) | bit(sq[1]);
+  if (has_pawns)
+    occ |= bit(sq[2]);
+
+  return sq_to_idx_helper(sq, 0, occ, &ri);
+}
+
+uint64_t capt_sq_to_idx(uint8_t *restrict sq, int k)
+{
+  Bitboard occ = bit(sq[0]) | bit(sq[1]);
+  if (has_pawns)
+    occ |= bit(sq[2]);
+
+  return sq_to_idx_helper(sq, 0, occ, &capt_ri[k]);
+}
+
+void calc_factors(struct RankInfo *ri)
+{
+  for (int i = 0, n = has_pawns ? 61 : 62; i < ri->numsets; i++) {
+    ri->factor[i] = Binomial[ri->mult[i]][n];
+    ri->recip[i] = recip(ri->factor[i]);
+    n -= ri->mult[i];
+  }
+
+  uint64_t f = 1;
+  for (int i = ri->numsets - 1; i >= 0; i--)
+    f *= ri->factor[i];
+  ri->sizes[0] = f;
+}
+
+void idx_state_init(struct IdxState *is, uint64_t idx, uint8_t *restrict sq,
+    const struct RankInfo *ri)
+{
+  for (int k = ri->numsets - 1; k >= 0; k--)
+    idx = divmod_recip(idx, ri->factor[k], ri->recip[k], &is->sub[k]);
+  is->n = 0;
+  is->occ[0] = has_pawns ? bit(sq[0]) | bit(sq[1]) | bit(sq[2])
+                         : bit(sq[0]) | bit(sq[1]);
+}
+
+// Perfect indexing code for positions with Ks on the diagonal starts here.
+
+static constexpr Bitboard LOWER_DIAG_MASK = UINT64_C(0x0080c0e0f0f8fcfe);
+static constexpr Bitboard MAIN_DIAG_MASK = UINT64_C(0x8040201008040201);
 
 static uint64_t rank_combination(Bitboard subset, Bitboard universe)
 {
@@ -302,13 +468,13 @@ static uint64_t rank_combination(Bitboard subset, Bitboard universe)
 }
 
 static uint64_t rank_trivial_from(uint8_t *restrict sq, int k, Bitboard occ,
-    int numsets, const struct Hack *h)
+    const struct RankInfo *ri)
 {
   uint64_t idx = 0;
-  for (; k < numsets; k++) {
+  for (; k < ri->numsets; k++) {
     size_t s;
-    int i = h->first[k];
-    int m = h->mult[k];
+    int i = ri->first[k];
+    int m = ri->mult[k];
     if (m == 1) {
       s = rank_among_free(sq[i], occ);
       occ |= bit(sq[i]);
@@ -329,7 +495,7 @@ static uint64_t rank_trivial_from(uint8_t *restrict sq, int k, Bitboard occ,
       for (int j = 1; b1; j++)
         s += Binomial[j][pop_lsb(&b1)];
     }
-    idx = idx * h->factor[k] + s;
+    idx = idx * ri->factor[k] + s;
   }
   return idx;
 }
@@ -345,22 +511,21 @@ INLINE uint64_t count_broken_residual_before(int rem, int p, int s, int one)
   return total;
 }
 
-uint64_t rank_reflection(uint8_t *restrict sq, Bitboard occ, int numsets,
-    const struct Hack *h)
+uint64_t rank_reflection(uint8_t *restrict sq, Bitboard occ,
+    const struct RankInfo *ri)
 {
-  int part_id = h->part_id;
   Bitboard pair_mask = LOWER_DIAG_MASK;
   Bitboard diag_mask = MAIN_DIAG_MASK & ~occ;
   int p = 28, s = 6;
 
   uint64_t rank = 0;
-  for (int k = 0; k < numsets; k++) {
-    int m = h->mult[k];
+  for (int k = 0; k < ri->numsets; k++) {
+    int m = ri->mult[k];
     Bitboard bb = 0;
     for (int i = 0; i < m; i++)
-      bb |= bit(sq[h->first[k] + i]);
+      bb |= bit(sq[ri->first[k] + i]);
     occ |= bb;
-    int tid = transition_id[part_id][m];
+    int tid = ri->transition_id[k];
 
     Bitboard mirror = flip_main_diag(bb);
     Bitboard full_mask = bb & mirror  & pair_mask;
@@ -378,7 +543,6 @@ uint64_t rank_reflection(uint8_t *restrict sq, Bitboard occ, int numsets,
       rank += rank_combination(bb, diag_mask) * c->diag_tail;
       diag_mask &= ~bb;
       s = popcnt(diag_mask);
-      part_id = next_partition[part_id][m];
       continue;
     }
 
@@ -406,7 +570,7 @@ uint64_t rank_reflection(uint8_t *restrict sq, Bitboard occ, int numsets,
         sq[i] = FlipDiag[sq[i]];
       occ = flip_main_diag(occ);
     }
-    return rank + rank_trivial_from(sq, k + 1, occ, numsets, h);
+    return rank + rank_trivial_from(sq, k + 1, occ, ri);
   }
   return rank;
 }
@@ -415,7 +579,7 @@ uint64_t sq_to_idx_ref(uint8_t *restrict sq)
 {
   Bitboard occ = bit(sq[0]) | bit(sq[1]);
 
-  return rank_reflection(sq, occ, ii.numsets, (struct Hack *)&ii.factor);
+  return rank_reflection(sq, occ, &ri);
 }
 
 static Bitboard unrank_combination(uint64_t idx, Bitboard universe, int m)
@@ -446,27 +610,25 @@ static Bitboard unrank_combination(uint64_t idx, Bitboard universe, int m)
 }
 
 static Bitboard unrank_trivial(uint8_t *restrict sq, uint64_t idx, int g,
-    Bitboard occ, const struct IdxInfo *ii)
+    Bitboard occ, const struct RankInfo *ri)
 {
   uint32_t sub[MAX_SETS];
-  for (int k = ii->numsets - 1; k >= g; k--)
-    idx = divmod_recip(idx, ii->factor[k], ii->recip[k], &sub[k]);
-  for (; g < ii->numsets; g++)
-    occ = unrank_binomial(sub[g], ii->mult[g], sq + ii->first[g], occ);
+  for (int k = ri->numsets - 1; k >= g; k--)
+    idx = divmod_recip(idx, ri->factor[k], ri->recip[k], &sub[k]);
+  for (; g < ri->numsets; g++)
+    occ = unrank_binomial(sub[g], ri->mult[g], sq + ri->first[g], occ);
   return occ;
 }
 
 Bitboard unrank_reflection(uint64_t idx, uint8_t *restrict sq, Bitboard occ,
-    const struct IdxInfo *ii)
+    const struct RankInfo *ri)
 {
-  int part_id = ii->part_id;
   Bitboard pair_mask = LOWER_DIAG_MASK;
   Bitboard diag_mask = MAIN_DIAG_MASK & ~occ;
   int p = 28, s = 6;
 
-  for (int k = 0; k < ii->numsets; k++) {
-    int m = ii->mult[k];
-    int tid = transition_id[part_id][m];
+  for (int k = 0; k < ri->numsets; k++) {
+    int tid = ri->transition_id[k];
 
     Bitboard bb = 0;
     const struct TransitionCase *c = &transition_cases[tid][fold_ps(p, s)][0];
@@ -494,9 +656,8 @@ Bitboard unrank_reflection(uint64_t idx, uint8_t *restrict sq, Bitboard occ,
       s -= c->rem;
       diag_mask &= ~bb;
       occ |= bb;
-      for (int i = ii->first[k]; bb; i++)
+      for (int i = ri->first[k]; bb; i++)
         sq[i] = pop_lsb(&bb);
-      part_id = next_partition[part_id][m];
       continue;
     }
 
@@ -526,9 +687,9 @@ Bitboard unrank_reflection(uint64_t idx, uint8_t *restrict sq, Bitboard occ,
     Bitboard upper_one = flip_main_diag(one_mask & ~orient_sparse);
     bb |= lower_one | upper_one;
     occ |= bb;
-    for (int i = ii->first[k]; bb; i++)
+    for (int i = ri->first[k]; bb; i++)
       sq[i] = pop_lsb(&bb);
-    return unrank_trivial(sq, idx, k + 1, occ, ii);
+    return unrank_trivial(sq, idx, k + 1, occ, ri);
   }
   return occ;
 }

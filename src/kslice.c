@@ -153,8 +153,8 @@ void kslice_setup(void)
       kslice_cache_lines[1], 0);
   work_cl[1]->schedule = WORK_STATIC;
   sub_size[0] = sub_size[1] = 0;
-  for (int i = 0; i < ii.numsets; i++) {
-    int stm = g_pos.pt[ii.first[i]] >> 3;
+  for (int i = 0; i < ri.numsets; i++) {
+    int stm = g_pos.pt[ri.first[i]] >> 3;
     sub_offset[i] = sub_size[stm];
     sub_size[stm] += bits_to_aligned(kslice_sub_size[i]);
   }
@@ -380,6 +380,7 @@ uint64_t kslice_write_addr(void *p, int slice, int stm, const char *name, int n,
   create_name(str, slice, stm, name, n);
   FILE *F = file_open_write(str);
   if (num > 0) {
+    kslice_clear_tail_addr(p, slice);
     file_write(&num, sizeof num, F);
     write_data_cache_aligned(F, p, kslice_cache_lines[slice >= 441] << 6);
   }
@@ -430,6 +431,7 @@ bool kslice_read(int s, int slice, int stm, const char *name, int n)
   if (non_empty) {
     file_read(&kslice_read_count, sizeof(uint64_t), F);
     read_data(F, kslice_get_address(s), kslice_cache_lines[slice >= 441] << 6);
+    kslice_clear_tail(s);
   } else
     kslice_clear(s);
   if (F) fclose(F);
@@ -457,6 +459,7 @@ void kslice_read_or(int s, int slice, int stm, const char *name, int n)
     kslice_read_cost += st.st_size;
     read_data_or(F, kslice_get_address(s),
         kslice_cache_lines[slice >= 441] << 6);
+    kslice_clear_tail(s);
   }
   fclose(F);
 }

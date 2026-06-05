@@ -12,7 +12,7 @@
 #include <x86intrin.h>
 
 #include "defs.h"
-#include "probe.h"
+//#include "probe.h"
 #ifndef HAS_PAWNS
 #include "tb8gen.h"
 #else
@@ -28,23 +28,20 @@ static constexpr bool has_pawns = true;
 
 static constexpr int MAX_MULT = MAX_PIECES - (has_pawns ? 3 : 2);
 
-struct IdxInfo {
-  int numsets;   // number of sets of like pieces, excluding kings.
-  uint32_t factor[MAX_SETS];        // total number of placements for a set
-  uint8_t first[MAX_SETS];          // index of first piece of each set
-  uint8_t mult[MAX_SETS];           // number of like pieces in each set
-  uint8_t part_id;
-  uint64_t recip[MAX_SETS];
-  uint64_t size;
-  uint8_t last[MAX_SETS];
-};
-
-struct Hack {
-  uint32_t factor[MAX_SETS];
+struct RankInfo {
+  uint8_t num;
+  uint8_t numsets;
+  uint8_t partition_id;
   uint8_t first[MAX_SETS];
   uint8_t mult[MAX_SETS];
-  uint8_t part_id;
+  uint8_t last[MAX_SETS];
+  uint8_t transition_id[MAX_SETS];
+  uint32_t factor[MAX_SETS];
+  uint64_t recip[MAX_SETS];
+  uint64_t sizes[2];
 };
+
+extern struct RankInfo rank_info[64];
 
 struct IdxState {
   uint32_t sub[MAX_SETS];
@@ -52,12 +49,16 @@ struct IdxState {
   int n;
 };
 
-//struct IdxIter {
-//};
-
-extern struct IdxInfo ii, capt_ii[MAX_SETS];
+extern struct RankInfo ri, capt_ri[MAX_SETS];
 extern int pc_to_set[MAX_PIECES];
 extern Bitboard Unrank2[62 * 61 / 2], Unrank3[62 * 61 * 60 / 6];
+extern uint32_t Binomial[8][64];
+extern uint8_t MirrorMask[64];
+extern bool FlipTest[64][64];
+extern const uint8_t FlipDiag[64];
+extern const int16_t KKIdx[10][64];
+extern uint8_t KKSquare[462][2];
+extern int16_t KKMap[64][64];
 
 #define SORT2(a, b) do { \
   if ((b) < (a))         \
@@ -189,7 +190,7 @@ INLINE int rank_among_free(uint8_t sq, Bitboard occ)
 
 // We expect a normalized position.
 INLINE uint64_t sq_to_idx_helper(uint8_t *restrict sq, uint64_t idx,
-    Bitboard occ, const struct IdxInfo *ii)
+    Bitboard occ, const struct RankInfo *ii)
 {
   for (int k = 0; k < ii->numsets; k++) {
     size_t s;
@@ -253,7 +254,7 @@ INLINE void mirror_diagonal2(uint8_t *restrict sq, uint8_t *restrict sq2)
     sq2[i] = FlipDiag[sq[i]];
 }
 
-INLINE void idx_state_inc(struct IdxState *is, const struct IdxInfo *ii)
+INLINE void idx_state_inc(struct IdxState *is, const struct RankInfo *ii)
 {
   uint32_t *restrict sub = is->sub;
   int i = ii->numsets - 1;
@@ -263,7 +264,7 @@ INLINE void idx_state_inc(struct IdxState *is, const struct IdxInfo *ii)
 }
 
 INLINE void idx_state_add(struct IdxState *is, uint64_t v,
-    const struct IdxInfo *restrict ii)
+    const struct RankInfo *restrict ii)
 {
   uint32_t *restrict sub = is->sub;
   int i = ii->numsets;
@@ -283,7 +284,7 @@ INLINE void idx_state_add(struct IdxState *is, uint64_t v,
 }
 
 INLINE Bitboard idx_state_to_sq(struct IdxState *is, uint8_t *restrict sq,
-    const struct IdxInfo *ii)
+    const struct RankInfo *ii)
 {
   int i = is->n;
   Bitboard occ = is->occ[i];
@@ -294,21 +295,20 @@ INLINE Bitboard idx_state_to_sq(struct IdxState *is, uint8_t *restrict sq,
   return occ;
 }
 
-extern uint64_t reflection_size[30];
+void init_ranking(void);
+int rank_mult(uint8_t mult[MAX_SETS]);
 
-void init_unrank(void);
-void calc_factors(struct IdxInfo *ii);
+void calc_factors(struct RankInfo *ri);
 uint64_t sq_to_idx(uint8_t *sq);
 uint64_t sq_to_idx_ref(uint8_t *sq);
 uint64_t capt_sq_to_idx(uint8_t *sq, int k);
 void idx_state_init(struct IdxState *is, uint64_t idx, uint8_t *restrict sq,
-    const struct IdxInfo *ii);
+    const struct RankInfo *ri);
 
-void init_perfect_ranker(void);
 int find_partition(int len, uint8_t mult[]);
-uint64_t rank_reflection(uint8_t *restrict sq, Bitboard occ, int numsets,
-    const struct Hack *h);
+uint64_t rank_reflection(uint8_t *restrict sq, Bitboard occ,
+    const struct RankInfo *ri);
 Bitboard unrank_reflection(uint64_t idx, uint8_t *restrict sq, Bitboard occ,
-    const struct IdxInfo *ii);
+    const struct RankInfo *ri);
 
 #endif

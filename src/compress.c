@@ -1634,17 +1634,17 @@ void compress_data_slice(const char *name, int stm, int type, void *data,
   // Piece permutation.
 #ifndef HAS_PAWNS
   if (!big)
-    for (int i = 0; i < ii.numsets; i++)
+    for (int i = 0; i < ri.numsets; i++)
       write_u8(F, perm[i]);
   else
-    for (int i = 0; i < ii.numsets + 1; i++)
+    for (int i = 0; i < ri.numsets + 1; i++)
       write_u8(F, perm[i]);
 #else
   if (!big)
-    for (int i = 0; i < ii.numsets + 1; i++)
+    for (int i = 0; i < ri.numsets + 1; i++)
       write_u8(F, perm[i]);
   else
-    for (int i = 0; i < ii.numsets + 2; i++)
+    for (int i = 0; i < ri.numsets + 2; i++)
       write_u8(F, perm[i]);
 #endif
 

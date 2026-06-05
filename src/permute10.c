@@ -117,10 +117,9 @@ uint64_t p10_sq_to_idx(uint8_t *restrict sq, int k2sq)
   Bitboard occ = bit(sq[0]) | bit(sq[1]);
   uint64_t idx = P10Square[k2sq];
   if (!P10Ref[k2sq])
-    return sq_to_idx_helper(sq, idx, occ, &ii);
+    return sq_to_idx_helper(sq, idx, occ, &ri);
   else
-    return idx * kslice_size
-      + rank_reflection(sq, occ, ii.numsets, (struct Hack *)&ii.factor);
+    return idx * kslice_size + rank_reflection(sq, occ, &ri);
 }
 
 static void generate_set_perms_helper(int n, int k)
@@ -192,10 +191,10 @@ void init_permute_piece_10(int k)
   static const int num[] = { 58, 58, 58, 55, 55, 55, 33, 30, 30, 30 };
 
   if (current_size < 0) {
-    generate_set_perms(ii.numsets + 1);
+    generate_set_perms(ri.numsets + 1);
 
-    for (int i = 0; i < ii.numsets; i++)
-      set_pt[i + 1] = g_pos.pt[ii.first[i]];
+    for (int i = 0; i < ri.numsets; i++)
+      set_pt[i + 1] = g_pos.pt[ri.first[i]];
     set_pt[0] = g_pos.pt[g_pos.stm ^ 1];
   }
 
@@ -272,7 +271,7 @@ static void estimate_compression_piece(void *table, int num_cands, bool wide,
     free_code(c);
     printf("[%2d]", p);
     printf(";");
-    for (int i = 0; i < ii.numsets + 1; i++) {
+    for (int i = 0; i < ri.numsets + 1; i++) {
       int k = set_perm_list[trylist[p]][i];
       printf(" %c", PieceChar[set_pt[k]]);
     }
@@ -305,8 +304,8 @@ static int64_t estimate_compression(void *table, int *bestp, bool wide,
   for (i = 0; i < num_set_perms; i++)
     compest[i] = 0;
 
-  for (k = 0; k < ii.numsets; k++) {
-    int numsets = ii.numsets + 1;
+  for (k = 0; k < ri.numsets; k++) {
+    int numsets = ri.numsets + 1;
     int pos0 = numsets - k - 2;
     int pos1 = numsets - k - 1;
     best = UINT64_MAX;
@@ -344,11 +343,11 @@ static int64_t estimate_compression(void *table, int *bestp, bool wide,
 	if (trylist[i] > trylist[j])
           Swap(trylist[i], trylist[j]);
     for (i = 0; i < num_cands; i++) {
-      try_ii[i].numsets = ii.numsets + 1;
-      for (j = 0; j < ii.numsets + 1; j++) {
+      try_ii[i].numsets = ri.numsets + 1;
+      for (j = 0; j < ri.numsets + 1; j++) {
         p = set_perm_list[trylist[i]][j];
-        try_ii[i].mult[j] = p == 0 ? 0 : ii.mult[p - 1];
-        try_ii[i].first[j] = p == 0 ? 0 : ii.first[p - 1];
+        try_ii[i].mult[j] = p == 0 ? 0 : ri.mult[p - 1];
+        try_ii[i].first[j] = p == 0 ? 0 : ri.first[p - 1];
         if (p == 0)
           try_ii[i].k2 = j;
       }
@@ -379,14 +378,14 @@ void permute_piece_10(void *tb_table, void *table, uint8_t *best, int type,
 
   estimate_compression(table, &bestp, wide, type == WDL);
 
-  for (int i = 0; i < ii.numsets + 1; i++)
+  for (int i = 0; i < ri.numsets + 1; i++)
     best[i] = set_perm_list[bestp][i];
 
-  best_ii.numsets = ii.numsets + 1;
+  best_ii.numsets = ri.numsets + 1;
   for (int i = 0; i < best_ii.numsets; i++) {
     int k = best[i];
-    best_ii.mult[i] = k == 0 ? 0 : ii.mult[k - 1];
-    best_ii.first[i] = k == 0 ? 0 : ii.first[k - 1];
+    best_ii.mult[i] = k == 0 ? 0 : ri.mult[k - 1];
+    best_ii.first[i] = k == 0 ? 0 : ri.first[k - 1];
     if (k == 0)
       best_ii.k2 = i;
   }
@@ -397,7 +396,7 @@ void permute_piece_10(void *tb_table, void *table, uint8_t *best, int type,
   }
 
   printf("\nbest permutation: ");
-  for (int i = 0; i < ii.numsets + 1; i++) {
+  for (int i = 0; i < ri.numsets + 1; i++) {
     for (int j = 0; j < max(1, best_ii.mult[i]); j++)
       printf("%c", PieceChar[set_pt[best[i]]]);
   }

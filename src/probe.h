@@ -12,6 +12,7 @@
 
 #define LOOKUP
 
+#include "index.h"
 #include "movegen.h"
 #include "rans.h"
 #include "types.h"
@@ -122,26 +123,17 @@ struct DtzTable {
 
 struct TbTable2 {
   struct PairsData *precomp;
-  uint32_t factor[MAX_SETS];
-  uint8_t first[MAX_SETS];
-  uint8_t mult[MAX_SETS];
-  uint8_t part_id;
+  struct RankInfo *ri;
 };
 
 struct WdlTable2 {
   struct PairsData *precomp;
-  uint32_t factor[MAX_SETS];
-  uint8_t first[MAX_SETS];
-  uint8_t mult[MAX_SETS];
-  uint8_t part_id;
+  struct RankInfo *ri;
 };
 
 struct DtmTable2 {
   struct PairsData *precomp;
-  uint32_t factor[MAX_SETS];
-  uint8_t first[MAX_SETS];
-  uint8_t mult[MAX_SETS];
-  uint8_t part_id;
+  struct RankInfo *ri;
   uint8_t mapped;
   uint8_t dist_format;
   const uint16_t *map_dtm;
@@ -150,10 +142,7 @@ struct DtmTable2 {
 
 struct DtzTable2 {
   struct PairsData *precomp;
-  uint32_t factor[MAX_SETS];
-  uint8_t first[MAX_SETS];
-  uint8_t mult[MAX_SETS];
-  uint8_t part_id;
+  struct RankInfo *ri;
   uint8_t mapped;
   uint8_t dist_format;
   uint16_t map_dtz_idx[4];
@@ -192,22 +181,15 @@ struct TbEntry {
   struct Tbase *_Atomic tbase[3];
 };
 
-extern const int16_t KKIdx[10][64];
-extern uint8_t KKSquare[462][2];
 extern const uint8_t Triangle[64];
 extern const uint8_t InvTriangle[10];
 extern const int8_t OffDiag[64];
-extern const uint8_t FlipDiag[64];
-extern uint32_t Binomial[8][64];
 extern const uint8_t PawnMap[48];
 extern const uint8_t PawnTwist[2][64];
 extern size_t PawnIdx[2][6][24];
 extern const uint8_t PawnFlip[2][64];
 extern const uint8_t InvPawnFlip[2][24];
 extern const uint8_t InvPawnTwist[2][48];
-extern int16_t KKMap[64][64];
-extern uint8_t MirrorMask[64];
-extern bool FlipTest[64][64];
 extern int16_t KKPIdx[64][64];
 
 extern const char *suffix[3];
