@@ -229,18 +229,10 @@ static void estimate_compression_pawn(void *table, int num_cands, bool wide,
   est_data.dsize = dsize;
   uint8_t *dst0 = dst;
 
-  if (num_segs > 1) {
-    if (!wide)
-      run_threaded(convert_est_data_pawn_u8, work_est, 0);
-    else
-      run_threaded(convert_est_data_pawn_u16, work_est, 0);
-  }
-  else {
-    if (!wide)
-      run_single(convert_est_data_pawn_u8, work_est, 0);
-    else
-      run_single(convert_est_data_pawn_u16, work_est, 0);
-  }
+  if (!wide)
+    run_threaded(convert_est_data_pawn_u8, work_est);
+  else
+    run_threaded(convert_est_data_pawn_u16, work_est);
 
   uint64_t csize;
 
@@ -384,7 +376,7 @@ void permute_pawn_pk(void *tb_table, void *table, uint8_t *best, int type,
     return;
 
   if (!wide)
-    run_threaded(convert_data_pawn_u8, work_convert, 1);
+    run_threaded(convert_data_pawn_u8, work_convert);
   else
-    run_threaded(convert_data_pawn_u16, work_convert, 1);
+    run_threaded(convert_data_pawn_u16, work_convert);
 }

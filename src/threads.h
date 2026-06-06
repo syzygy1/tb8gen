@@ -55,10 +55,7 @@ extern int g_total_work;
 extern struct timeval g_start_time, g_cur_time;
 
 void init_threads(void);
-void run_threaded(void (*func)(struct ThreadData *), struct Work *work,
-    bool report_time);
-void run_single(void (*func)(struct ThreadData *), struct Work *work,
-    bool report_time);
+void run_threaded(void (*func)(struct ThreadData *), struct Work *work);
 void fill_work(int n, uint64_t size, uint64_t mask, uint64_t *w);
 void fill_work_offset(int n, uint64_t size, uint64_t mask, uint64_t *w,
     uint64_t offset);

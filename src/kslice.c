@@ -219,12 +219,12 @@ static void *work_p, *work_q;
 
 static void run_cl(void (*func)(struct ThreadData *), int s)
 {
-  run_threaded(func, work_cl[s >= 441], 0);
+  run_threaded(func, work_cl[s >= 441]);
 }
 
 static void run_sub_cl(void (*func)(struct ThreadData *), int stm)
 {
-  run_threaded(func, work_sub_cl[stm], 0);
+  run_threaded(func, work_sub_cl[stm]);
 }
 
 static void set_worker(struct ThreadData *thread)

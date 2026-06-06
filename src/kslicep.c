@@ -273,19 +273,19 @@ static void set_worker(struct ThreadData *thread)
 void kslice_set_addr(void *p)
 {
   work_p = p;
-  run_threaded(set_worker, work_cl, 0);
+  run_threaded(set_worker, work_cl);
 }
 
 void k16slice_set_addr(void *p)
 {
   work_p = p;
-  run_threaded(set_worker, work_cl16, 0);
+  run_threaded(set_worker, work_cl16);
 }
 
 void k16slice_set(int s)
 {
   work_p = k16slice_get_address(s);
-  run_threaded(set_worker, work_cl16, 0);
+  run_threaded(set_worker, work_cl16);
 }
 
 static void clear_worker(struct ThreadData *thread)
@@ -298,13 +298,13 @@ static void clear_worker(struct ThreadData *thread)
 void k16slice_clear_addr(void *p)
 {
   work_p = p;
-  run_threaded(clear_worker, work_cl16, 0);
+  run_threaded(clear_worker, work_cl16);
 }
 
 void k16slice_clear(int s)
 {
   work_p = k16slice_get_address(s);
-  run_threaded(clear_worker, work_cl16, 0);
+  run_threaded(clear_worker, work_cl16);
 }
 
 static void or_worker(struct ThreadData *thread)
@@ -322,7 +322,7 @@ void k16slice_or_addr(void *p, void *q)
   work_p = p;
   work_q = q;
 
-  run_threaded(or_worker, work_cl16, 0);
+  run_threaded(or_worker, work_cl16);
 }
 
 void k16slice_or(int s1, int s2)
@@ -330,7 +330,7 @@ void k16slice_or(int s1, int s2)
   work_p = k16slice_get_address(s1);
   work_q = k16slice_get_address(s2);
 
-  run_threaded(or_worker, work_cl16, 0);
+  run_threaded(or_worker, work_cl16);
 }
 
 static void or_not_worker(struct ThreadData *thread)
@@ -348,7 +348,7 @@ void k16slice_or_not(int s1, int s2)
   work_p = k16slice_get_address(s1);
   work_q = k16slice_get_address(s2);
 
-  run_threaded(or_not_worker, work_cl16, 0);
+  run_threaded(or_not_worker, work_cl16);
 }
 
 static void and_worker(struct ThreadData *thread)
@@ -366,7 +366,7 @@ void k16slice_and(int s1, int s2)
   work_p = k16slice_get_address(s1);
   work_q = k16slice_get_address(s2);
 
-  run_threaded(and_worker, work_cl16, 0);
+  run_threaded(and_worker, work_cl16);
 }
 
 static void and_not_worker(struct ThreadData *thread)
@@ -384,7 +384,7 @@ void k16slice_and_not(int s1, int s2)
   work_p = k16slice_get_address(s1);
   work_q = k16slice_get_address(s2);
 
-  run_threaded(and_not_worker, work_cl16, 0);
+  run_threaded(and_not_worker, work_cl16);
 }
 
 static void not_and_worker(struct ThreadData *thread)
@@ -402,7 +402,7 @@ void k16slice_not_and(int s1, int s2)
   work_p = k16slice_get_address(s1);
   work_q = k16slice_get_address(s2);
 
-  run_threaded(not_and_worker, work_cl16, 0);
+  run_threaded(not_and_worker, work_cl16);
 }
 
 void nor_worker(struct ThreadData *thread)
@@ -420,7 +420,7 @@ void k16slice_nor(int s1, int s2)
   work_p = k16slice_get_address(s1);
   work_q = k16slice_get_address(s2);
 
-  run_threaded(nor_worker, work_cl16, 0);
+  run_threaded(nor_worker, work_cl16);
 }
 
 uint64_t k16slice_write_addr(void *p, int slice, int stm, const char *name,
@@ -553,7 +553,7 @@ void k16slice_sub_clear_addr(void *p, int stm)
   if (sub_size[stm] == 0) return;
 
   work_p = p;
-  run_threaded(clear_worker, work_sub_cl[stm], 0);
+  run_threaded(clear_worker, work_sub_cl[stm]);
 }
 
 void k16slice_sub_clear(int s, int stm)
@@ -561,7 +561,7 @@ void k16slice_sub_clear(int s, int stm)
   if (sub_size[stm] == 0) return;
 
   work_p = k16slice_sub_get_base(s);
-  run_threaded(clear_worker, work_sub_cl[stm], 0);
+  run_threaded(clear_worker, work_sub_cl[stm]);
 }
 
 void k16slice_sub_write_addr(void *p, int slice, int stm, const char *name,
@@ -618,7 +618,7 @@ void k16slice_sub_or_addr(void *p, void *q, int stm)
 
   work_p = p;
   work_q = q;
-  run_threaded(or_worker, work_sub_cl[stm], 0);
+  run_threaded(or_worker, work_sub_cl[stm]);
 }
 
 void k16slice_sub_and_not(int s1, int s2, int stm)
@@ -627,7 +627,7 @@ void k16slice_sub_and_not(int s1, int s2, int stm)
 
   work_p = k16slice_sub_get_base(s1);
   work_q = k16slice_sub_get_base(s2);
-  run_threaded(and_not_worker, work_sub_cl[stm], 0);
+  run_threaded(and_not_worker, work_sub_cl[stm]);
 }
 
 INLINE void clear_tail(void *p, size_t num_bits, size_t num_words)
@@ -672,7 +672,7 @@ static uint64_t kslice_count_addr(void *p)
   for (int t = 0; t < g_num_threads; t++)
     g_thread_data[t].cnt = 0;
 
-  run_threaded(count_worker, work_cl, 0);
+  run_threaded(count_worker, work_cl);
 
   uint64_t cnt = 0;
   for (int t = 0; t < g_num_threads; t++)
@@ -709,7 +709,7 @@ uint64_t k16slice_sub_count_addr(void *p, int stm)
   uint64_t cnt = 0;
   for (int t = 0; t < g_num_threads; t++)
     g_thread_data[t].cnt = 0;
-  run_threaded(count_worker, work_sub_cl[stm], 0);
+  run_threaded(count_worker, work_sub_cl[stm]);
   for (int t = 0; t < g_num_threads; t++)
     cnt += g_thread_data[t].cnt;
 

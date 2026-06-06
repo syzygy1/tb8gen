@@ -157,31 +157,15 @@ static void estimate_compression_piece(void *table, int num_cands, bool wide,
   uint8_t *dst0 = dst;
 
   if (reflection) {
-    if (num_segs > 1) {
-      if (!wide)
-        run_threaded(convert_est_data_piece_ref_u8, work_est, 0);
-      else
-        run_threaded(convert_est_data_piece_ref_u16, work_est, 0);
-    }
-    else {
-      if (!wide)
-        run_single(convert_est_data_piece_ref_u8, work_est, 0);
-      else
-        run_single(convert_est_data_piece_ref_u16, work_est, 0);
-    }
+    if (!wide)
+      run_threaded(convert_est_data_piece_ref_u8, work_est);
+    else
+      run_threaded(convert_est_data_piece_ref_u16, work_est);
   } else {
-    if (num_segs > 1) {
-      if (!wide)
-        run_threaded(convert_est_data_piece_u8, work_est, 0);
-      else
-        run_threaded(convert_est_data_piece_u16, work_est, 0);
-    }
-    else {
-      if (!wide)
-        run_single(convert_est_data_piece_u8, work_est, 0);
-      else
-        run_single(convert_est_data_piece_u16, work_est, 0);
-    }
+    if (!wide)
+      run_threaded(convert_est_data_piece_u8, work_est);
+    else
+      run_threaded(convert_est_data_piece_u16, work_est);
   }
 
   uint64_t csize;
@@ -335,13 +319,13 @@ void permute_piece_462(void *tb_table, void *table, uint8_t *best, int type,
 
   if (reflection) {
     if (!wide)
-      run_threaded(convert_data_piece_ref_u8, work_convert, 1);
+      run_threaded(convert_data_piece_ref_u8, work_convert);
     else
-      run_threaded(convert_data_piece_ref_u16, work_convert, 1);
+      run_threaded(convert_data_piece_ref_u16, work_convert);
   } else {
     if (!wide)
-      run_threaded(convert_data_piece_u8, work_convert, 1);
+      run_threaded(convert_data_piece_u8, work_convert);
     else
-      run_threaded(convert_data_piece_u16, work_convert, 1);
+      run_threaded(convert_data_piece_u16, work_convert);
   }
 }

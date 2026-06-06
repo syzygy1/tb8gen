@@ -6,6 +6,64 @@
 
 #define NAME(f) EVALUATOR(f,T)
 
+static int NAME(init_merge_value_map)(uint64_t *stats, int stm)
+{
+  int n = 0;
+  NAME(mi.v)[0] = n;
+  n += (stats[1] != 0);
+  NAME(mi.v)[1] = n;
+  n += (stats[2] != 0);
+  NAME(mi.v)[2] = n;
+  if (include_wins) {
+    for (int i = 3; i <= DRAW_RULE + 2; i++) {
+      n += (stats[i] != 0);
+      NAME(mi.v)[i] = n;
+    }
+    n += (capt_cnt[stm][3] != 0);
+    NAME(mi.v)[DRAW_RULE + 3] = n;
+    n += (stm == BLACK && pawn_cnt[3] != 0);
+    NAME(mi.v)[DRAW_RULE + 4] = n;
+    for (int i = DRAW_RULE + 5; i < MAX_STATS / 2 + 1; i++) {
+      n += (stats[i] != 0);
+      NAME(mi.v)[i] = n;
+    }
+  } else {
+    n += mi.v_wdl[4];
+    for (int i = 3; i <= DRAW_RULE + 2; i++)
+      NAME(mi.v)[i] = n;
+    n += (capt_cnt[stm][3] != 0);
+    NAME(mi.v)[DRAW_RULE + 3] = n;
+    n += (stm == BLACK && pawn_cnt[3] != 0);
+    NAME(mi.v)[DRAW_RULE + 4] = n;
+    n += mi.v_wdl[3];
+    for (int i = DRAW_RULE + 5; i < MAX_STATS / 2 + 1; i++)
+      NAME(mi.v)[i] = n;
+  }
+  n += (capt_cnt[stm][2] != 0);
+  NAME(mi.v)[MAX_STATS / 2 + 1] = n;
+  n += (stats[MAX_STATS / 2 + 2] != 0);
+  NAME(mi.v)[MAX_STATS / 2 + 2] = n;
+  if (include_losses) {
+    for (int i = MAX_STATS / 2 - 4; i >= 0; i--) {
+      n += (stats[MAX_STATS - 1 - i] != 0);
+      NAME(mi.v)[MAX_STATS - 1 - i] = n;
+    }
+  } else {
+    n += mi.v_wdl[1];
+    for (int i = MAX_STATS / 2 - 4; i >= DRAW_RULE + 1; i--)
+      NAME(mi.v)[MAX_STATS - 1 - i] = n;
+    n += mi.v_wdl[0];
+    for (int i = DRAW_RULE; i >= 0; i--)
+      NAME(mi.v)[MAX_STATS - 1 - i] = n;
+  }
+
+  for (int i = 0, j = -1; i < MAX_STATS; i++)
+    if (NAME(mi.v)[i] != j)
+      NAME(mi.v_inv)[j = NAME(mi.v)[i]] = i;
+
+  return n;
+}
+
 static void NAME(merge_transform)(struct ThreadData *thread)
 {
   T *restrict const q = merge_table;
@@ -149,7 +207,7 @@ static void NAME(merge_bitmaps)(int stm, int s)
   g_pos.stm = stm;
 
   // DRAW
-  run_threaded(NAME(merge_draw_worker), work_g16, 0);
+  run_threaded(NAME(merge_draw_worker), work_g16);
 
   // losses
   for (int n = 0; n < max_iteration; n++)
@@ -158,7 +216,7 @@ static void NAME(merge_bitmaps)(int stm, int s)
         && k16slice_read(-1, s, stm, "L", n))
     {
       merge_n = MAX_STATS - 1 - n;
-      run_threaded(NAME(merge_worker), work_g16, 0);
+      run_threaded(NAME(merge_worker), work_g16);
       if (!include_losses)
         stat_count(stats, merge_n);
       if (2 * n == mf.dtz[stm ^ 1][0] && !mf.found[stm ^ 1][0])
@@ -175,7 +233,7 @@ static void NAME(merge_bitmaps)(int stm, int s)
         && k16slice_read(-1, s, stm, "W", n))
     {
       merge_n = n <= DRAW_RULE ? 2 + n : 4 + n;
-      run_threaded(NAME(merge_worker), work_g16, 0);
+      run_threaded(NAME(merge_worker), work_g16);
       if (!include_wins)
         stat_count(stats, merge_n);
       if (2 * n + 1 == mf.dtz[stm][0] && !mf.found[stm][0])
@@ -188,21 +246,21 @@ static void NAME(merge_bitmaps)(int stm, int s)
   if (g_stats[stm][1] && k16slice_read(-1, s, stm, "capt/win", -1)) {
     merge_r = 3;
     merge_n = 1;
-    run_threaded(NAME(merge_repl_worker), work_g16, 0);
+    run_threaded(NAME(merge_repl_worker), work_g16);
   }
 
   // PAWN_WIN
   if (g_stats[stm][2] && k16slice_read(-1, s, stm, "pawn/win", -1)) {
     merge_r = 3;
     merge_n = 2;
-    run_threaded(NAME(merge_repl_worker), work_g16, 0);
+    run_threaded(NAME(merge_repl_worker), work_g16);
   }
 
   // CAPT_CWIN
   if (capt_cnt[stm][3] && k16slice_read(-1, s, stm, "capt/cwin", -1)) {
     merge_r = DRAW_RULE + 5;
     merge_n = DRAW_RULE + 3;
-    run_threaded(NAME(merge_repl_worker), work_g16, 0);
+    run_threaded(NAME(merge_repl_worker), work_g16);
   }
 
   // PAWN_CWIN
@@ -210,14 +268,14 @@ static void NAME(merge_bitmaps)(int stm, int s)
   {
     merge_r = DRAW_RULE + 5;
     merge_n = DRAW_RULE + 4;
-    run_threaded(NAME(merge_repl_worker), work_g16, 0);
+    run_threaded(NAME(merge_repl_worker), work_g16);
   }
 
   // CAPT_DRAW
   if (capt_cnt[stm][2] && k16slice_read(-1, s, stm, "capt/draw", -1)) {
     merge_r = MAX_STATS / 2 + 2;
     merge_n = MAX_STATS / 2 + 1;
-    run_threaded(NAME(merge_repl_worker), work_g16, 0);
+    run_threaded(NAME(merge_repl_worker), work_g16);
   }
 
   // ILLEGAL
@@ -229,7 +287,7 @@ static void NAME(merge_bitmaps)(int stm, int s)
         || (    stm == BLACK
             && (pawn_attacks(BLACK, g_pos.sq[2]) & bit(g_pos.sq[0]))))
     {
-      run_threaded(NAME(merge_set_illegal_worker), work_g, 0);
+      run_threaded(NAME(merge_set_illegal_worker), work_g);
       continue;
     }
 
@@ -237,7 +295,7 @@ static void NAME(merge_bitmaps)(int stm, int s)
       if ((g_pos.pt[ri.first[k]] >> 3) != stm)
         continue;
       work_set = k;
-      run_threaded(NAME(merge_illegal_worker), work_capt[k], 0);
+      run_threaded(NAME(merge_illegal_worker), work_capt[k]);
     }
   }
 
@@ -253,7 +311,7 @@ static void NAME(merge_bitmaps)(int stm, int s)
 
     for (int t = 0; t < g_num_threads; t++)
       memset(thread_stats[t], 0, sizeof thread_stats[t]);
-    run_threaded(NAME(merge_statistics_worker), work_g, 0);
+    run_threaded(NAME(merge_statistics_worker), work_g);
 
     uint64_t win_tmp, cwin_tmp, bloss_tmp, loss_tmp;
     win_tmp = stats[r][3];
@@ -338,12 +396,12 @@ static void NAME(merge_bitmaps)(int stm, int s)
   w[NAME(mi.v)[0]] = 8;
 
   merge_w = w;
-  run_threaded(NAME(merge_transform), work_g16, 0);
+  run_threaded(NAME(merge_transform), work_g16);
 
   // Replace bloss (1) with capt_bloss (5) where appropriate.
   if (capt_cnt[stm][1]) {
     k16slice_read(-1, s, stm, "capt/bloss", -1);
-    run_threaded(NAME(merge_capt_bloss_worker), work_g16, 0);
+    run_threaded(NAME(merge_capt_bloss_worker), work_g16);
   }
 
   for (int r = 0; r < 16; r++) {

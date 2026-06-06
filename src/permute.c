@@ -126,7 +126,7 @@ INLINE uint64_t calc_idx_piece(uint8_t *restrict sq, uint8_t *restrict pidx,
   int s = KKMap[sq2[0]][sq2[1]];
   if (s < 0)
     return 462 * kslice_size;
-    // table[total_kslice_size] is set to the don't care value.
+    // table[462 * kslice_size] is set to the don't care value.
   else if (s < 441) {
     normalize(sq2);
     return (unsigned)s * kslice_size + sq_to_idx(sq2);
@@ -283,18 +283,10 @@ static void estimate_compression_piece(void *table, uint8_t *pcs, int num_cands,
   est_data.dsize = dsize;
   uint8_t *dst0 = dst;
 
-  if (num_segs > 1) {
-    if (!wide)
-      run_threaded(convert_est_data_piece_u8, work_est, 0);
-    else
-      run_threaded(convert_est_data_piece_u16, work_est, 0);
-  }
-  else {
-    if (!wide)
-      run_single(convert_est_data_piece_u8, work_est, 0);
-    else
-      run_single(convert_est_data_piece_u16, work_est, 0);
-  }
+  if (!wide)
+    run_threaded(convert_est_data_piece_u8, work_est);
+  else
+    run_threaded(convert_est_data_piece_u16, work_est);
 
   uint64_t csize;
 
@@ -414,7 +406,7 @@ void permute_piece_wdl(void *tb_table, uint8_t *pcs, uint8_t *pt,
   if (g_compress_type == 1)
     return;
 
-  run_threaded(convert_data_piece_u8, work_convert, 1);
+  run_threaded(convert_data_piece_u8, work_convert);
 }
 
 void permute_piece_dtz(void *tb_table, uint8_t *pcs, uint8_t *pt, void *table,
@@ -442,7 +434,7 @@ void permute_piece_dtz(void *tb_table, uint8_t *pcs, uint8_t *pt, void *table,
     return;
 
   if (!wide)
-    run_threaded(convert_data_piece_u8, work_convert, 1);
+    run_threaded(convert_data_piece_u8, work_convert);
   else
-    run_threaded(convert_data_piece_u16, work_convert, 1);
+    run_threaded(convert_data_piece_u16, work_convert);
 }

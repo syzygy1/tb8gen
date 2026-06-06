@@ -181,7 +181,7 @@ static void calc_sub_kslices(int stm)
         if ((g_pos.pt[ri.first[k]] >> 3) != stm)
           continue;
         work_set = k;
-        run_threaded(calc_sub_worker, &work_capt_dynamic[k], 0);
+        run_threaded(calc_sub_worker, &work_capt_dynamic[k]);
       }
 
       for (int t = 0; t < g_num_threads; t++)
@@ -207,6 +207,8 @@ static void calc_sub_kslices(int stm)
   file_rename(done);
 
   show_progress(phase, 462, 462, true);
+  for (int i = 0; i < 5; i++)
+    printf("sub_cnt[%d][%d] = %lu\n", stm, i, sub_cnt[stm][i]);
 }
 
 static bool work_legality;
@@ -278,7 +280,7 @@ static void predecessors_sub(int stm, int s, bool legality)
     if ((g_pos.pt[m] >> 3) == stm)
       continue;
     work_set = k;
-    run_threaded(predecessors_sub_worker, &work_capt_dynamic[k], 0);
+    run_threaded(predecessors_sub_worker, &work_capt_dynamic[k]);
   }
 }
 
@@ -529,9 +531,9 @@ static void predecessors(int stm, int s)
   g_pos.sq[1] = KKSquare[s][1];
 
   if (s < 441)
-    run_threaded(predecessors_worker, &work_g_dynamic[0], 0);
+    run_threaded(predecessors_worker, &work_g_dynamic[0]);
   else
-    run_threaded(predecessors_ref_worker, &work_g_dynamic[1], 0);
+    run_threaded(predecessors_ref_worker, &work_g_dynamic[1]);
 }
 
 INLINE bool check_king_moves(int stm, Bitboard occ, uint8_t *restrict sq)
@@ -750,9 +752,9 @@ static uint64_t check_successors(int stm, int s)
     g_thread_data[t].cnt = 0;
 
   if (s < 441)
-    run_threaded(check_successors_worker, &work_g_dynamic[0], 0);
+    run_threaded(check_successors_worker, &work_g_dynamic[0]);
   else
-    run_threaded(check_successors_ref_worker, &work_g_dynamic[1], 0);
+    run_threaded(check_successors_ref_worker, &work_g_dynamic[1]);
 
   uint64_t cnt = 0;
   for (int t = 0; t < g_num_threads; t++)
@@ -943,9 +945,9 @@ static void calc_illegal_and_mate(void)
     for (int k = 0; k < ri.numsets; k++) {
       work_set = k;
       if (s < 441)
-        run_threaded(calc_illegal_worker, &work_capt_dynamic[k], 0);
+        run_threaded(calc_illegal_worker, &work_capt_dynamic[k]);
       else
-        run_threaded(calc_illegal_ref_worker, &work_capt_dynamic[k], 0);
+        run_threaded(calc_illegal_ref_worker, &work_capt_dynamic[k]);
     }
 
     for (int stm = 0; stm < 2; stm++) {
@@ -957,9 +959,9 @@ static void calc_illegal_and_mate(void)
     kslice_clear_addr(kslice_buf[3], s); // btm mate
 
     if (s < 441)
-      run_threaded(calc_mate_worker, &work_g_static[0], 0);
+      run_threaded(calc_mate_worker, &work_g_static[0]);
     else
-      run_threaded(calc_mate_ref_worker, &work_g_static[1], 0);
+      run_threaded(calc_mate_ref_worker, &work_g_static[1]);
 
     for (int stm = 0; stm < 2; stm++) {
       loss0[stm] += num = kslice_count_addr(kslice_buf[2 + stm], s);

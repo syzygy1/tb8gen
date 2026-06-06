@@ -22,6 +22,7 @@
 #include "tb8gen.h"
 #include "threads.h"
 #include "types.h"
+#include "util.h"
 
 struct MergeInfo mi;
 
@@ -67,6 +68,7 @@ void init_merge_work(void)
 }
 
 static _Atomic uint64_t found_idx;
+static _Atomic bool found_capt_bloss;
 
 static void find_position_worker(struct ThreadData *thread)
 {
@@ -100,7 +102,7 @@ static void find_position(int s, int stm, bool loss, bool cursed)
 {
   atomic_store_explicit(&found_idx, UINT64_MAX, memory_order_relaxed);
 
-  run_threaded(find_position_worker, &work_g_merge_dynamic[s >= 441], 0);
+  run_threaded(find_position_worker, &work_g_merge_dynamic[s >= 441]);
 
   uint64_t idx = atomic_load_explicit(&found_idx, memory_order_relaxed);
   if (idx >= kslice_sizes[s >= 441])
@@ -224,71 +226,19 @@ void merge(int stm)
   printf("tot_vals = %d (%d)\n", tot_vals,
       special + win_vals + cwin_vals + loss_vals + bloss_vals);
 
+  include_wins = wins;
+  include_losses = losses;
+
   mi.wide = tot_vals > 256;
 
   if (!mi.wide) {
     // One byte suffices.
 
-    // Include more if it fits. This slightly speeds up counting statistics.
-    include_wins = wins;
-    include_losses = losses;
-#if 1
-    if (special + win_vals + cwin_vals + bloss_vals + loss_vals <= 256)
-      include_wins = include_losses = true;
-    else if (!wins && !losses && special + win_vals + cwin_vals <= 256)
-      include_wins = true;
-    else if (!wins && !losses && special + loss_vals + bloss_vals <= 256)
-      include_losses = true;
-#endif
-
-    // Create the corresponding mapping from u16 to u8.
-    int n = 0;
-    mi.v_u8[0] = n;
-    n += (stats[1] != 0);
-    mi.v_u8[1] = n;
-    if (include_wins) {
-      for (int i = 2; i <= DRAW_RULE + 1; i++) {
-        n += (stats[i] != 0);
-        mi.v_u8[i] = n;
-      }
-      n += (stats[DRAW_RULE + 2] != 0);
-      mi.v_u8[DRAW_RULE + 2] = n;
-      for (int i = DRAW_RULE + 3; i < MAX_STATS / 2; i++) {
-        n += (stats[i] != 0);
-        mi.v_u8[i] = n;
-      }
-    } else {
-      n += (win_vals != 0);
-      for (int i = 2; i <= DRAW_RULE + 1; i++)
-        mi.v_u8[i] = n;
-      n += (stats[DRAW_RULE + 2] != 0);
-      mi.v_u8[DRAW_RULE + 2] = n;
-      n += (cwin_vals != 0);
-      for (int i = DRAW_RULE + 3; i < MAX_STATS / 2; i++)
-        mi.v_u8[i] = n;
+    int n = init_merge_value_map_u8(stats);
+    if (n > 255) {
+      fprintf(stderr, "Internal error.\n");
+      exit(EXIT_FAILURE);
     }
-    n += (stats[MAX_STATS / 2] != 0);
-    mi.v_u8[MAX_STATS / 2] = n;
-    n += (stats[MAX_STATS / 2 + 1] != 0);
-    mi.v_u8[MAX_STATS / 2 + 1] = n;
-    if (include_losses) {
-      for (int i = MAX_STATS / 2 - 3; i >= 0; i--) {
-        n += (stats[MAX_STATS - 1 - i] != 0);
-        mi.v_u8[MAX_STATS - 1 - i] = n;
-      }
-    } else {
-      n += (bloss_vals != 0);
-      for (int i = MAX_STATS / 2 - 3; i >= DRAW_RULE + 1; i--)
-        mi.v_u8[MAX_STATS - 1 - i] = n;
-      n += (loss_vals != 0);
-      for (int i = DRAW_RULE; i >= 0; i--)
-        mi.v_u8[MAX_STATS - 1 - i] = n;
-    }
-    assert(n <= 255);
-
-    for (int i = 0, j = -1; i < MAX_STATS; i++)
-      if (mi.v_u8[i] != j)
-        mi.v_inv_u8[j = mi.v_u8[i]] = i;
 
     merge_table = alloc_huge(sizeof(u8) * kslice_size);
     if (!merge_table)
@@ -305,10 +255,7 @@ void merge(int stm)
 
   } else {
 
-    // We need to use u16. This makes the mapping part straightfoward.
-    include_wins = include_losses = true;
-    for (int i = 0; i < MAX_STATS; i++)
-      mi.v_u16[i] = mi.v_inv_u16[i] = i;
+    init_merge_value_map_u16(stats);
 
     merge_table = alloc_huge(sizeof(u16) * kslice_size);
     if (!merge_table)

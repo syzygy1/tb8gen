@@ -174,6 +174,7 @@ alignas(64) struct Pool {
 
 static int worker(void *arg);
 
+#if 0
 static void update_time(bool report_time)
 {
   int secs, usecs;
@@ -190,6 +191,7 @@ static void update_time(bool report_time)
     printf("time taken = %3d:%02d.%03d\n", secs / 60, secs % 60, usecs/1000);
   g_cur_time = stop_time;
 }
+#endif
 
 void init_threads(void)
 {
@@ -330,8 +332,7 @@ void run_group(struct GroupData *g, void (*func)(struct ThreadData *),
 #endif
 #endif
 
-void run_threaded(void (*func)(struct ThreadData *), struct Work *work,
-    bool report_time)
+void run_threaded(void (*func)(struct ThreadData *), struct Work *work)
 {
   int total_work = work->units;
   if (total_work <= 1) {
@@ -341,7 +342,6 @@ void run_threaded(void (*func)(struct ThreadData *), struct Work *work,
       thread->end = work->range[1];
       func(thread);
     }
-    update_time(report_time);
     return;
   }
 
@@ -381,20 +381,6 @@ void run_threaded(void (*func)(struct ThreadData *), struct Work *work,
   while (pool.helpers_done != pool.helpers_target)
     cnd_wait(&pool.cv_done, &pool.mtx);
   mtx_unlock(&pool.mtx);
-
-  update_time(report_time);
-}
-
-void run_single(void (*func)(struct ThreadData *), struct Work *work,
-    bool report_time)
-{
-  struct ThreadData *thread = &(g_thread_data[g_num_threads - 1]);
-
-  thread->begin = work->range[0];
-  thread->end = work->range[work->units];
-  func(thread);
-
-  update_time(report_time);
 }
 
 static struct ThreadData cmprs_data[COMPRESSION_THREADS];

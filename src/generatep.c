@@ -176,7 +176,7 @@ static void calc_sub_kslices(int stm)
           if ((g_pos.pt[ri.first[k]] >> 3) != stm)
             continue;
           work_set = k;
-          run_threaded(calc_sub_worker, &work_capt_dynamic[k], 0);
+          run_threaded(calc_sub_worker, &work_capt_dynamic[k]);
         }
       }
 
@@ -278,7 +278,7 @@ static void calc_psub_kslices(void)
           if ((g_pos.pt[ri.first[k]] >> 3) != WHITE)
             continue;
           work_set = k;
-          run_threaded(calc_psub_worker, &work_capt_dynamic[k], 0);
+          run_threaded(calc_psub_worker, &work_capt_dynamic[k]);
         }
       }
 
@@ -365,7 +365,7 @@ static void predecessors_sub(int stm, int s)
       if ((g_pos.pt[m] >> 3) == stm)
         continue;
       work_set = k;
-      run_threaded(predecessors_sub_worker, &work_capt_dynamic[k], 0);
+      run_threaded(predecessors_sub_worker, &work_capt_dynamic[k]);
     }
   }
 }
@@ -415,7 +415,7 @@ static void predecessors_psub(int s)
       if ((g_pos.pt[m] >> 3) != WHITE)
         continue;
       work_set = k;
-      run_threaded(predecessors_psub_worker, &work_capt_dynamic[k], 0);
+      run_threaded(predecessors_psub_worker, &work_capt_dynamic[k]);
     }
   }
 }
@@ -460,7 +460,7 @@ static void calc_king_captures_pawn(int s, int lower, int upper)
     if (!(king_attacks(g_pos.sq[0]) & bit(g_pos.sq[2])))
       continue;
 
-    run_threaded(calc_king_captures_pawn_worker, &work_g_dynamic, 0);
+    run_threaded(calc_king_captures_pawn_worker, &work_g_dynamic);
   }
 }
 
@@ -724,7 +724,7 @@ static void calc_pawn_capts(void)
         if (pawn_attacks(BLACK, g_pos.sq[2]) & bit(g_pos.sq[0]))
           continue;
 
-        run_threaded(calc_pawn_capts_worker, &work_g_dynamic, 0);
+        run_threaded(calc_pawn_capts_worker, &work_g_dynamic);
       }
 
       uint64_t num[16];
@@ -845,7 +845,7 @@ static void calc_pawn_push(void)
   read_data(F, merged_table, kslice_size);
   fclose(F);
 
-  run_threaded(calc_pawn_push_worker, &work_g_dynamic, 0);
+  run_threaded(calc_pawn_push_worker, &work_g_dynamic);
 }
 
 static void calc_pawn_double_push_worker(struct ThreadData *thread)
@@ -913,7 +913,7 @@ static void calc_pawn_double_push(void)
   fclose(F);
 
   if (g_pos.sq[2] - 16 == g_pos.sq[0] || g_pos.sq[2] - 16 == g_pos.sq[1]) {
-    run_threaded(calc_pawn_push_worker, &work_g_dynamic, 0);
+    run_threaded(calc_pawn_push_worker, &work_g_dynamic);
     return;
   }
 
@@ -924,7 +924,7 @@ static void calc_pawn_double_push(void)
   read_data(F, merged_table2, kslice_size);
   fclose(F);
 
-  run_threaded(calc_pawn_double_push_worker, &work_g_dynamic, 0);
+  run_threaded(calc_pawn_double_push_worker, &work_g_dynamic);
 }
 
 static void predecessors_worker(struct ThreadData *thread)
@@ -968,7 +968,7 @@ static void predecessors(int stm, int s)
     if (is_broken(&g_pos))
       continue;
 
-    run_threaded(predecessors_worker, &work_g_dynamic, 0);
+    run_threaded(predecessors_worker, &work_g_dynamic);
   }
 }
 
@@ -1064,7 +1064,7 @@ static uint64_t check_successors(int stm, int s, uint64_t num[16])
     for (int t = 0; t < g_num_threads; t++)
       g_thread_data[t].cnt = 0;
 
-    run_threaded(check_successors_worker, &work_g_dynamic, 0);
+    run_threaded(check_successors_worker, &work_g_dynamic);
 
     for (int t = 0; t < g_num_threads; t++)
       num[r] += g_thread_data[t].cnt;
@@ -1209,7 +1209,7 @@ static void calc_illegal_and_mate_and_pawn_push(void)
         if (btm_illegal && (g_pos.pt[ri.first[k]] & 0x08))
           continue;
         work_set = k;
-        run_threaded(calc_illegal_worker, &work_capt_dynamic[k], 0);
+        run_threaded(calc_illegal_worker, &work_capt_dynamic[k]);
       }
     }
 
@@ -1228,7 +1228,7 @@ static void calc_illegal_and_mate_and_pawn_push(void)
       if (is_broken(&g_pos))
         continue;
 
-      run_threaded(calc_mate_worker, &work_g_static, 0);
+      run_threaded(calc_mate_worker, &work_g_static);
     }
 
     for (int stm = 0; stm < 2; stm++) {
@@ -1247,7 +1247,7 @@ static void calc_illegal_and_mate_and_pawn_push(void)
         continue;
 
       if (g_pos.sq[2] < 16)
-        run_threaded(calc_pawn_prom_worker, &work_g_dynamic, 0);
+        run_threaded(calc_pawn_prom_worker, &work_g_dynamic);
       else if (g_pos.sq[2] < 48)
         calc_pawn_push();
       else

@@ -8,6 +8,7 @@
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 #include <sys/stat.h>
 
 #include "checksum.h"
@@ -142,6 +143,56 @@ static void prepare_dtz_map(uint16_t *v, struct DtzMap *map)
   }
 }
 
+static void prepare_wdl_map(uint64_t *stats, bool *v, bool has_capt_bloss)
+{
+  for (int i = 0; i < 5; i++)
+    v[i] = false;
+
+  for (int i = 2; i <= DRAW_RULE + 1; i++)
+    if (stats[i]) {
+      v[4] = true;
+      break;
+    }
+  for (int i = DRAW_RULE + 3; i < MAX_STATS / 2; i++)
+    if (stats[i]) {
+      v[3] = true;
+      break;
+    }
+  v[2] = (bool)stats[MAX_STATS / 2 + 1];
+  for (int i = DRAW_RULE + 1; i < MAX_STATS / 2 - 2; i++)
+    if (stats[MAX_STATS - 1 - i]) {
+      v[1] = true;
+      break;
+    }
+  for (int i = 0; i <= DRAW_RULE; i++)
+    if (stats[MAX_STATS - 1 - i]) {
+      v[0] = true;
+      break;
+    }
+
+  bool dc[4] = {
+    has_capt_bloss, stats[MAX_STATS / 2], stats[DRAW_RULE + 2], true
+  };
+
+  int i, j;
+  for (i = 0; i < 4; i++)
+    if (dc[i]) break;
+  for (j = 0; j < 5; j++)
+    if (v[j]) break;
+  if (j > i + 1)
+    v[0] = true;
+}
+
+static bool read_wdl_slice(const char *name, uint8_t *table, uint64_t size)
+{
+  uint8_t has_capt_bloss;
+  FILE *F = file_open_read(name);
+  file_read(&has_capt_bloss, 1, F);
+  read_data(F, table, size);
+  fclose(F);
+  return has_capt_bloss != 0;
+}
+
 static void read_merge_info(int stm)
 {
   char str[64];
@@ -181,6 +232,7 @@ static void join_wdl(int stm, struct tb_handle *G)
 {
   char str[64];
   uint8_t *table = join_table;
+  bool has_capt_bloss = false;
 
   // Broken positions with adjacent kings are mapped to the index one
   // beyond the end of the table. We need to set this value to don't care.
@@ -188,12 +240,14 @@ static void join_wdl(int stm, struct tb_handle *G)
 
   for (int s = 0; s < 462; s++) {
     create_name(str, s, stm, "merged/wdl", -1);
-    FILE *F = file_open_read(str);
-    read_data(F, table + s * kslice_size, kslice_sizes[s >= 441]);
-    fclose(F);
+    if (read_wdl_slice(str, table + s * kslice_size, kslice_sizes[s >= 441]))
+      has_capt_bloss = true;
   }
 
   read_merge_info(stm);
+
+  bool v_wdl[5];
+  prepare_wdl_map(g_stats[stm], v_wdl, has_capt_bloss);
   compress_init_wdl(mi.v_wdl);
 
   uint8_t best[MAX_PIECES];
@@ -380,38 +434,15 @@ static void join_wdl_462(int stm)
     g_pos.stm = stm;
 
     create_name(str, s, stm, "merged/wdl", -1);
-    FILE *F = file_open_read(str);
-    read_data(F, table, kslice_sizes[s >= 441]);
-    fclose(F);
+    bool has_capt_bloss = read_wdl_slice(str, table, kslice_sizes[s >= 441]);
 
     create_name(str, s, stm, "stats", -1);
-    F = file_open_read(str);
+    FILE *F = file_open_read(str);
     read_data(F, stats, sizeof stats);
     fclose(F);
 
-    bool v_wdl[5] = { 0 };
-    for (int i = 2; i <= DRAW_RULE + 1; i++)
-      if (stats[i]) {
-        v_wdl[4] = true;
-        break;
-      }
-    for (int i = DRAW_RULE + 3; i < MAX_STATS / 2; i++)
-      if (stats[i]) {
-        v_wdl[3] = true;
-        break;
-      }
-    v_wdl[2] = (bool)stats[MAX_STATS / 2 + 1];
-    for (int i = DRAW_RULE + 1; i < MAX_STATS / 2 - 2; i++)
-      if (stats[MAX_STATS - 1 - i]) {
-        v_wdl[1] = true;
-        break;
-      }
-    for (int i = 0; i <= DRAW_RULE; i++)
-      if (stats[MAX_STATS -1 - i]) {
-        v_wdl[0] = true;
-        break;
-      }
-
+    bool v_wdl[5];
+    prepare_wdl_map(stats, v_wdl, has_capt_bloss);
     compress_init_wdl(v_wdl);
 
     uint8_t best[MAX_SETS];
@@ -741,6 +772,7 @@ static void join_wdl_10(int stm)
     init_permute_piece_10(k);
     int num = 0;
     uint64_t stats[MAX_STATS] = { 0 };
+    bool has_capt_bloss = false;
 
     g_pos.sq[stm] = InvTriangle[k];
 
@@ -752,12 +784,11 @@ static void join_wdl_10(int stm)
 
       int s = KKMap[g_pos.sq[0]][g_pos.sq[1]];
       create_name(str, s, stm, "merged/wdl", -1);
-      FILE *F = file_open_read(str);
-      read_data(F, table + num * kslice_size, kslice_sizes[s >= 441]);
-      fclose(F);
+      if (read_wdl_slice(str, table + num * kslice_size, kslice_sizes[s >= 441]))
+        has_capt_bloss = true;
 
       create_name(str, s, stm, "stats", -1);
-      F = file_open_read(str);
+      FILE *F = file_open_read(str);
       uint64_t tmp[MAX_STATS];
       read_data(F, tmp, sizeof tmp);
       fclose(F);
@@ -767,29 +798,8 @@ static void join_wdl_10(int stm)
       num++;
     }
 
-    bool v_wdl[5] = { 0 };
-    for (int i = 2; i <= DRAW_RULE + 1; i++)
-      if (stats[i]) {
-        v_wdl[4] = true;
-        break;
-      }
-    for (int i = DRAW_RULE + 3; i < MAX_STATS / 2; i++)
-      if (stats[i]) {
-        v_wdl[3] = true;
-        break;
-      }
-    v_wdl[2] = (bool)stats[MAX_STATS / 2 + 1];
-    for (int i = DRAW_RULE + 1; i < MAX_STATS / 2 - 2; i++)
-      if (stats[MAX_STATS - 1 - i]) {
-        v_wdl[1] = true;
-        break;
-      }
-    for (int i = 0; i <= DRAW_RULE; i++)
-      if (stats[MAX_STATS - 1 - i]) {
-        v_wdl[0] = true;
-        break;
-      }
-
+    bool v_wdl[5];
+    prepare_wdl_map(stats, v_wdl, has_capt_bloss);
     compress_init_wdl(v_wdl);
 
     uint8_t best[MAX_SETS];

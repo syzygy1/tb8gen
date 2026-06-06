@@ -66,7 +66,7 @@ static void calc_checksum(const char *name)
     work = create_work(g_total_work, chunks, 0);
   else
     work_refill_units(work, g_total_work, chunks, 0);
-  run_threaded(checksum_worker, work, 0);
+  run_threaded(checksum_worker, work);
   CityHashCrc128((char *)results, 32 * chunks, checksum2);
   unmap_file(data, orig_size);
   free(results);

@@ -75,7 +75,7 @@ static void find_position(int stm, int s, bool loss, bool cursed)
       continue;
 
     atomic_store_explicit(&found_idx, UINT64_MAX, memory_order_relaxed);
-    run_threaded(find_position_worker, work_g, 0);
+    run_threaded(find_position_worker, work_g);
     uint64_t idx = atomic_load_explicit(&found_idx, memory_order_relaxed);
     if (idx >= kslice_size)
       continue;
@@ -129,6 +129,10 @@ void merge(int stm)
   sprintf(str, "merge_info.%c", "wb"[stm]);
   if (file_exists(str))
     return;
+
+  char phase[32];
+  snprintf(phase, sizeof phase, "merging %s slices",
+      stm == WHITE ? "white" : "black");
 
   if (!k16slice_get_address(-1))
     k16slice_buf[11] = alloc_k16slice();
@@ -196,104 +200,47 @@ void merge(int stm)
   printf("tot_vals = %d (%d)\n", tot_vals,
       special + win_vals + cwin_vals + loss_vals + bloss_vals);
 
+  include_wins = wins;
+  include_losses = losses;
+
   mi.wide = tot_vals > 256;
 
   if (!mi.wide) {
     // One byte suffices.
 
-    // Include more if it fits. This slightly speeds up counting statistics.
-    include_wins = wins;
-    include_losses = losses;
-#if 0
-    if (special + win_vals + cwin_vals + bloss_vals + loss_vals <= 256)
-      include_wins = include_losses = true;
-    else if (!wins && !losses && special + win_vals + cwin_vals <= 256)
-      include_wins = true;
-    else if (!wins && !losses && special + loss_vals + bloss_vals <= 256)
-      include_losses = true;
-#endif
-
-    // Create the corresponding mapping from u16 to u8.
-    int n = 0;
-    mi.v_u8[0] = n;
-    n += (stats[1] != 0);
-    mi.v_u8[1] = n;
-    n += (stats[2] != 0);
-    mi.v_u8[2] = n;
-    if (include_wins) {
-      for (int i = 3; i <= DRAW_RULE + 2; i++) {
-        n += (stats[i] != 0);
-        mi.v_u8[i] = n;
-      }
-      n += (capt_cnt[stm][3] != 0);
-      mi.v_u8[DRAW_RULE + 3] = n;
-      n += (stm == BLACK && pawn_cnt[3] != 0);
-      mi.v_u8[DRAW_RULE + 4] = n;
-      for (int i = DRAW_RULE + 5; i < MAX_STATS / 2 + 1; i++) {
-        n += (stats[i] != 0);
-        mi.v_u8[i] = n;
-      }
-    } else {
-      n += (win_vals != 0);
-      for (int i = 3; i <= DRAW_RULE + 2; i++)
-        mi.v_u8[i] = n;
-      n += (capt_cnt[stm][3] != 0);
-      mi.v_u8[DRAW_RULE + 3] = n;
-      n += (stm == BLACK && pawn_cnt[3] != 0);
-      mi.v_u8[DRAW_RULE + 4] = n;
-      n += (cwin_vals != 0);
-      for (int i = DRAW_RULE + 5; i < MAX_STATS / 2 + 1; i++)
-        mi.v_u8[i] = n;
+    int n = init_merge_value_map_u8(stats, stm);
+    if (n > 255) {
+      fprintf(stderr, "Internal error.\n");
+      exit(EXIT_FAILURE);
     }
-    n += (capt_cnt[stm][2] != 0);
-    mi.v_u8[MAX_STATS / 2 + 1] = n;
-    n += (stats[MAX_STATS / 2 + 2] != 0);
-    mi.v_u8[MAX_STATS / 2 + 2] = n;
-    if (include_losses) {
-      for (int i = MAX_STATS / 2 - 4; i >= 0; i--) {
-        n += (stats[MAX_STATS - 1 - i] != 0);
-        mi.v_u8[MAX_STATS - 1 - i] = n;
-      }
-    } else {
-      n += (bloss_vals != 0);
-      for (int i = MAX_STATS / 2 - 4; i >= DRAW_RULE + 1; i--)
-        mi.v_u8[MAX_STATS - 1 - i] = n;
-      n += (loss_vals != 0);
-      for (int i = DRAW_RULE; i >= 0; i--)
-        mi.v_u8[MAX_STATS - 1 - i] = n;
-    }
-    assert(n <= 255);
-
-    for (int i = 0, j = -1; i < MAX_STATS; i++)
-      if (mi.v_u8[i] != j)
-        mi.v_inv_u8[j = mi.v_u8[i]] = i;
 
     merge_table = alloc_huge(sizeof(u8) * 8 * k16slice_alloc_size);
     if (!merge_table)
       out_of_mem();
 
     for (int s = 0; s < 240; s++) {
+      show_progress(phase, s, 240, false);
       merge_bitmaps_u8(stm, s);
       delete_bitmaps(stm, s);
     }
+    show_progress(phase, 240, 240, true);
 
     free(merge_table);
 
   } else {
 
-    // We need to use u16. This makes the mapping part straightfoward.
-    include_wins = include_losses = true;
-    for (int i = 0; i < MAX_STATS; i++)
-      mi.v_u16[i] = mi.v_inv_u16[i] = i;
+    init_merge_value_map_u16(stats, stm);
 
     merge_table = alloc_huge(sizeof(u16) * 8 * k16slice_alloc_size);
     if (!merge_table)
       out_of_mem();
 
     for (int s = 0; s < 240; s++) {
+      show_progress(phase, s, 240, false);
       merge_bitmaps_u16(stm, s);
       delete_bitmaps(stm, s);
     }
+    show_progress(phase, 240, 240, true);
 
     free(merge_table);
 
