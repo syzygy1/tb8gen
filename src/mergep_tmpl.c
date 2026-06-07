@@ -114,6 +114,7 @@ static void NAME(merge_repl_worker)(struct ThreadData *thread)
 
 static void NAME(merge_capt_bloss_worker)(struct ThreadData *thread)
 {
+  bool found = false;
   const uint64_t *restrict p = (uint64_t *)k16slice_get_address(-1);
   T *restrict const q = merge_table;
   p += thread->begin >> 6;
@@ -121,10 +122,14 @@ static void NAME(merge_capt_bloss_worker)(struct ThreadData *thread)
     uint64_t w = *p++;
     while (w) {
       unsigned bt = pop_lsb(&w);
-      if (q[idx + bt] == 1)
+      if (q[idx + bt] == 1) {
         q[idx + bt] = 5;
+        found = true;
+      }
     }
   }
+  if (found)
+    atomic_store_explicit(&found_capt_bloss, true, memory_order_relaxed);
 }
 
 INLINE void NAME(merge_mark_unmoves)(int k, T *restrict const p, Bitboard occ,
@@ -399,6 +404,7 @@ static void NAME(merge_bitmaps)(int stm, int s)
   run_threaded(NAME(merge_transform), work_g16);
 
   // Replace bloss (1) with capt_bloss (5) where appropriate.
+  atomic_store_explicit(&found_capt_bloss, false, memory_order_relaxed);
   if (capt_cnt[stm][1]) {
     k16slice_read(-1, s, stm, "capt/bloss", -1);
     run_threaded(NAME(merge_capt_bloss_worker), work_g16);
@@ -413,6 +419,9 @@ static void NAME(merge_bitmaps)(int stm, int s)
 
     create_name_r(str, s, r, stm, "merged/wdl", -1);
     FILE *F = file_open_write(str);
+    uint8_t has_capt_bloss =
+      atomic_load_explicit(&found_capt_bloss, memory_order_relaxed);
+    file_write(&has_capt_bloss, 1, F);
     NAME(write_data_as_u8)(F, (T *)merge_table + r * 8 * kslice_alloc_size,
         kslice_size);
     fclose(F);

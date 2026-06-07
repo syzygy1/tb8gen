@@ -36,6 +36,7 @@ static void stat_count(uint64_t stats[16][MAX_STATS], int n)
 }
 
 static _Atomic uint64_t found_idx;
+static _Atomic bool found_capt_bloss;
 
 static void find_position_worker(struct ThreadData *thread)
 {

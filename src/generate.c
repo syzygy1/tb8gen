@@ -19,9 +19,9 @@
 #include "util.h"
 
 const char *wdl_name[5] = { "loss", "bloss", "draw", "cwin", "win" };
-const char *side[2] = { "white", "black" };
-const char *clr_L[4] = { "31", "32", "33", "34" };
-const char *clr_W[4] = { "94", "93", "92", "91" };
+const char side[2][6] = { "white", "black" };
+const char clr_L[4][3] = { "31", "32", "33", "34" };
+const char clr_W[4][3] = { "94", "93", "92", "91" };
 
 uint64_t sub_cnt[2][5];
 int max_iteration;
@@ -207,8 +207,8 @@ static void calc_sub_kslices(int stm)
   file_rename(done);
 
   show_progress(phase, 462, 462, true);
-  for (int i = 0; i < 5; i++)
-    printf("sub_cnt[%d][%d] = %lu\n", stm, i, sub_cnt[stm][i]);
+//  for (int i = 0; i < 5; i++)
+//    printf("sub_cnt[%d][%d] = %lu\n", stm, i, sub_cnt[stm][i]);
 }
 
 static bool work_legality;
@@ -402,8 +402,8 @@ static void calc_capt(int stm, int wdl, int n)
   file_rename(str);
 
   snprintf(phase, sizeof phase, "%s %s captures: %lu", side[stm],
-      wdl_name[wdl + 2], cnt);
-  show_progress(phase, num_done, 462, true);
+      wdl_name[2 + wdl], cnt);
+  show_progress(phase, 462, 462, true);
 }
 
 static void calc_capt_bloss(int stm)
@@ -457,7 +457,7 @@ static void calc_capt_bloss(int stm)
   create_empty(str);
 
   snprintf(phase, sizeof phase, "%s bloss captures done", side[stm]);
-  show_progress(phase, num_done, 462, true);
+  show_progress(phase, 462, 462, true);
 }
 
 static void predecessors_worker(struct ThreadData *thread)
@@ -980,7 +980,7 @@ static void calc_illegal_and_mate(void)
   file_rename("0/done");
 
   char phase[128];
-  snprintf(phase, sizeof phase, "illegal: %lu/%lu, mate: %lu/%lu",
+  snprintf(phase, sizeof phase, "illegal: %lu, %lu; mate: %lu, %lu",
       broken[WHITE], broken[BLACK], loss0[WHITE], loss0[BLACK]);
   show_progress(phase, 462, 462, true);
 }
@@ -1063,7 +1063,7 @@ static bool calc_L(int stm, int n, bool more_l)
         kslice_write(s, s, stm, "X", n, UINT64_MAX);
       }
   }
-  show_progress(phase, num_done++, 462, true);
+  show_progress(phase, 462, 462, true);
 
   create_dir(n, stm, "L");
   partial = false;
@@ -1108,7 +1108,7 @@ skip_X:
 
   snprintf(phase, sizeof phase, "\x1b[%sm%d/L/%c  %lu\x1b[0m",
       clr_L[(2 * n + stm) & 3], n, "wb"[stm], cnt);
-  show_progress(phase, num_done, 462, true);
+  show_progress(phase, 462, 462, true);
 
   return cnt != 0;
 }
@@ -1195,7 +1195,7 @@ static bool calc_W(int stm, int n, bool more_w)
 
   snprintf(phase, sizeof phase, "\x1b[%sm%d/W/%c  %lu\x1b[0m",
       clr_W[(2 * n + stm) & 3], n, "wb"[stm], cnt);
-  show_progress(phase, num_done, 462, true);
+  show_progress(phase, 462, 462, true);
 
   return cnt != 0;
 }
