@@ -141,8 +141,6 @@ uint8_t *alloc_kslice(void)
 
 void kslice_setup(void)
 {
-  for (int i = 0; i < 20; i++)
-    kslice_buf[i] = alloc_kslice();
   kslice_slot[0] = 19;
   for (int i = 0; i < 462; i++)
     kslice_slot[i + 1] = -1;
@@ -172,6 +170,16 @@ void kslice_setup(void)
       sub_size[BLACK] >> 6, 0);
   work_sub_cl[WHITE]->schedule = WORK_STATIC;
   work_sub_cl[BLACK]->schedule = WORK_STATIC;
+}
+
+void kslice_alloc_buffers(int n)
+{
+  for (int i = 0; i < n; i++)
+    if (!kslice_buf[i]) {
+      kslice_buf[i] = alloc_kslice();
+      if (!kslice_buf[i])
+        out_of_mem();
+    }
 }
 
 void kslice_free_buffers(void)

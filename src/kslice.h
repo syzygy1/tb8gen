@@ -89,6 +89,7 @@ INLINE uint8_t *kslice_sub_get_address(int s, int set)
 
 void kslice_setup(void);
 void kslice_cleanup(void);
+void kslice_alloc_buffers(int n);
 void kslice_free_buffers(void);
 void kslice_reserve(int s);
 void kslice_release(int s);

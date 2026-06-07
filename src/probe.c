@@ -1323,8 +1323,8 @@ NOINLINE struct Tbase *init_tbase(struct TbEntry *entry, const char *str,
   return nullptr;
 }
 
-NOINLINE struct TbTable2 *init_new_table(struct TbEntry *entry,
-    struct Tbase *tb, int type, int tidx, int tsq)
+NOINLINE struct TbTable2 *init_new_table(struct Tbase *tb, int num, int type,
+    int tidx, int tsq)
 {
   const uint64_t *offsets = (uint64_t *)tb->data + tb->offset;
   if (offsets[tidx] == 0)
@@ -1353,7 +1353,7 @@ NOINLINE struct TbTable2 *init_new_table(struct TbEntry *entry,
   // Determine the multiplicity signature for non-king pieces and pawns.
   uint8_t first[MAX_SETS], mult[MAX_SETS] = { 0 };
   int k = 0;
-  for (int i = 2; i < entry->num; i++) {
+  for (int i = 2; i < num; i++) {
     if (i == 2 || tb->pt[i] != tb->pt[i - 1]) {
       first[k] = i;
       mult[k++] = 0;
@@ -1768,7 +1768,7 @@ INLINE int probe_table(Position *pos, int s, const int type)
       LOCK(mutex);
       if (!(table = atomic_load_explicit(&tb->table[t], memory_order_relaxed)))
       {
-        table = init_new_table(entry, tb, type, t, tsq);
+        table = init_new_table(tb, entry->num, type, t, tsq);
         atomic_store_explicit(&tb->table[t], table, memory_order_release);
       }
       UNLOCK(mutex);
@@ -1783,7 +1783,7 @@ INLINE int probe_table(Position *pos, int s, const int type)
           && tbl->dist_format
           && (bool)(tbl->dist_format & WIN_ONLY) != (s > 0))
         probe_failed(pos, type);
-      return (int)((struct TbTableConst *)table)->const_value
+      return (int)tbl->const_value
         + (type == WDL ? -2 : 0);
     }
 
@@ -1797,12 +1797,10 @@ INLINE int probe_table(Position *pos, int s, const int type)
     if (    tb->layout > LT_PIECE_KK
         || (tb->layout == LT_PIECE_KK && tsq < 441))
     {
-      const struct RankInfo *ri = table->ri;
-      idx = rank_trivial_from(p, 0, occ, table->first, ri);
+      idx = rank_trivial_from(p, 0, occ, table->first, table->ri);
     }
     else if (tb->layout == LT_PIECE_KK) {
-      const struct RankInfo *ri = table->ri;
-      idx = rank_reflection(p, occ, table->first, ri);
+      idx = rank_reflection(p, occ, table->first, table->ri);
     }
     else if (tb->layout == LT_PIECE_K) {
       const struct RankInfo10 *ri = table->ri_10;

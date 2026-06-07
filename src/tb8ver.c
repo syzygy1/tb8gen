@@ -16,28 +16,25 @@
 #include <unistd.h>
 
 #include "defs.h"
-#include "generate.h"
 #include "index.h"
-#include "join.h"
 #include "kslice.h"
-#include "merge.h"
 #include "movegen.h"
 #include "probe.h"
-#include "stats.h"
 #include "tb8gen.h"
 #include "threads.h"
 #include "types.h"
 #include "util.h"
+#include "verify.h"
 
 #define TBPATH "RTBPATH"
 #define STATSDIR "RTBSTATSDIR"
 #define WORKDIR "TB8DIR"
 
 Position g_pos;
-bool g_only_generate, g_use_rans, symmetric, used_rans = false;
+bool symmetric;
 bool g_cleanup;
-bool one_sided, wins_only;
-int one_sided_stm;
+//bool one_sided, wins_only;
+//int one_sided_stm;
 char *g_tablename;
 char *g_output_dir;
 struct Work *work_g, *work_capt[MAX_SETS];
@@ -47,10 +44,8 @@ const char *typename[3] = { "wdl", "dtm", "dtz" };
 
 static struct option options[] = {
   { "threads", 1, nullptr, 't' },
-  { "stats", 0, nullptr, 's' },
   { "path", 1, nullptr, 'p' },
   { "rans", 0, nullptr, 'r' },
-  { "layout", 1, nullptr, 'l' },
   { "workdir", 1, nullptr, 'w' },
   { 0 }
 };
@@ -60,13 +55,12 @@ int main(int argc, char **argv)
   int val, lindex;
   uint8_t pcs[16];
   uint8_t pt[8];
-  int layout = -1;
 
   const char *path = getenv(TBPATH);
   const char *workdir = getenv(WORKDIR);
   g_num_threads = 1;
 
-  while ((val = getopt_long(argc, argv, "at:gp:rl:cw:", options, &lindex)) != -1)
+  while ((val = getopt_long(argc, argv, "at:p:cw:", options, &lindex)) != -1)
     switch (val) {
     case 'a':
       g_thread_affinity = true;
@@ -74,17 +68,8 @@ int main(int argc, char **argv)
     case 't':
       g_num_threads = atoi(optarg);
       break;
-    case 'g':
-      g_only_generate = true;
-      break;
     case 'p':
       path = optarg;
-      break;
-    case 'r':
-      g_use_rans = true;
-      break;
-    case 'l':
-      layout = atoi(optarg);
       break;
     case 'c':
       g_cleanup = true;
@@ -127,9 +112,6 @@ int main(int argc, char **argv)
         }
     }
   int numpcs = k;
-
-  if (layout < 0 || layout > 2)
-    layout = numpcs <= 5 ? 0 : numpcs == 6 ? 1 : 2;
 
   if (!color) exit(EXIT_FAILURE);
 
@@ -249,34 +231,28 @@ int main(int argc, char **argv)
   }
 
   kslice_setup();
-  kslice_alloc_buffers(20);
 
   // Align work units on cache lines of 64 x 8 = 512 positions.
   work_g = create_work(g_total_work, kslice_sizes[0], 0x1ff);
   for (int i = 0; i < ri.numsets; i++)
     work_capt[i] = create_work(g_total_work, capt_ri[i].sizes[0], 0x1ff);
-  init_generation_work();
-  init_merge_work();
+  init_verification_work();
 
   if (workdir && *workdir)
     change_dir(workdir);
 
-  make_dir(g_tablename);
-  change_dir(g_tablename);
+  char verify_dir[64];
+  snprintf(verify_dir, sizeof verify_dir, "v%s", g_tablename);
+  make_dir(verify_dir);
+  change_dir(verify_dir);
 
-  generate();
+  verify();
 
-  delete_intermediate_slices();
+//  delete_intermediate_slices();
 
   kslice_free_buffers(); // Free memory but keep slice "-1".
 
 #if 0
-  printf("\n########## %s ##########\n", g_tablename);
-  print_stats(WHITE);
-  print_stats(BLACK);
-#endif
-  printf("\n");
-
   // Estimate sizes of different DTZ formats.
   double ewh = entropy_one_sided(WHITE);
   double ebl = entropy_one_sided(BLACK);
@@ -384,10 +360,11 @@ int main(int argc, char **argv)
     }
 
   }
+#endif
 
   if (g_cleanup) {
     change_dir("..");
-    rmdir(g_tablename);
+    rmdir(verify_dir);
   }
 
   report_io();

@@ -18,10 +18,10 @@
 #include "types.h"
 #include "util.h"
 
-const char *wdl_name[5] = { "loss", "bloss", "draw", "cwin", "win" };
-const char side[2][6] = { "white", "black" };
-const char clr_L[4][3] = { "31", "32", "33", "34" };
-const char clr_W[4][3] = { "94", "93", "92", "91" };
+const char wdl_name[5][8] = { "loss", "bloss", "draw", "cwin", "win" };
+const char side[2][8] = { "white", "black" };
+const char clr_L[4][4] = { "31", "32", "33", "34" };
+const char clr_W[4][4] = { "94", "93", "92", "91" };
 
 uint64_t sub_cnt[2][5];
 int max_iteration;

@@ -1,4 +1,5 @@
 TBGEN = tb8gen
+TBVER = tb8ver
 CLEAN = clean
 BUILD = build
 

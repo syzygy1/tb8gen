@@ -233,7 +233,10 @@ const void *map_tb(const char *name, const int type, map_t *mapping,
     bool use_paths);
 
 void init_tablebases(const char *pathList);
-bool init_table(struct TbEntry *e, const char *str, int type, bool use_paths);
+struct Tbase *init_tbase(struct TbEntry *entry, const char *str, const int type,
+    bool use_paths);
+struct TbTable2 *init_new_table(struct Tbase *tb, int num, int type, int idx,
+    int tsq);
 void free_tablebases(void);
 
 int probe_capts_wdl(Position *pos, int alpha, int beta);
