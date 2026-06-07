@@ -23,6 +23,8 @@
 #include "types.h"
 #include "util.h"
 
+#include "kslice_common.c"
+
 uint8_t KK16Square[240][16][2];
 uint8_t kk_to_slice[256];
 uint8_t *k16slice_buf[12];
@@ -263,13 +265,6 @@ void k16slice_release(int s)
 
 static void *work_p, *work_q;
 
-static void set_worker(struct ThreadData *thread)
-{
-  uint8_t *restrict p = work_p;
-
-  memset(p + (thread->begin << 6), 0xff, (thread->end - thread->begin) << 6);
-}
-
 void kslice_set_addr(void *p)
 {
   work_p = p;
@@ -288,13 +283,6 @@ void k16slice_set(int s)
   run_threaded(set_worker, work_cl16);
 }
 
-static void clear_worker(struct ThreadData *thread)
-{
-  uint8_t *restrict p = work_p;
-
-  memset(p + (thread->begin << 6), 0x00, (thread->end - thread->begin) << 6);
-}
-
 void k16slice_clear_addr(void *p)
 {
   work_p = p;
@@ -305,16 +293,6 @@ void k16slice_clear(int s)
 {
   work_p = k16slice_get_address(s);
   run_threaded(clear_worker, work_cl16);
-}
-
-static void or_worker(struct ThreadData *thread)
-{
-  uint64_t *restrict p = work_p;
-  uint64_t *restrict q = work_q;
-
-  for (uint64_t idx = thread->begin << 3, end = thread->end << 3; idx < end;
-      idx++)
-    p[idx] |= q[idx];
 }
 
 void k16slice_or_addr(void *p, void *q)
@@ -333,32 +311,12 @@ void k16slice_or(int s1, int s2)
   run_threaded(or_worker, work_cl16);
 }
 
-static void or_not_worker(struct ThreadData *thread)
-{
-  uint64_t *restrict p = work_p;
-  uint64_t *restrict q = work_q;
-
-  for (uint64_t idx = thread->begin << 3, end = thread->end << 3; idx < end;
-      idx++)
-    p[idx] |= ~q[idx];
-}
-
 void k16slice_or_not(int s1, int s2)
 {
   work_p = k16slice_get_address(s1);
   work_q = k16slice_get_address(s2);
 
   run_threaded(or_not_worker, work_cl16);
-}
-
-static void and_worker(struct ThreadData *thread)
-{
-  uint64_t *restrict p = work_p;
-  uint64_t *restrict q = work_q;
-
-  for (uint64_t idx = thread->begin << 3, end = thread->end << 3; idx < end;
-      idx++)
-    p[idx] &= q[idx];
 }
 
 void k16slice_and(int s1, int s2)
@@ -369,16 +327,6 @@ void k16slice_and(int s1, int s2)
   run_threaded(and_worker, work_cl16);
 }
 
-static void and_not_worker(struct ThreadData *thread)
-{
-  uint64_t *restrict p = work_p;
-  uint64_t *restrict q = work_q;
-
-  for (uint64_t idx = thread->begin << 3, end = thread->end << 3; idx < end;
-      idx++)
-    p[idx] &= ~q[idx];
-}
-
 void k16slice_and_not(int s1, int s2)
 {
   work_p = k16slice_get_address(s1);
@@ -387,32 +335,12 @@ void k16slice_and_not(int s1, int s2)
   run_threaded(and_not_worker, work_cl16);
 }
 
-static void not_and_worker(struct ThreadData *thread)
-{
-  uint64_t *restrict p = work_p;
-  uint64_t *restrict q = work_q;
-
-  for (uint64_t idx = thread->begin << 3, end = thread->end << 3; idx < end;
-      idx++)
-    p[idx] = ~p[idx] & q[idx];
-}
-
 void k16slice_not_and(int s1, int s2)
 {
   work_p = k16slice_get_address(s1);
   work_q = k16slice_get_address(s2);
 
   run_threaded(not_and_worker, work_cl16);
-}
-
-void nor_worker(struct ThreadData *thread)
-{
-  uint64_t *restrict p = work_p;
-  uint64_t *restrict q = work_q;
-
-  for (uint64_t idx = thread->begin << 3, end = thread->end << 3; idx < end;
-      idx++)
-    p[idx] = ~(p[idx] | q[idx]);
 }
 
 void k16slice_nor(int s1, int s2)
@@ -630,18 +558,6 @@ void k16slice_sub_and_not(int s1, int s2, int stm)
   run_threaded(and_not_worker, work_sub_cl[stm]);
 }
 
-INLINE void clear_tail(void *p, size_t num_bits, size_t num_words)
-{
-  uint64_t *restrict q = p;
-  size_t idx = num_bits >> 6;
-  int r = num_bits & 63;
-  if (r)
-    q[idx++] &= (1ULL << r) - 1;
-
-  for (; idx < num_words; idx++)
-    q[idx] = 0;
-}
-
 void k16slice_clear_tail_addr(void *p)
 {
   uint8_t *restrict q = p;
@@ -652,17 +568,6 @@ void k16slice_clear_tail_addr(void *p)
 void k16slice_clear_tail(int s)
 {
   k16slice_clear_tail_addr(k16slice_get_address(s));
-}
-
-static void count_worker(struct ThreadData *thread)
-{
-  uint64_t cnt = 0, *restrict p = work_p;
-
-  for (uint64_t idx = thread->begin << 3, end = thread->end << 3; idx < end;
-      idx++)
-    cnt += popcnt(p[idx]);
-
-  thread->cnt += cnt;
 }
 
 static uint64_t kslice_count_addr(void *p)

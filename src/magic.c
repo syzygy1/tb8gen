@@ -4,8 +4,6 @@
   This file is distributed under the terms of the GNU GPL, version 2.
 */
 
-/* to be included in board.c */
-
 #ifdef MAGIC
 
 Bitboard AttacksTable[88772];

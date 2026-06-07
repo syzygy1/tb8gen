@@ -23,6 +23,8 @@
 #include "types.h"
 #include "util.h"
 
+#include "kslice_common.c"
+
 uint8_t *kslice_buf[20];
 uint8_t *kslice_sub_buf[19];
 size_t kslice_sizes[2];
@@ -215,8 +217,6 @@ void kslice_release(int s)
   kslice_slot[s + 1] = -1;
 }
 
-static void *work_p, *work_q;
-
 static void run_cl(void (*func)(struct ThreadData *), int s)
 {
   run_threaded(func, work_cl[s >= 441]);
@@ -225,13 +225,6 @@ static void run_cl(void (*func)(struct ThreadData *), int s)
 static void run_sub_cl(void (*func)(struct ThreadData *), int stm)
 {
   run_threaded(func, work_sub_cl[stm]);
-}
-
-static void set_worker(struct ThreadData *thread)
-{
-  uint8_t *restrict p = work_p;
-
-  memset(p + (thread->begin << 6), 0xff, (thread->end - thread->begin) << 6);
 }
 
 void kslice_set_addr(void *p, int s)
@@ -246,13 +239,6 @@ void kslice_set(int s)
   run_cl(set_worker, s);
 }
 
-static void clear_worker(struct ThreadData *thread)
-{
-  uint8_t *restrict p = work_p;
-
-  memset(p + (thread->begin << 6), 0x00, (thread->end - thread->begin) << 6);
-}
-
 void kslice_clear_addr(void *p, int s)
 {
   work_p = p;
@@ -265,16 +251,6 @@ void kslice_clear(int s)
   run_cl(clear_worker, s);
 }
 
-static void or_worker(struct ThreadData *thread)
-{
-  uint64_t *restrict p = work_p;
-  uint64_t *restrict q = work_q;
-
-  for (uint64_t idx = thread->begin << 3, end = thread->end << 3; idx < end;
-      idx++)
-    p[idx] |= q[idx];
-}
-
 void kslice_or(int s1, int s2)
 {
   work_p = kslice_get_address(s1);
@@ -283,15 +259,6 @@ void kslice_or(int s1, int s2)
   run_cl(or_worker, max(s1, s2));
 }
 
-static void or_not_worker(struct ThreadData *thread)
-{
-  uint64_t *restrict p = work_p;
-  uint64_t *restrict q = work_q;
-
-  for (uint64_t idx = thread->begin << 3, end = thread->end << 3; idx < end;
-      idx++)
-    p[idx] |= ~q[idx];
-}
 
 void kslice_or_not(int s1, int s2)
 {
@@ -299,16 +266,6 @@ void kslice_or_not(int s1, int s2)
   work_q = kslice_get_address(s2);
 
   run_cl(or_not_worker, max(s1, s2));
-}
-
-static void and_worker(struct ThreadData *thread)
-{
-  uint64_t *restrict p = work_p;
-  uint64_t *restrict q = work_q;
-
-  for (uint64_t idx = thread->begin << 3, end = thread->end << 3; idx < end;
-      idx++)
-    p[idx] &= q[idx];
 }
 
 void kslice_and(int s1, int s2)
@@ -319,16 +276,6 @@ void kslice_and(int s1, int s2)
   run_cl(and_worker, max(s1, s2));
 }
 
-static void and_not_worker(struct ThreadData *thread)
-{
-  uint64_t *restrict p = work_p;
-  uint64_t *restrict q = work_q;
-
-  for (uint64_t idx = thread->begin << 3, end = thread->end << 3; idx < end;
-      idx++)
-    p[idx] &= ~q[idx];
-}
-
 void kslice_and_not(int s1, int s2)
 {
   work_p = kslice_get_address(s1);
@@ -337,32 +284,12 @@ void kslice_and_not(int s1, int s2)
   run_cl(and_not_worker, max(s1, s2));
 }
 
-static void not_and_worker(struct ThreadData *thread)
-{
-  uint64_t *restrict p = work_p;
-  uint64_t *restrict q = work_q;
-
-  for (uint64_t idx = thread->begin << 3, end = thread->end << 3; idx < end;
-      idx++)
-    p[idx] = ~p[idx] & q[idx];
-}
-
 void kslice_not_and(int s1, int s2)
 {
   work_p = kslice_get_address(s1);
   work_q = kslice_get_address(s2);
 
   run_cl(not_and_worker, max(s1, s2));
-}
-
-void nor_worker(struct ThreadData *thread)
-{
-  uint64_t *restrict p = work_p;
-  uint64_t *restrict q = work_q;
-
-  for (uint64_t idx = thread->begin << 3, end = thread->end << 3; idx < end;
-      idx++)
-    p[idx] = ~(p[idx] | q[idx]);
 }
 
 void kslice_nor(int s1, int s2)
@@ -554,18 +481,6 @@ void kslice_sub_and_not(int s1, int s2, int stm)
   run_sub_cl(and_not_worker, stm);
 }
 
-INLINE void clear_tail(void *p, size_t num_bits, size_t num_words)
-{
-  uint64_t *restrict q = p;
-  size_t idx = num_bits >> 6;
-  int r = num_bits & 63;
-  if (r)
-    q[idx++] &= (1ULL << r) - 1;
-
-  for (; idx < num_words; idx++)
-    q[idx] = 0;
-}
-
 void kslice_clear_tail_addr(void *p, int s)
 {
   uint8_t *restrict q = p;
@@ -575,17 +490,6 @@ void kslice_clear_tail_addr(void *p, int s)
 void kslice_clear_tail(int s)
 {
   kslice_clear_tail_addr(kslice_get_address(s), s);
-}
-
-static void count_worker(struct ThreadData *thread)
-{
-  uint64_t cnt = 0, *restrict p = work_p;
-
-  for (uint64_t idx = thread->begin << 3, end = thread->end << 3; idx < end;
-      idx++)
-    cnt += popcnt(p[idx]);
-
-  thread->cnt += cnt;
 }
 
 uint64_t kslice_count_addr(void *p, int s)
