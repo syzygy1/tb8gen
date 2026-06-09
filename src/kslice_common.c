@@ -68,6 +68,37 @@ static void clear_worker(struct ThreadData *thread)
   memset(p + begin, 0x00, end - begin);
 }
 
+static void not_worker(struct ThreadData *thread)
+{
+  uint64_t *restrict p = work_p;
+
+  uint64_t idx = thread->begin << 3;
+  uint64_t end = thread->end << 3;
+
+#ifdef __AVX512F__
+
+  __m512i ones = _mm512_set1_epi64(-1);
+  for (; idx < end; idx += 8) {
+    __m512i a = _mm512_load_si512(p + idx);
+    _mm512_store_si512(p + idx, _mm512_xor_si512(a, ones));
+  }
+
+#elifdef __AVX2__
+
+  __m256i ones = _mm256_set1_epi32(-1);
+  for (; idx < end; idx += 4) {
+    __m256i a = _mm256_load_si256(p + idx);
+    _mm256_store_si256(p + idx, _mm256_xor_si256(a, ones));
+  }
+
+#else
+
+  for (; idx < end; idx++)
+    p[idx] = ~p[idx];
+
+#endif
+}
+
 static void or_worker(struct ThreadData *thread)
 {
   uint64_t *restrict p = work_p;
@@ -92,7 +123,7 @@ static void or_worker(struct ThreadData *thread)
     _mm256_store_si256(p + idx, _mm256_or_si256(a, b));
   }
 
-#elif
+#else
 
   for (; idx < end; idx++)
     p[idx] |= q[idx];
@@ -125,7 +156,7 @@ static void or_not_worker(struct ThreadData *thread)
     _mm256_store_si256(p + idx, _mm256_or_si256(a, b));
   }
 
-#elif
+#else
 
   for (; idx < end; idx++)
     p[idx] |= ~q[idx];
@@ -157,7 +188,7 @@ static void and_worker(struct ThreadData *thread)
     _mm256_store_si256(p + idx, _mm256_and_si256(a, b));
   }
 
-#elif
+#else
 
   for (; idx < end; idx++)
     p[idx] &= q[idx];
@@ -189,7 +220,7 @@ static void and_not_worker(struct ThreadData *thread)
     _mm256_store_si256(p + idx, _mm256_andnot_si256(b, a));
   }
 
-#elif
+#else
 
   for (; idx < end; idx++)
     p[idx] &= ~q[idx];
@@ -221,7 +252,7 @@ static void not_and_worker(struct ThreadData *thread)
     _mm256_store_si256(p + idx, _mm256_andnot_si256(a, b));
   }
 
-#elif
+#else
 
   for (; idx < end; idx++)
     p[idx] = ~p[idx] & q[idx];
@@ -254,10 +285,48 @@ void nor_worker(struct ThreadData *thread)
     _mm256_store_si256(p + idx, _mm256_xor_si256(_mm256_or_si256(a, b), ones);
   }
 
-#elif
+#else
 
   for (; idx < end; idx++)
     p[idx] = ~(p[idx] | q[idx]);
+
+#endif
+}
+
+void split_worker(struct ThreadData *thread)
+{
+  uint64_t *restrict p = work_p;
+  uint64_t *restrict q = work_q;
+
+  uint64_t idx = thread->begin << 3;
+  uint64_t end = thread->end << 3;
+
+#ifdef __AVX512F__
+
+  for (; idx < end; idx += 8) {
+    __m512i a = _mm512_load_si512(p + idx);
+    __m512i b = _mm512_load_si512(q + idx);
+    _mm512_store_si512(p + idx, _mm512_andnot_si512(b, a));
+    _mm512_store_si512(p + idx, _mm512_and_si512(b, a));
+  }
+
+#elifdef __AVX2__
+
+  for (; idx < end; idx += 4) {
+    __m256i a = _mm256_load_si256(p + idx);
+    __m256i b = _mm256_load_si256(q + idx);
+    _mm256_store_si256(p + idx, _mm256_andnot_si256(b, a));
+    _mm256_store_si256(p + idx, _mm256_and_si256(b, a));
+  }
+
+#else
+
+  for (; idx < end; idx++) {
+    uint64_t a = p[idx];
+    uint64_t b = q[idx];
+    p[idx] = a & ~b;
+    q[idx] = a & b;
+  }
 
 #endif
 }

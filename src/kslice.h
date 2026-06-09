@@ -97,18 +97,24 @@ void kslice_set(int s);
 void kslice_set_addr(void *p, int s);
 void kslice_clear(int s);
 void kslice_clear_addr(void *p, int s);
+void kslice_not(int s);
+void kslice_not_addr(void *p, int s);
 void kslice_or(int s1, int s2);
+void kslice_or_addr(void *p, void *q, int s);
 void kslice_or_not(int s1, int s2);
 void kslice_and(int s1, int s2);
 void kslice_and_not(int s1, int s2);
+void kslice_and_not_addr(void *p, void *q, int s);
 void kslice_not_and(int s1, int s2);
 void kslice_nor(int s1, int s2);
+void kslice_split_addr(void *p, void *q, int s);
 uint64_t kslice_write(int s, int slice, int stm, const char *name, int n,
     uint64_t num);
 uint64_t kslice_write_addr(void *p, int slice, int stm, const char *name, int n,
     uint64_t num);
 bool kslice_test(int slice, int stm, const char *name, int n);
 bool kslice_read(int s, int slice, int stm, const char *name, int n);
+bool kslice_read_addr(void *p, int slice, int stm, const char *name, int n);
 void kslice_read_or(int s, int slice, int stm, const char *name, int n);
 void kslice_delete(int slice, int stm, const char *name, int n);
 void kslice_sub_write_addr(void *p, int slice, int stm, const char *name,

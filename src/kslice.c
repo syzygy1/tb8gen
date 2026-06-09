@@ -259,6 +259,18 @@ void kslice_clear(int s)
   run_cl(clear_worker, s);
 }
 
+void kslice_not_addr(void *p, int s)
+{
+  work_p = p;
+  run_cl(not_worker, s);
+}
+
+void kslice_not(int s)
+{
+  work_p = kslice_get_address(s);
+  run_cl(not_worker, s);
+}
+
 void kslice_or(int s1, int s2)
 {
   work_p = kslice_get_address(s1);
@@ -267,6 +279,12 @@ void kslice_or(int s1, int s2)
   run_cl(or_worker, max(s1, s2));
 }
 
+void kslice_or_addr(void *p, void *q, int s)
+{
+  work_p = p;
+  work_q = q;
+  run_cl(or_worker, s);
+}
 
 void kslice_or_not(int s1, int s2)
 {
@@ -284,12 +302,27 @@ void kslice_and(int s1, int s2)
   run_cl(and_worker, max(s1, s2));
 }
 
+void kslice_and_addr(void *p, void *q, int s)
+{
+  work_p = p;
+  work_q = q;
+  run_cl(and_worker, s);
+}
+
 void kslice_and_not(int s1, int s2)
 {
   work_p = kslice_get_address(s1);
   work_q = kslice_get_address(s2);
 
   run_cl(and_not_worker, max(s1, s2));
+}
+
+void kslice_and_not_addr(void *p, void *q, int s)
+{
+  work_p = p;
+  work_q = q;
+
+  run_cl(and_not_worker, s);
 }
 
 void kslice_not_and(int s1, int s2)
@@ -306,6 +339,14 @@ void kslice_nor(int s1, int s2)
   work_q = kslice_get_address(s2);
 
   run_cl(nor_worker, max(s1, s2));
+}
+
+void kslice_split_addr(void *p, void *q, int s)
+{
+  work_p = p;
+  work_q = q;
+
+  run_cl(split_worker, s);
 }
 
 uint64_t kslice_write_addr(void *p, int slice, int stm, const char *name, int n,
@@ -345,7 +386,7 @@ bool kslice_test(int slice, int stm, const char *name, int n)
   return st.st_size != 0;
 }
 
-bool kslice_read(int s, int slice, int stm, const char *name, int n)
+bool kslice_read_addr(void *p, int slice, int stm, const char *name, int n)
 {
   char str[64];
   create_name(str, slice, stm, name, n);
@@ -365,12 +406,17 @@ bool kslice_read(int s, int slice, int stm, const char *name, int n)
   }
   if (non_empty) {
     file_read(&kslice_read_count, sizeof(uint64_t), F);
-    read_data(F, kslice_get_address(s), kslice_cache_lines[slice >= 441] << 6);
-    kslice_clear_tail(s);
+    read_data(F, p, kslice_cache_lines[slice >= 441] << 6);
+    kslice_clear_tail_addr(p, slice);
   } else
-    kslice_clear(s);
+    kslice_clear_addr(p, slice);
   if (F) fclose(F);
   return non_empty;
+}
+
+bool kslice_read(int s, int slice, int stm, const char *name, int n)
+{
+  return kslice_read_addr(kslice_get_address(s), slice, stm, name, n);
 }
 
 void kslice_read_or(int s, int slice, int stm, const char *name, int n)
@@ -448,6 +494,7 @@ void kslice_sub_read(int s, int slice, int stm, const char *name)
   fclose(F);
 }
 
+// Test for existence and return number of positions in *num.
 bool kslice_test_count(int s, int stm, const char *name, int n, uint64_t *num)
 {
   char str[64];
