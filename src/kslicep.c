@@ -311,12 +311,12 @@ void k16slice_or(int s1, int s2)
   run_threaded(or_worker, work_cl16);
 }
 
-void k16slice_or_not(int s1, int s2)
+void k16slice_ornot(int s1, int s2)
 {
   work_p = k16slice_get_address(s1);
   work_q = k16slice_get_address(s2);
 
-  run_threaded(or_not_worker, work_cl16);
+  run_threaded(ornot_worker, work_cl16);
 }
 
 void k16slice_and(int s1, int s2)
@@ -327,20 +327,20 @@ void k16slice_and(int s1, int s2)
   run_threaded(and_worker, work_cl16);
 }
 
-void k16slice_and_not(int s1, int s2)
+void k16slice_andnot(int s1, int s2)
 {
   work_p = k16slice_get_address(s1);
   work_q = k16slice_get_address(s2);
 
-  run_threaded(and_not_worker, work_cl16);
+  run_threaded(andnot_worker, work_cl16);
 }
 
-void k16slice_not_and(int s1, int s2)
+void k16slice_notand(int s1, int s2)
 {
   work_p = k16slice_get_address(s1);
   work_q = k16slice_get_address(s2);
 
-  run_threaded(not_and_worker, work_cl16);
+  run_threaded(notand_worker, work_cl16);
 }
 
 void k16slice_nor(int s1, int s2)
@@ -549,13 +549,13 @@ void k16slice_sub_or_addr(void *p, void *q, int stm)
   run_threaded(or_worker, work_sub_cl[stm]);
 }
 
-void k16slice_sub_and_not(int s1, int s2, int stm)
+void k16slice_sub_andnot(int s1, int s2, int stm)
 {
   if (sub_size[stm] == 0) return;
 
   work_p = k16slice_sub_get_base(s1);
   work_q = k16slice_sub_get_base(s2);
-  run_threaded(and_not_worker, work_sub_cl[stm]);
+  run_threaded(andnot_worker, work_sub_cl[stm]);
 }
 
 void k16slice_clear_tail_addr(void *p)

@@ -267,7 +267,7 @@ static size_t cmprs_idx;
 static void *cmprs_v;
 static int cmprs_type;
 
-enum { COPY, U8U8, U16U16, U16U8, COPY_U16U8, U8_OR };
+enum { COPY, U8U8, U16U16, U16U8, COPY_U16U8, U8_OR, U8_ANDNOT };
 
 struct CompressFrame {
   size_t cmprs_chunk;
@@ -451,8 +451,8 @@ INLINE void decompress(struct CompressState *state, void *dst, size_t chunk,
   ZSTD_decompressDCtx(state->d_ctx, dst, chunk, src, compressed);
 }
 
-INLINE void decompress_or(struct CompressState *state, uint8_t *dst,
-    size_t compressed)
+static void decompress_logical(struct CompressState *state, uint8_t *dst,
+    size_t compressed, int op)
 {
   ZSTD_inBuffer in = { state->frame->data, compressed, 0 };
   uint8_t *buf = state->buffer;
@@ -468,50 +468,101 @@ INLINE void decompress_or(struct CompressState *state, uint8_t *dst,
 
     assert((out.pos & 0x3f) == 0);
 
+    if (op == U8_OR) {
+
 #ifdef __AVX512F__
 
-    for (size_t off = 0; off < out.pos; off += 64) {
-      __m512i d = _mm512_load_si512((const void *)(buf + off));
+      for (size_t off = 0; off < out.pos; off += 64) {
+        __m512i d = _mm512_load_si512((const void *)(buf + off));
 
-      if (_mm512_test_epi64_mask(d, d) == 0)
-        continue;
+        if (_mm512_test_epi64_mask(d, d) == 0)
+          continue;
 
-      uint8_t *p = dst + off;
+        uint8_t *p = dst + off;
 
-      __m512i old = _mm512_load_si512((const void *)p);
-      _mm512_store_si512((void *)p, _mm512_or_si512(old, d));
-    }
+        __m512i old = _mm512_load_si512((const void *)p);
+        _mm512_store_si512((void *)p, _mm512_or_si512(old, d));
+      }
 
 #elifdef __AVX2__
 
-    for (size_t off = 0; off < out.pos; off += 64) {
-      __m256i d0 = _mm256_load_si256((const __m256i *)(buf + off));
-      __m256i d1 = _mm256_load_si256((const __m256i *)(buf + off + 32));
+      for (size_t off = 0; off < out.pos; off += 64) {
+        __m256i d0 = _mm256_load_si256((const __m256i *)(buf + off));
+        __m256i d1 = _mm256_load_si256((const __m256i *)(buf + off + 32));
 
-      if (_mm256_testz_si256(d0, d0) && _mm256_testz_si256(d1, d1))
-        continue;
+        if (_mm256_testz_si256(d0, d0) && _mm256_testz_si256(d1, d1))
+          continue;
 
-      uint8_t *p = dst + off;
+        uint8_t *p = dst + off;
 
-      __m256i old0 = _mm256_load_si256((const __m256i *)(p));
-      __m256i old1 = _mm256_load_si256((const __m256i *)(p + 32));
+        __m256i old0 = _mm256_load_si256((const __m256i *)(p));
+        __m256i old1 = _mm256_load_si256((const __m256i *)(p + 32));
 
-      _mm256_store_si256((__m256i *)(p), _mm256_or_si256(old0, d0));
-      _mm256_store_si256((__m256i *)(p + 32), _mm256_or_si256(old1, d1));
-    }
+        _mm256_store_si256((__m256i *)(p), _mm256_or_si256(old0, d0));
+        _mm256_store_si256((__m256i *)(p + 32), _mm256_or_si256(old1, d1));
+      }
 
 #else
 
-    for (size_t off = 0; off < out.pos; off += 8) {
-      uint64_t d = *(uint64_t *)(buf + off);
+      for (size_t off = 0; off < out.pos; off += 8) {
+        uint64_t d = *(uint64_t *)(buf + off);
 
-      if (!d) continue;
+        if (!d) continue;
 
-      uint64_t *p = (uint64_t *)(dst + off);
-      *p |= d;
-    }
+        uint64_t *p = (uint64_t *)(dst + off);
+        *p |= d;
+      }
 
 #endif
+
+    } else {
+
+#ifdef __AVX512F__
+
+      for (size_t off = 0; off < out.pos; off += 64) {
+        __m512i d = _mm512_load_si512((const void *)(buf + off));
+
+        if (_mm512_test_epi64_mask(d, d) == 0)
+          continue;
+
+        uint8_t *p = dst + off;
+
+        __m512i old = _mm512_load_si512((const void *)p);
+        _mm512_store_si512((void *)p, _mm512_andnot_si512(d, old));
+      }
+
+#elifdef __AVX2__
+
+      for (size_t off = 0; off < out.pos; off += 64) {
+        __m256i d0 = _mm256_load_si256((const __m256i *)(buf + off));
+        __m256i d1 = _mm256_load_si256((const __m256i *)(buf + off + 32));
+
+        if (_mm256_testz_si256(d0, d0) && _mm256_testz_si256(d1, d1))
+          continue;
+
+        uint8_t *p = dst + off;
+
+        __m256i old0 = _mm256_load_si256((const __m256i *)(p));
+        __m256i old1 = _mm256_load_si256((const __m256i *)(p + 32));
+
+        _mm256_store_si256((__m256i *)(p), _mm256_andnot_si256(d0, old0));
+        _mm256_store_si256((__m256i *)(p + 32), _mm256_andnot_si256(d1, old1));
+      }
+
+#else
+
+      for (size_t off = 0; off < out.pos; off += 8) {
+        uint64_t d = *(uint64_t *)(buf + off);
+
+        if (!d) continue;
+
+        uint64_t *p = (uint64_t *)(dst + off);
+        *p &= ~d;
+      }
+
+#endif
+
+    }
 
     dst += out.pos;
 
@@ -686,8 +737,8 @@ static void read_data_worker(int t)
     cmprs_size -= chunk;
     UNLOCK(cmprs_mutex);
     size_t idx = state->frame->idx;
-    if (cmprs_type == U8_OR) {
-      decompress_or(state, dst + idx, cmprs_chunk);
+    if (cmprs_type == U8_OR || cmprs_type == U8_ANDNOT) {
+      decompress_logical(state, dst + idx, cmprs_chunk, cmprs_type);
       continue;
     }
     if (cmprs_type == COPY) {
@@ -773,6 +824,17 @@ void read_data_or(FILE *F, void *dst, uint64_t size)
   cmprs_ptr = dst;
   cmprs_size = size;
   cmprs_type = U8_OR;
+  run_compression(read_data_worker);
+}
+
+void read_data_andnot(FILE *F, void *dst, uint64_t size)
+{
+  init();
+
+  cmprs_F = F;
+  cmprs_ptr = dst;
+  cmprs_size = size;
+  cmprs_type = U8_ANDNOT;
   run_compression(read_data_worker);
 }
 
@@ -916,7 +978,7 @@ void show_progress(const char *phase, int k, int total, bool final)
       init = false;
     }
   }
-  if (!final && t - last < 0.25)
+  else if (!final && t - last < 0.25)
     return;
 
   last = t;

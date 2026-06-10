@@ -387,7 +387,7 @@ static void calc_capt(int stm, int wdl, int n)
     while (kslice_iter_out(&iter, &s)) {
       if (!partial || !kslice_test_count(s, stm, capt_name, -1, &num)) {
         read_wins(-1, s, stm, -1); // most recent "wins".
-        kslice_and_not(s, -1); // Remove illegal positions from capt/win.
+        kslice_andnot(s, -1); // Remove illegal positions from capt/win.
         cnt += num = kslice_count(s);
         kslice_write(s, s, stm, capt_name, -1, num);
       }
@@ -442,7 +442,7 @@ static void calc_capt_bloss(int stm)
       // Subtract sub_win from sub_cwin.
       kslice_sub_read(-1, s, stm ^ 1, "sub/win");
       kslice_sub_read(s, s, stm ^ 1, "sub/cwin");
-      kslice_sub_and_not(s, -1, stm ^ 1);
+      kslice_sub_andnot(s, -1, stm ^ 1);
       predecessors_sub(stm, s, false);
     }
 
@@ -1040,7 +1040,7 @@ static bool calc_L(int stm, int n, bool more_l)
           // We must subtract sub/win from sub/cwin here.
           kslice_sub_read(-1, s, stm ^ 1, "sub/win");
           kslice_sub_read(s, s, stm ^ 1, "sub/cwin");
-          kslice_sub_and_not(s, -1, stm ^ 1);
+          kslice_sub_andnot(s, -1, stm ^ 1);
           predecessors_sub(stm, s, false);
         }
       }
@@ -1177,7 +1177,7 @@ static bool calc_W(int stm, int n, bool more_w)
         }
         // Remove illegal positions and known faster wins.
         read_wins(-1, s, stm, n - 1);
-        kslice_and_not(s, -1);
+        kslice_andnot(s, -1);
         num = kslice_count(s);
         uint64_t cost = kslice_write(s, s, stm, "W", n, num);
         add_wins(s, stm, n, cost);

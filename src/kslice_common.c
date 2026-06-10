@@ -4,7 +4,7 @@
 
 static constexpr size_t MIN_STREAMING_STORES_SIZE = (size_t)1024*1024;
 
-static void *work_p, *work_q;
+static void *work_p, *work_q, *work_r;
 
 static void set_worker(struct ThreadData *thread)
 {
@@ -14,27 +14,35 @@ static void set_worker(struct ThreadData *thread)
 
 #ifdef __AVX512F__
 
+  __m512i ones = _mm512_set1_epi64(-1);
   if (end - begin >= MIN_STREAMING_STORES_SIZE) {
-    __m512i ones = _mm512_set1_epi64(-1);
     for (size_t idx = begin; idx < end; idx += 64)
       _mm512_stream_si512((__m512i *)(p + idx), ones);
-    return;
+  } else {
+    for (size_t idx = begin; idx < end; idx += 64)
+      _mm512_store_si512((__m512i *)(p + idx), ones);
   }
 
 #elifdef __AVX2__
 
+  __m256i ones = _mm256_set1_epi32(-1);
   if (end - begin >= MIN_STREAMING_STORES_SIZE) {
-    __m256i ones = _mm256_set1_epi32(-1);
     for (idx = begin; idx < end; idx += 64) {
       _mm256_stream_si256((__m256i *)(p + idx), ones);
       _mm256_stream_si256((__m256i *)(p + idx + 32), ones);
     }
-    return;
+  } else {
+    for (idx = begin; idx < end; idx += 64) {
+      _mm256_store_si256((__m256i *)(p + idx), ones);
+      _mm256_store_si256((__m256i *)(p + idx + 32), ones);
+    }
   }
 
-#endif
+#else
 
   memset(p + begin, 0xff, end - begin);
+
+#endif
 }
 
 static void clear_worker(struct ThreadData *thread)
@@ -45,27 +53,35 @@ static void clear_worker(struct ThreadData *thread)
 
 #ifdef __AVX512F__
 
+  __m512i z = _mm512_setzero_si512();
   if (end - begin >= MIN_STREAMING_STORES_SIZE) {
-    __m512i z = _mm512_setzero_si512();
     for (size_t idx = begin; idx < end; idx += 64)
       _mm512_stream_si512((__m512i *)(p + idx), z);
-    return;
+  } else {
+    for (size_t idx = begin; idx < end; idx += 64)
+      _mm512_store_si512((__m512i *)(p + idx), z);
   }
 
 #elifdef __AVX2__
 
+  __m256i z = _mm256_setzero_si256();
   if (thread->end - thread->begin >= MIN_STREAMING_STORES / 64) {
-    __m256i z = _mm256_setzero_si256();
     for (size_t idx = begin; idx < end; idx += 64) {
       _mm256_stream_si256((__m256i *)(p + idx), z);
       _mm256_stream_si256((__m256i *)(p + idx + 32), z);
     }
-    return;
+  } else {
+    for (size_t idx = begin; idx < end; idx += 64) {
+      _mm256_store_si256((__m256i *)(p + idx), z);
+      _mm256_store_si256((__m256i *)(p + idx + 32), z);
+    }
   }
 
-#endif
+#else
 
   memset(p + begin, 0x00, end - begin);
+
+#endif
 }
 
 static void not_worker(struct ThreadData *thread)
@@ -131,7 +147,7 @@ static void or_worker(struct ThreadData *thread)
 #endif
 }
 
-static void or_not_worker(struct ThreadData *thread)
+static void ornot_worker(struct ThreadData *thread)
 {
   uint64_t *restrict p = work_p;
   uint64_t *restrict q = work_q;
@@ -196,7 +212,7 @@ static void and_worker(struct ThreadData *thread)
 #endif
 }
 
-static void and_not_worker(struct ThreadData *thread)
+static void andnot_worker(struct ThreadData *thread)
 {
   uint64_t *restrict p = work_p;
   uint64_t *restrict q = work_q;
@@ -228,7 +244,7 @@ static void and_not_worker(struct ThreadData *thread)
 #endif
 }
 
-static void not_and_worker(struct ThreadData *thread)
+static void notand_worker(struct ThreadData *thread)
 {
   uint64_t *restrict p = work_p;
   uint64_t *restrict q = work_q;
@@ -326,6 +342,48 @@ void split_worker(struct ThreadData *thread)
     uint64_t b = q[idx];
     p[idx] = a & ~b;
     q[idx] = a & b;
+  }
+
+#endif
+}
+
+void abc_worker(struct ThreadData *thread)
+{
+  uint64_t *restrict p = work_p;
+  uint64_t *restrict q = work_q;
+  uint64_t *restrict r = work_r;
+
+  uint64_t idx = thread->begin << 3;
+  uint64_t end = thread->end << 3;
+
+#ifdef __AVX512F__
+
+  for (; idx < end; idx += 8) {
+    __m512i a = _mm512_load_si512(p + idx);
+    __m512i b = _mm512_load_si512(q + idx);
+    __m512i c = _mm512_load_si512(r + idx);
+    _mm512_store_si512(p + idx, _mm512_ternarylogic_epi64(a, b, c, 0x32));
+    _mm512_store_si512(q + idx, _mm512_or_si512(b, c));
+  }
+
+#elifdef __AVX2__
+
+  for (; idx < end; idx += 4) {
+    __m256i a = _mm256_load_si256(p + idx);
+    __m256i b = _mm256_load_si256(q + idx);
+    __m256i c = _mm256_load_si256(q + idx);
+    _mm256_store_si256(p + idx, _mm256_andnot_si256(b, _mm256_or_si256(a, c)));
+    _mm256_store_si256(q + idx, _mm256_or_si256(b, a));
+  }
+
+#else
+
+  for (; idx < end; idx++) {
+    uint64_t a = p[idx];
+    uint64_t b = q[idx];
+    uint64_t c = r[idx];
+    p[idx] = (a | c) & ~b;
+    q[idx] = b | c;
   }
 
 #endif

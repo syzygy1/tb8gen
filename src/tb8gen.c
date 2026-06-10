@@ -249,7 +249,6 @@ int main(int argc, char **argv)
   }
 
   kslice_setup();
-  kslice_alloc_buffers(20);
 
   // Align work units on cache lines of 64 x 8 = 512 positions.
   work_g = create_work(g_total_work, kslice_sizes[0], 0x1ff);

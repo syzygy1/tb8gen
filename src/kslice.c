@@ -141,6 +141,8 @@ uint8_t *alloc_kslice(void)
 
 void kslice_setup(void)
 {
+  for (int i = 0; i < 20; i++)
+    kslice_buf[i] = alloc_kslice();
   kslice_slot[0] = 19;
   for (int i = 0; i < 462; i++)
     kslice_slot[i + 1] = -1;
@@ -170,16 +172,6 @@ void kslice_setup(void)
       sub_size[BLACK] >> 6, 0);
   work_sub_cl[WHITE]->schedule = WORK_STATIC;
   work_sub_cl[BLACK]->schedule = WORK_STATIC;
-}
-
-void kslice_alloc_buffers(int n)
-{
-  for (int i = 0; i < n; i++)
-    if (!kslice_buf[i]) {
-      kslice_buf[i] = alloc_kslice();
-      if (!kslice_buf[i])
-        out_of_mem();
-    }
 }
 
 void kslice_free_buffers(void)
@@ -286,12 +278,12 @@ void kslice_or_addr(void *p, void *q, int s)
   run_cl(or_worker, s);
 }
 
-void kslice_or_not(int s1, int s2)
+void kslice_ornot(int s1, int s2)
 {
   work_p = kslice_get_address(s1);
   work_q = kslice_get_address(s2);
 
-  run_cl(or_not_worker, max(s1, s2));
+  run_cl(ornot_worker, max(s1, s2));
 }
 
 void kslice_and(int s1, int s2)
@@ -309,28 +301,28 @@ void kslice_and_addr(void *p, void *q, int s)
   run_cl(and_worker, s);
 }
 
-void kslice_and_not(int s1, int s2)
+void kslice_andnot(int s1, int s2)
 {
   work_p = kslice_get_address(s1);
   work_q = kslice_get_address(s2);
 
-  run_cl(and_not_worker, max(s1, s2));
+  run_cl(andnot_worker, max(s1, s2));
 }
 
-void kslice_and_not_addr(void *p, void *q, int s)
+void kslice_andnot_addr(void *p, void *q, int s)
 {
   work_p = p;
   work_q = q;
 
-  run_cl(and_not_worker, s);
+  run_cl(andnot_worker, s);
 }
 
-void kslice_not_and(int s1, int s2)
+void kslice_notand(int s1, int s2)
 {
   work_p = kslice_get_address(s1);
   work_q = kslice_get_address(s2);
 
-  run_cl(not_and_worker, max(s1, s2));
+  run_cl(notand_worker, max(s1, s2));
 }
 
 void kslice_nor(int s1, int s2)
@@ -347,6 +339,15 @@ void kslice_split_addr(void *p, void *q, int s)
   work_q = q;
 
   run_cl(split_worker, s);
+}
+
+void kslice_abc_addr(void *p, void *q, void *r, int s)
+{
+  work_p = p;
+  work_q = q;
+  work_r = r;
+
+  run_cl(abc_worker, s);
 }
 
 uint64_t kslice_write_addr(void *p, int slice, int stm, const char *name, int n,
@@ -445,6 +446,32 @@ void kslice_read_or(int s, int slice, int stm, const char *name, int n)
   fclose(F);
 }
 
+void kslice_read_andnot(int s, int slice, int stm, const char *name, int n)
+{
+  char str[64];
+  create_name(str, slice, stm, name, n);
+
+  FILE *F = fopen(str, "rb");
+  if (!F && errno != ENOENT) {
+    fprintf(stderr, "Could not open %s for reading.\n", str);
+    exit(EXIT_FAILURE);
+  }
+  if (!F)
+    return;
+  struct stat st;
+  fstat(fileno(F), &st);
+  if (st.st_size > 0) {
+    uint64_t num;
+    file_read(&num, sizeof(uint64_t), F);
+//    kslice_read_count += num;
+    kslice_read_cost += st.st_size;
+    read_data_andnot(F, kslice_get_address(s),
+        kslice_cache_lines[slice >= 441] << 6);
+    kslice_clear_tail(s);
+  }
+  fclose(F);
+}
+
 void kslice_delete(int slice, int stm, const char *name, int n)
 {
   char str[64];
@@ -528,12 +555,12 @@ uint64_t kslice_size_count(int s, int stm, const char *name, int n,
   return st.st_size;
 }
 
-void kslice_sub_and_not(int s1, int s2, int stm)
+void kslice_sub_andnot(int s1, int s2, int stm)
 {
   work_p = kslice_sub_get_base(s1);
   work_q = kslice_sub_get_base(s2);
 
-  run_sub_cl(and_not_worker, stm);
+  run_sub_cl(andnot_worker, stm);
 }
 
 void kslice_clear_tail_addr(void *p, int s)

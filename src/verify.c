@@ -98,7 +98,8 @@ INLINE bool test_moves(int k, int s, uint8_t *restrict const p, Bitboard occ,
   while (b) {
     memcpy(sq2, sq, sizeof sq2);
     sq2[k] = pop_lsb(&b);
-    if (kslice_bit_test(p, sq_to_idx(sq2)))
+    uint64_t idx = sq_to_idx(sq2);
+    if (kslice_bit_test(p, idx))
       return true;
   }
 
@@ -115,7 +116,8 @@ INLINE bool test_moves_ref(int k, int s, uint8_t *restrict const p,
   while (b) {
     memcpy(sq2, sq, sizeof sq2);
     sq2[k] = pop_lsb(&b);
-    if (!kslice_bit_test(p, sq_to_idx_ref(sq2)))
+    uint64_t idx = sq_to_idx_ref(sq2);
+    if (kslice_bit_test(p, idx))
       return true;
   }
 
@@ -370,8 +372,6 @@ static void calc_capt(int stm, int wdl)
 
     while (kslice_iter_out(&iter, &s)) {
       if (!partial || !kslice_test_count(s, stm, capt_name, -1, &num)) {
-//        read_wins(-1, s, stm, -1); // most recent "wins".
-//        kslice_and_not(s, -1); // Remove illegal positions from capt/win.
         cnt += num = kslice_count(s);
         kslice_write(s, s, stm, capt_name, -1, num);
       }
@@ -467,138 +467,31 @@ void calc_illegal(int stm)
     }
 
     cnt += num = kslice_count_addr(kslice_buf[0], s);
-    kslice_write_addr(kslice_buf[stm], s, stm, "illegal", -1, num);
+    kslice_write_addr(kslice_buf[0], s, stm, "illegal", -1, num);
   }
 
   snprintf(phase, sizeof phase, "%lu %s illegal positions", cnt, side[stm]);
   show_progress(phase, 462, 462, true);
 }
 
-// Verification algorithm
-//
-//
-// illegal, capt_win -> no verification necessary
-//
-// win\capt_win
-// - verify winning move                        A
-//
-// cwin\capt_win
-// - cwin\capt_win & capt_cwin
-//   - verify no winning move                   B
-//     (could be winning move to dtz==100)
-// - cwin\capt_win \ capt_cwin
-//   - verify cwinning move                     C
-//     (could be winning move to dtz==100)
-//   - verify no winning move.                  B
-//     (could be winning move to dtz==100)
-//
-// - draw\capt_win
-//   - draw\capt_win & capt_cwin
-//     - verify no winning move                   B
-//       (could be winning move to dtz==100)
-//   - draw\capt_win\capt_cwin & capt_draw
-//     - verify no winning or cwinning move       D
-//   - draw\capt_win\capt_cwin \ capt_draw
-//     - verify no winning or cwinning move       D
-//     - verify drawing move (or stalemate)       E
-//
-// - bloss\capt_win
-//   - bloss\capt_win & capt_cwin
-//     - verify no winning move                              B
-//       (could be winning move to dtz==100)
-//   - bloss\capt_win\capt_cwin & capt_draw
-//     - verify no winning or cwinning move                  D
-//   - bloss\capt_win\capt_cwin\capt_draw & capt_bloss
-//     - verify no winning or cwinning or drawing move       F
-//   - bloss\capt_win\capt_cwin\capt_draw \ capt_bloss
-//     - verify no winning or cwinning or drawing move       F
-//     - verify blessed losing move (into cursed win)        G
-//       (could be into win with dtz==100)
-//
-// - loss\capt_win
-//   - loss\capt_win & capt_cwin
-//     - verify no winning move                              B
-//       (could be winning move to dtz==100)
-//   - loss\capt_win\capt_cwin & capt_draw
-//     - verify no winning or cwinning move                  D
-//   - loss\capt_win\capt_cwin\capt_draw & capt_bloss
-//     - verify no winning or cwinning or drawing move       F
-//   - loss\capt_win\capt_cwin\capt_draw \ capt_bloss
-//     - verify no winning or cwinning or drawing move or blessed loss move   H
-//       + verify no stalemate (legal capture or legal move or in-check)
-//
-// A: verify winning move              -> against losing positions  (no ilg)
-// B: verify no winning move (*)       -> against losing positions  (no ilg)
-// C: verify cwinning move (**)        -> against blosing positions
-// D: verify no winning|cwinning move  -> against blosing|losing positions
-// E: verify drawing move              -> against drawing positions
-// F: verify no winning|cwinning|draw  -> against loss|bloss|draw positions
-// G: verify blessed losing move       -> against cursed positions (***)
-// H: verify no winning,cwinning,drawing or blessed loss move
-//                                     -> against loss-cwins?
-//                                        or against wins?
-// Remove illegals?
-// - can be done during initial load/decompression
-// But when checking moves existence of a move in a set it is convenient
-// if the set does not include illegal positions.
-// When checking that all legal moves fall in a set, it is convenient if
-// the set does include illegal positions.
-// -> so generally test against the complement with only legal positions
+static mtx_t report_mutex;
+static int num_fails;
 
-static void create_test_sets(int stm)
+static void report_fail(int s, uint64_t idx, Position *pos)
 {
-  create_dir(-1, stm, "A");
-  create_dir(-1, stm, "B");
-  create_dir(-1, stm, "C");
-  create_dir(-1, stm, "D");
-  create_dir(-1, stm, "E");
-  create_dir(-1, stm, "F");
-  create_dir(-1, stm, "G");
-  create_dir(-1, stm, "H");
-
-  for (int s = 0; s < 462; s++) {
-    kslice_read_addr(kslice_buf[0], s, stm, "capt/win", -1);
-    kslice_not_addr(kslice_buf[0], s);
-    kslice_read_addr(kslice_buf[1], s, stm, "win", -1);
-    kslice_split_addr(kslice_buf[0], kslice_buf[1], s);
-    kslice_write_addr(kslice_buf[1], s, stm, "A", -1, UINT64_MAX);
-
-    kslice_read_addr(kslice_buf[1], s, stm, "capt/cwin", -1);
-    kslice_split_addr(kslice_buf[0], kslice_buf[1], s);
-    kslice_read_addr(kslice_buf[2], s, stm, "cwin", -1);
-    kslice_split_addr(kslice_buf[0], kslice_buf[2], s);
-    kslice_write_addr(kslice_buf[2], s, stm, "C", -1, UINT64_MAX);
-    kslice_or_addr(kslice_buf[1], kslice_buf[2], s);
-    kslice_write_addr(kslice_buf[1], s, stm, "B", -1, UINT64_MAX);
-
-    kslice_read_addr(kslice_buf[1], s, stm, "capt/draw", -1);
-    kslice_split_addr(kslice_buf[0], kslice_buf[1], s);
-    kslice_read_addr(kslice_buf[2], s, stm, "draw", -1);
-    kslice_split_addr(kslice_buf[0], kslice_buf[2], s);
-    kslice_write_addr(kslice_buf[2], s, stm, "E", -1, UINT64_MAX);
-    kslice_or_addr(kslice_buf[1], kslice_buf[2], s);
-    kslice_write_addr(kslice_buf[1], s, stm, "D", -1, UINT64_MAX);
-
-    kslice_read_addr(kslice_buf[1], s, stm, "capt/bloss", -1);
-    kslice_split_addr(kslice_buf[0], kslice_buf[1], s);
-    kslice_read_addr(kslice_buf[2], s, stm, "bloss", -1);
-    kslice_split_addr(kslice_buf[0], kslice_buf[2], s);
-    kslice_write_addr(kslice_buf[2], s, stm, "G", -1, UINT64_MAX);
-    kslice_or_addr(kslice_buf[1], kslice_buf[2], s);
-    kslice_write_addr(kslice_buf[1], s, stm, "F", -1, UINT64_MAX);
-
-    kslice_write_addr(kslice_buf[0], s, stm, "H", -1, UINT64_MAX);
-  }
-}
-
-[[noreturn]] static void report_fail(int s, uint64_t idx, Position *pos)
-{
-  (void)pos;
-  printf("slice = %d, idx = %lu\n", s, idx);
-  exit(EXIT_FAILURE);
+  mtx_lock(&report_mutex);
+  char fenstr[64];
+  pos_to_fen(pos, fenstr, false);
+  int wdl = probe_wdl(pos, -2, 2);
+  printf("\nslice = %d, idx = %lu, wdl = %d\n%s\n", s, idx, wdl, fenstr);
+  num_fails++;
+  if (num_fails == 10)
+    exit(EXIT_FAILURE);
+  mtx_unlock(&report_mutex);
 }
 
 static int work_slice;
+static bool check_stalemate;
 
 static void check_zero_worker(struct ThreadData *thread)
 {
@@ -623,16 +516,17 @@ static void check_zero_worker(struct ThreadData *thread)
       Bitboard occ = pos.occ = idx_state_to_sq(&is, pos.sq, &ri);
       for (int i = 0; pos.pcs[stm][i] >= 0; i++) {
         int j = pos.pcs[stm][i];
-        bool v = test_moves(j, s, q, occ, pos.sq);
-        if (!v) goto next;
+        if (test_moves(j, s, q, occ, pos.sq))
+          goto fail;
       }
       uint8_t tmp = pos.sq[stm];
       bool v = test_king_moves(stm, occ, pos.sq);
       pos.sq[stm] = tmp;
-      if (v)
-        report_fail(s, idx, &pos);
+      if (v || (check_stalemate && !has_legal_moves(&pos))) {
+fail:
+        report_fail(s, cur, &pos);
+      }
     }
-next:
   }
 }
 
@@ -656,16 +550,17 @@ static void check_zero_ref_worker(struct ThreadData *thread)
       Bitboard occ = pos.occ = unrank_reflection(cur, pos.sq, kings, &ri);
       for (int i = 0; pos.pcs[stm][i] >= 0; i++) {
         int j = pos.pcs[stm][i];
-        bool v = test_moves_ref(j, s, q, occ, pos.sq);
-        if (!v) goto next;
+        if (test_moves_ref(j, s, q, occ, pos.sq))
+          goto fail;
       }
       uint8_t tmp = pos.sq[stm];
       bool v = test_king_moves(stm, occ, pos.sq);
       pos.sq[stm] = tmp;
-      if (v)
-        report_fail(s, idx, &pos);
+      if (v || (check_stalemate && !has_legal_moves(&pos))) {
+fail:
+        report_fail(s, cur, &pos);
+      }
     }
-next:
   }
 }
 
@@ -702,17 +597,20 @@ static void check_one_worker(struct ThreadData *thread)
       uint64_t cur = idx + pop_lsb(&w);
       idx_state_add(&is, cur - last, &ri);
       last = cur;
-      Bitboard occ = pos.occ = idx_state_to_sq(&is, pos.sq, &ri);
+      Bitboard occ = idx_state_to_sq(&is, pos.sq, &ri);
       for (int i = 0; pos.pcs[stm][i] >= 0; i++) {
         int j = pos.pcs[stm][i];
-        bool v = test_moves(j, s, q, occ, pos.sq);
-        if (v) goto next;
+        if (test_moves(j, s, q, occ, pos.sq))
+          goto next;
       }
       uint8_t tmp = pos.sq[stm];
       bool v = test_king_moves(stm, occ, pos.sq);
       pos.sq[stm] = tmp;
-      if (!v)
-        report_fail(s, idx, &pos);
+      if (!v) {
+        pos.occ = occ;
+        if (!check_stalemate || has_legal_moves(&pos))
+          report_fail(s, cur, &pos);
+      }
     }
 next:
   }
@@ -735,17 +633,20 @@ static void check_one_ref_worker(struct ThreadData *thread)
     while (w) {
       unsigned bt = pop_lsb(&w);
       uint64_t cur = idx + bt;
-      Bitboard occ = pos.occ = unrank_reflection(cur, pos.sq, kings, &ri);
+      Bitboard occ = unrank_reflection(cur, pos.sq, kings, &ri);
       for (int i = 0; pos.pcs[stm][i] >= 0; i++) {
         int j = pos.pcs[stm][i];
-        bool v = test_moves_ref(j, s, q, occ, pos.sq);
-        if (v) goto next;
+        if (test_moves_ref(j, s, q, occ, pos.sq))
+          goto next;
       }
       uint8_t tmp = pos.sq[stm];
       bool v = test_king_moves(stm, occ, pos.sq);
       pos.sq[stm] = tmp;
-      if (!v)
-        report_fail(s, idx, &pos);
+      if (!v) {
+        pos.occ = occ;
+        if (!check_stalemate || has_legal_moves(&pos))
+          report_fail(s, cur, &pos);
+      }
     }
 next:
   }
@@ -764,14 +665,14 @@ static void check_one(int stm, int s)
     run_threaded(check_one_ref_worker, &work_g_dynamic[1]);
 }
 
-// A: verify winning move              -> against losing positions  (no ilg)
-static void test_A(int stm)
+static void check_win(int stm)
 {
   struct KSliceIterator iter;
 
   char phase[64];
-  snprintf(phase, sizeof phase, "%s test A", side[stm]);
+  snprintf(phase, sizeof phase, "check %s win, cwin-", side[stm]);
   int num_done = 0;
+  check_stalemate = false;
 
   kslice_iter_init(&iter, stm);
   int s, s1;
@@ -781,33 +682,12 @@ static void test_A(int stm)
     while (kslice_iter_in(&iter, &s1))
       kslice_read(s1, s1, stm ^ 1, "loss", -1);
 
-    kslice_read(-1, s, stm, "A", -1);
+    kslice_read(-1, s, stm, "wins", -1);
+    kslice_read_andnot(-1, s, stm, "capt/win", -1);
     check_one(stm, s);
 
-    while (kslice_iter_out(&iter, &s));
-  }
-  show_progress(phase, 462, 462, true);
-}
-
-// B: verify no winning move (*)       -> against losing positions  (no ilg)
-// TODO: if winning move found, verify that position reached has dtz == 100
-static void test_B(int stm)
-{
-  struct KSliceIterator iter;
-
-  char phase[64];
-  snprintf(phase, sizeof phase, "%s test B", side[stm]);
-  int num_done = 0;
-
-  kslice_iter_init(&iter, stm);
-  int s, s1;
-  while (kslice_iter_next(&iter, &s)) {
-    show_progress(phase, num_done++, 462, false);
-
-    while (kslice_iter_in(&iter, &s1))
-      kslice_read(s1, s1, stm ^ 1, "loss", -1);
-
-    kslice_read(-1, s, stm, "B", -1);
+    kslice_read(-1, s, stm, "cwin", -1);
+    kslice_read_andnot(-1, s, stm, "capt/cwin", -1);
     check_zero(stm, s);
 
     while (kslice_iter_out(&iter, &s));
@@ -815,18 +695,14 @@ static void test_B(int stm)
   show_progress(phase, 462, 462, true);
 }
 
-// C: verify cwinning move (**)        -> against blosing positions
-// TODO: if no cwinning move found, verify that there is a winning move to
-// dtz == 100
-// so basically the fails have to be kept by check_one, the rest erased.
-// or check_one has to do the extra testing.
-static void test_C(int stm)
+static void check_cwin(int stm)
 {
   struct KSliceIterator iter;
 
   char phase[64];
-  snprintf(phase, sizeof phase, "%s test C", side[stm]);
+  snprintf(phase, sizeof phase, "check %s cwin+", side[stm]);
   int num_done = 0;
+  check_stalemate = false;
 
   kslice_iter_init(&iter, stm);
   int s, s1;
@@ -836,7 +712,8 @@ static void test_C(int stm)
     while (kslice_iter_in(&iter, &s1))
       kslice_read(s1, s1, stm ^ 1, "bloss", -1);
 
-    kslice_read(-1, s, stm, "C", -1);
+    kslice_read(-1, s, stm, "cwin", -1);
+    kslice_read_andnot(-1, s, stm, "capt/cwin", -1);
     check_one(stm, s);
 
     while (kslice_iter_out(&iter, &s));
@@ -844,14 +721,14 @@ static void test_C(int stm)
   show_progress(phase, 462, 462, true);
 }
 
-// D: verify no winning|cwinning move  -> against blosing|losing positions
-static void test_D(int stm)
+static void check_draw(int stm)
 {
   struct KSliceIterator iter;
 
   char phase[64];
-  snprintf(phase, sizeof phase, "%s test D", side[stm]);
+  snprintf(phase, sizeof phase, "check %s draw-", side[stm]);
   int num_done = 0;
+  check_stalemate = false;
 
   kslice_iter_init(&iter, stm);
   int s, s1;
@@ -860,36 +737,29 @@ static void test_D(int stm)
 
     while (kslice_iter_in(&iter, &s1)) {
       kslice_read(s1, s1, stm ^ 1, "loss", -1);
-      kslice_read(-1, s1, stm ^ 1, "bloss", -1);
-      kslice_or(s1, -1);
+      kslice_read_or(s1, s1, stm ^ 1, "bloss", -1);
     }
 
-    kslice_read(-1, s, stm, "D", -1);
-    check_one(stm, s);
+    kslice_read(-1, s, stm, "draw", -1);
+    kslice_read_andnot(-1, s, stm, "capt/draw", -1);
+    check_zero(stm, s);
 
     while (kslice_iter_out(&iter, &s));
   }
   show_progress(phase, 462, 462, true);
-}
 
-// E: verify drawing move              -> against drawing positions
-static void test_E(int stm)
-{
-  struct KSliceIterator iter;
-
-  char phase[64];
-  snprintf(phase, sizeof phase, "%s test E", side[stm]);
-  int num_done = 0;
-
+  snprintf(phase, sizeof phase, "check %s draw+", side[stm]);
+  num_done = 0;
+  check_stalemate = true;
   kslice_iter_init(&iter, stm);
-  int s, s1;
   while (kslice_iter_next(&iter, &s)) {
     show_progress(phase, num_done++, 462, false);
 
     while (kslice_iter_in(&iter, &s1))
       kslice_read(s1, s1, stm ^ 1, "draw", -1);
 
-    kslice_read(-1, s, stm, "E", -1);
+    kslice_read(-1, s, stm, "draw", -1);
+    kslice_read_andnot(-1, s, stm, "capt/draw", -1);
     check_one(stm, s);
 
     while (kslice_iter_out(&iter, &s));
@@ -897,14 +767,14 @@ static void test_E(int stm)
   show_progress(phase, 462, 462, true);
 }
 
-// F: verify no winning|cwinning|draw  -> against loss|bloss|draw positions
-static void test_F(int stm)
+static void check_bloss(int stm)
 {
   struct KSliceIterator iter;
 
   char phase[64];
-  snprintf(phase, sizeof phase, "%s test F", side[stm]);
+  snprintf(phase, sizeof phase, "check %s bloss-", side[stm]);
   int num_done = 0;
+  check_stalemate = false;
 
   kslice_iter_init(&iter, stm);
   int s, s1;
@@ -913,46 +783,29 @@ static void test_F(int stm)
 
     while (kslice_iter_in(&iter, &s1)) {
       kslice_read(s1, s1, stm ^ 1, "loss", -1);
-      kslice_read(-1, s1, stm ^ 1, "bloss", -1);
-      kslice_or(s1, -1);
-      kslice_read(-1, s1, stm ^ 1, "draw", -1);
-      kslice_or(s1, -1);
-
-#if 0
-      // problem with this approach is illegals.
-      kslice_read(s1, s1, stm ^ 1, "win", -1);
-      kslice_read(-1, s1, stm ^ 1, "cwin", -1);
-      kslice_nor(s1, -1);
-#endif
+      kslice_read_or(s1, s1, stm ^ 1, "bloss", -1);
+      kslice_read_or(s1, s1, stm ^ 1, "draw", -1);
     }
 
-    kslice_read(-1, s, stm, "F", -1);
+    kslice_read(-1, s, stm, "bloss", -1);
+    kslice_read_andnot(-1, s, stm, "capt/bloss", -1);
     check_zero(stm, s);
 
     while (kslice_iter_out(&iter, &s));
   }
   show_progress(phase, 462, 462, true);
-}
 
-// G: verify blessed losing move       -> against cursed positions (***)
-// TODO: could be a move into a win with dtz==100.
-static void test_G(int stm)
-{
-  struct KSliceIterator iter;
-
-  char phase[64];
-  snprintf(phase, sizeof phase, "%s test G", side[stm]);
-  int num_done = 0;
-
+  snprintf(phase, sizeof phase, "check %s bloss+", side[stm]);
+  num_done = 0;
   kslice_iter_init(&iter, stm);
-  int s, s1;
   while (kslice_iter_next(&iter, &s)) {
     show_progress(phase, num_done++, 462, false);
 
     while (kslice_iter_in(&iter, &s1))
-      kslice_read(s1, s1, stm ^ 1, "cursed/win", -1);
+      kslice_read(s1, s1, stm ^ 1, "cwin", -1);
 
-    kslice_read(-1, s, stm, "G", -1);
+    kslice_read(-1, s, stm, "bloss", -1);
+    kslice_read_andnot(-1, s, stm, "capt/bloss", -1);
     check_one(stm, s);
 
     while (kslice_iter_out(&iter, &s));
@@ -960,15 +813,14 @@ static void test_G(int stm)
   show_progress(phase, 462, 462, true);
 }
 
-// H: verify no winning,cwinning,drawing or blessed loss move
-// TODO: verify no stalemate
-static void test_H(int stm)
+static void check_loss(int stm)
 {
   struct KSliceIterator iter;
 
   char phase[64];
-  snprintf(phase, sizeof phase, "%s test H", side[stm]);
+  snprintf(phase, sizeof phase, "check %s loss", side[stm]);
   int num_done = 0;
+  check_stalemate = true;
 
   kslice_iter_init(&iter, stm);
   int s, s1;
@@ -977,11 +829,12 @@ static void test_H(int stm)
 
     while (kslice_iter_in(&iter, &s1)) {
       kslice_read(s1, s1, stm ^ 1, "win", -1);
-      kslice_read(-1, s1, stm ^ 1, "illegal", -1);
-      kslice_not_and(s1, -1);
+      kslice_read_or(s1, s1, stm ^ 1, "illegal", -1);
+      kslice_not(s1);
     }
 
-    kslice_read(-1, s, stm, "H", -1);
+    kslice_read(-1, s, stm, "bloss", -1);
+    kslice_read_andnot(-1, s, stm, "capt/bloss", -1);
     check_zero(stm, s);
 
     while (kslice_iter_out(&iter, &s));
@@ -1129,12 +982,10 @@ void decompress_kslice(struct Tbase *tb, int stm, int s)
   if (!table->precomp) {
     struct TbTableConst *tbl = (struct TbTableConst *)table;
     int v = tbl->const_value;
-//    printf("v[%d][%d] = %d\n", stm, s, v);
+    kslice_set_addr(kslice_buf[v], s);
     for (int i = 0; i < 5; i++) {
-      if (i == v)
-        kslice_set_addr(kslice_buf[i], s);
-      else
-        kslice_clear_addr(kslice_buf[i], s);
+      if (i == v) continue;
+      kslice_clear_addr(kslice_buf[i], s);
     }
   }
   else {
@@ -1148,13 +999,23 @@ void decompress_kslice(struct Tbase *tb, int stm, int s)
       run_threaded(depermute_ref_worker, &work_g_static[1]);
   }
 
+  // Reconstruct proper win/cwin/draw/bloss/loss slices of legal positions.
   kslice_read_addr(kslice_buf[5], s, stm, "illegal", -1);
+  kslice_read_addr(kslice_buf[6], s, stm, "capt/win", -1);
+  kslice_abc_addr(kslice_buf[4], kslice_buf[5], kslice_buf[6], s);
+  kslice_read_addr(kslice_buf[6], s, stm, "capt/cwin", -1);
+  kslice_abc_addr(kslice_buf[3], kslice_buf[5], kslice_buf[6], s);
+  kslice_read_addr(kslice_buf[6], s, stm, "capt/draw", -1);
+  kslice_abc_addr(kslice_buf[2], kslice_buf[5], kslice_buf[6], s);
+  kslice_read_addr(kslice_buf[6], s, stm, "capt/bloss", -1);
+  kslice_abc_addr(kslice_buf[1], kslice_buf[5], kslice_buf[6], s);
+  kslice_andnot_addr(kslice_buf[0], kslice_buf[5], s);
 
-  uint64_t c[5];
+  // Count and save win/cwin/draw/bloss/loss slices.
+  uint64_t num;
   for (int i = 0; i < 5; i++) {
-    kslice_and_not_addr(kslice_buf[i], kslice_buf[5], s);
-    wdl_cnt[stm][i] += c[i] = kslice_count_addr(kslice_buf[i], s);
-    kslice_write_addr(kslice_buf[i], s, stm, wdl_name[i], -1, c[i]);
+    wdl_cnt[stm][i] += num = kslice_count_addr(kslice_buf[i], s);
+    kslice_write_addr(kslice_buf[i], s, stm, wdl_name[i], -1, num);
   }
 }
 
@@ -1177,6 +1038,7 @@ void verify(void)
     snprintf(name, sizeof name, "../%s", g_tablename);
   else
     strcpy(name, g_tablename);
+
   struct Tbase *tb = init_tbase(&entry, name, WDL, false);
   if (!tb) {
     fprintf(stderr, "Could not open %s.\n", g_tablename);
@@ -1188,10 +1050,20 @@ void verify(void)
     exit(EXIT_FAILURE);
   }
 
-  kslice_alloc_buffers(6);
+  calc_sub_kslices(WHITE);
+  calc_sub_kslices(BLACK);
 
   calc_illegal(WHITE);
   calc_illegal(BLACK);
+
+  calc_capt(WHITE, 2);
+  calc_capt(BLACK, 2);
+  calc_capt(WHITE, 1);
+  calc_capt(BLACK, 1);
+  calc_capt(WHITE, 0);
+  calc_capt(BLACK, 0);
+  calc_capt(WHITE, -1);
+  calc_capt(BLACK, -1);
 
   for (int stm = 0; stm < 2; stm++) {
     char phase[64];
@@ -1232,42 +1104,24 @@ void verify(void)
       printf("wdl_cnt[%d][%d] = %lu\n", stm, i, wdl_cnt[stm][i]);
   }
 
-  for (int i = 0; i < 5; i++) {
-    free(kslice_buf[i]);
-    kslice_buf[i] = nullptr;
-  }
-
   free(tb_table);
 
-  kslice_alloc_buffers(20);
+  mtx_init(&report_mutex, mtx_plain);
 
-  calc_sub_kslices(WHITE);
-  calc_sub_kslices(BLACK);
+  check_win(WHITE);
+  check_cwin(WHITE);
+  check_draw(WHITE);
+  check_bloss(WHITE);
+  check_loss(WHITE);
 
-  calc_capt(WHITE, 2);
-  calc_capt(BLACK, 2);
-  calc_capt(WHITE, 1);
-  calc_capt(BLACK, 1);
-  calc_capt(WHITE, 0);
-  calc_capt(BLACK, 0);
-  calc_capt(WHITE, -1);
-  calc_capt(BLACK, -1);
+  check_win(BLACK);
+  check_cwin(BLACK);
+  check_draw(BLACK);
+  check_bloss(BLACK);
+  check_loss(BLACK);
 
-  create_test_sets(WHITE);
-  printf("A\n");
-  test_A(WHITE);
-  printf("B\n");
-  test_B(WHITE);
-  printf("C\n");
-  test_C(WHITE);
-  printf("D\n");
-  test_D(WHITE);
-  printf("E\n");
-  test_E(WHITE);
-  printf("F\n");
-  test_F(WHITE);
-  printf("G\n");
-  test_G(WHITE);
-  printf("H\n");
-  test_H(WHITE);
+  if (num_fails == 0)
+    printf("WDL table is OK.\n");
+
+  mtx_destroy(&report_mutex);
 }

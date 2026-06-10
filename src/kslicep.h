@@ -141,10 +141,10 @@ void k16slice_clear(int s);
 void k16slice_clear_addr(void *p);
 void k16slice_or(int s1, int s2);
 void k16slice_or_addr(void *p, void *q);
-void k16slice_or_not(int s1, int s2);
+void k16slice_ornot(int s1, int s2);
 void k16slice_and(int s1, int s2);
-void k16slice_and_not(int s1, int s2);
-void k16slice_not_and(int s1, int s2);
+void k16slice_andnot(int s1, int s2);
+void k16slice_notand(int s1, int s2);
 void k16slice_nor(int s1, int s2);
 uint64_t k16slice_write(int s, int slice, int stm, const char *name, int n,
     uint64_t num[16]);
@@ -162,7 +162,7 @@ void k16slice_sub_read(int s, int slice, int stm, const char *name);
 bool k16slice_sub_test_count(int s, int stm, const char *name, int n,
     uint64_t *num);
 void k16slice_sub_or_addr(void *p, void *q, int stm);
-void k16slice_sub_and_not(int s1, int s2, int stm);
+void k16slice_sub_andnot(int s1, int s2, int stm);
 void k16slice_clear_tail(int s);
 void k16slice_clear_tail_addr(void *p);
 uint64_t k16slice_count(int s, uint64_t num[16]);

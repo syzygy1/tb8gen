@@ -1401,7 +1401,7 @@ static bool calc_L(int stm, int n, bool more_l)
 
         // Remove positions with non-losing captures or pawn moves.
         k16slice_read(-1, s, stm, n <= DRAW_RULE ? "noloss" : "nobloss", -1);
-        k16slice_and_not(s, -1);
+        k16slice_andnot(s, -1);
         k16slice_clear_tail(s);
         k16slice_write(s, s, stm, "X", n, nullptr);
 
@@ -1512,7 +1512,7 @@ static bool calc_W(int stm, int n, bool more_w)
             k16slice_read(s1, s1, stm, "capt/win", -1);
             // Remove illegal positions to count wins by capture.
             k16slice_read(-1, s1, stm, "wins", 0);
-            k16slice_and_not(s1, -1);
+            k16slice_andnot(s1, -1);
             cnt_w += k16slice_count(s1, num);
             if (stm == BLACK) {
               // Count wins by pawn push. These are all legal already.
@@ -1528,7 +1528,7 @@ static bool calc_W(int stm, int n, bool more_w)
               k16slice_or(s1, -1);
             }
             k16slice_read(-1, s1, stm, "wins", 0);
-            k16slice_and_not(s1, -1);
+            k16slice_andnot(s1, -1);
             cnt_w += k16slice_count(s1, num);
           }
           else
@@ -1545,7 +1545,7 @@ static bool calc_W(int stm, int n, bool more_w)
       if (!partial || !k16slice_test_count(s, stm, "W", n, num)) {
         // Remove illegal positions and known faster wins.
         read_wins(-1, s, stm, n - 1);
-        k16slice_and_not(s, -1);
+        k16slice_andnot(s, -1);
         cnt += k16slice_count(s, num);
         uint64_t cost = k16slice_write(s, s, stm, "W", n, num);
         add_wins(s, stm, n, cost);
