@@ -174,25 +174,6 @@ alignas(64) struct Pool {
 
 static int worker(void *arg);
 
-#if 0
-static void update_time(bool report_time)
-{
-  int secs, usecs;
-  struct timeval stop_time;
-
-  gettimeofday(&stop_time, nullptr);
-  secs = stop_time.tv_sec - g_cur_time.tv_sec;
-  usecs = stop_time.tv_usec - g_cur_time.tv_usec;
-  if (usecs < 0) {
-    usecs += 1000000;
-    secs--;
-  }
-  if (report_time)
-    printf("time taken = %3d:%02d.%03d\n", secs / 60, secs % 60, usecs/1000);
-  g_cur_time = stop_time;
-}
-#endif
-
 void init_threads(void)
 {
   assume(g_num_threads >= 1); // to get rid of some warnings

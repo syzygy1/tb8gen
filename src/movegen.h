@@ -175,6 +175,11 @@ INLINE bool opp_king_attacked(Position *pos)
   return is_attacked_by(pos, pos->sq[pos->stm ^ 1], pos->stm);
 }
 
+INLINE bool my_king_attacked(Position *pos)
+{
+  return is_attacked_by(pos, pos->sq[pos->stm], pos->stm ^ 1);
+}
+
 #if 1
 static_assert(MAX_PIECES == 8);
 INLINE int get_idx(const uint8_t *restrict sq, uint8_t s)

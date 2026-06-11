@@ -363,7 +363,7 @@ void abc_worker(struct ThreadData *thread)
     __m512i b = _mm512_load_si512(q + idx);
     __m512i c = _mm512_load_si512(r + idx);
     _mm512_store_si512(p + idx, _mm512_ternarylogic_epi64(a, b, c, 0x32));
-    _mm512_store_si512(q + idx, _mm512_or_si512(b, c));
+    _mm512_store_si512(q + idx, _mm512_ternarylogic_epi64(a, b, c, 0xfe));
   }
 
 #elifdef __AVX2__
@@ -372,8 +372,9 @@ void abc_worker(struct ThreadData *thread)
     __m256i a = _mm256_load_si256(p + idx);
     __m256i b = _mm256_load_si256(q + idx);
     __m256i c = _mm256_load_si256(q + idx);
-    _mm256_store_si256(p + idx, _mm256_andnot_si256(b, _mm256_or_si256(a, c)));
-    _mm256_store_si256(q + idx, _mm256_or_si256(b, a));
+    __m256i a_or_c = _mm256_or_si512(a, c);
+    _mm256_store_si256(p + idx, _mm256_andnot_si256(b, a_or_c));
+    _mm256_store_si256(q + idx, _mm256_or_si256(b, a_or_c));
   }
 
 #else
@@ -383,7 +384,7 @@ void abc_worker(struct ThreadData *thread)
     uint64_t b = q[idx];
     uint64_t c = r[idx];
     p[idx] = (a | c) & ~b;
-    q[idx] = b | c;
+    q[idx] = a | b | c;
   }
 
 #endif

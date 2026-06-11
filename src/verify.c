@@ -522,7 +522,10 @@ static void check_zero_worker(struct ThreadData *thread)
       uint8_t tmp = pos.sq[stm];
       bool v = test_king_moves(stm, occ, pos.sq);
       pos.sq[stm] = tmp;
-      if (v || (check_stalemate && !has_legal_moves(&pos))) {
+      if (v || (    check_stalemate
+                && !my_king_attacked(&pos)
+                && !has_legal_moves(&pos)))
+      {
 fail:
         report_fail(s, cur, &pos);
       }
@@ -556,7 +559,10 @@ static void check_zero_ref_worker(struct ThreadData *thread)
       uint8_t tmp = pos.sq[stm];
       bool v = test_king_moves(stm, occ, pos.sq);
       pos.sq[stm] = tmp;
-      if (v || (check_stalemate && !has_legal_moves(&pos))) {
+      if (v || (    check_stalemate
+                && !my_king_attacked(&pos)
+                && !has_legal_moves(&pos)))
+      {
 fail:
         report_fail(s, cur, &pos);
       }
@@ -833,8 +839,7 @@ static void check_loss(int stm)
       kslice_not(s1);
     }
 
-    kslice_read(-1, s, stm, "bloss", -1);
-    kslice_read_andnot(-1, s, stm, "capt/bloss", -1);
+    kslice_read(-1, s, stm, "loss", -1);
     check_zero(stm, s);
 
     while (kslice_iter_out(&iter, &s));
@@ -1100,7 +1105,7 @@ void verify(void)
     }
     show_progress(phase, 462, 462, true);
 
-    for (int i = 0; i < 5; i++)
+    for (int i = 4; i >= 0; i--)
       printf("wdl_cnt[%d][%d] = %lu\n", stm, i, wdl_cnt[stm][i]);
   }
 

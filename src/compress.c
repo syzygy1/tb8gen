@@ -132,18 +132,18 @@ static uint8_t newtest[MAXSYMB][MAXSYMB];
 static uint32_t (*countfirst)[MAX_NEW + 1][MAXSYMB + 1];
 static uint32_t (*countsecond)[MAX_NEW + 1][MAXSYMB + 1];
 
-static struct Work compress_work, compress_work_adj;
+static struct Work compress_work, compress_work_adj, compress_static_work;
 static uint64_t *restrict work = nullptr, *restrict work_adj = nullptr;
 static int compress_work_units;
+static int compress_static_work_units;
 static int compress_num_active_threads;
 static int compress_active_threads[MAX_THREADS];
 
-static constexpr uint64_t COMPRESS_MIN_DYNAMIC_CHUNK = 1ULL << 20;
+static constexpr uint64_t COMPRESS_MIN_CHUNK = 1ULL << 16;
 
 static void fill_compress_work(uint64_t size, int factor)
 {
-  compress_work_units = calc_work_units(size, factor,
-      COMPRESS_MIN_DYNAMIC_CHUNK);
+  compress_work_units = calc_work_units(size, factor, COMPRESS_MIN_CHUNK);
   compress_work.schedule = WORK_DYNAMIC;
   compress_work_adj.schedule = WORK_DYNAMIC;
   work_refill_units(&compress_work, compress_work_units, size, 0);
@@ -154,15 +154,14 @@ static void fill_compress_work(uint64_t size, int factor)
 
 static void fill_compress_static_work(uint64_t size)
 {
-  compress_work_units = calc_work_units(size, 1, COMPRESS_MIN_DYNAMIC_CHUNK);
-  compress_work.schedule = WORK_STATIC;
-  work_refill_units(&compress_work, compress_work_units, size, 0);
-  work = compress_work.range;
+  compress_static_work_units = calc_work_units(size, 1, COMPRESS_MIN_CHUNK);
+  compress_static_work.schedule = WORK_STATIC;
+  work_refill_units(&compress_static_work, compress_static_work_units, size, 0);
 }
 
-static void set_compress_active_threads(void)
+static void set_compress_active_threads(int work_units)
 {
-  if (compress_work_units <= 1) {
+  if (work_units <= 1) {
     compress_num_active_threads = 1;
     compress_active_threads[0] = g_num_threads - 1;
   } else {
@@ -322,8 +321,6 @@ void compress_init_wdl(bool vals[])
   if (num_vals == 0) {
     fprintf(stderr, "compress_init_wdl(): num_vals == 0\n");
     exit(EXIT_FAILURE);
-//    wdl_vals[2] = true;
-//    num_vals = 1;
   }
 
   dc_to_val[0] = wdl_vals[0] ? 0 : 1;
@@ -472,14 +469,14 @@ int64_t *construct_pairs_wdl(void *data, uint64_t size, int minfreq,
       pairfreq[i][j] = 0;
 
   fill_compress_static_work(size);
-  set_compress_active_threads();
+  set_compress_active_threads(compress_static_work_units);
   for (int tt = 0; tt < compress_num_active_threads; tt++) {
     int t = compress_active_threads[tt];
     for (int i = 0; i < num_syms; i++)
       for (int j = 0; j < num_syms; j++)
         countfreq_wdl[t][i][j] = 0;
   }
-  run_threaded(count_pairs_wdl, &compress_work);
+  run_threaded(count_pairs_wdl, &compress_static_work);
   for (int tt = 0; tt < compress_num_active_threads; tt++) {
     int t = compress_active_threads[tt];
     for (int i = 0; i < num_syms; i++)
@@ -715,8 +712,7 @@ lab:
     for (int i = 0; i < num3; i++)
       newtest[newpairs[i].s1][newpairs[i].s2] = i + 1;
 
-    fill_compress_work(size, 4);
-    set_compress_active_threads();
+    set_compress_active_threads(compress_work_units);
 
     for (int tt = 0; tt < compress_num_active_threads; tt++) {
       int t = compress_active_threads[tt];
@@ -728,7 +724,6 @@ lab:
     }
 
     adjust_work_replace_u8(work);
-    compress_work.schedule = WORK_DYNAMIC;
     run_threaded(replace_pairs_u8, &compress_work);
 
     for (int tt = 0; tt < compress_num_active_threads; tt++) {
@@ -833,6 +828,7 @@ int64_t *construct_pairs_dtz(void *data, uint64_t size, int minfreq,
   compress_state.size = size;
 
   fill_compress_work(size, 4);
+  fill_compress_static_work(size);
 
   if (maxsymbols > 0) {
     maxsymbols += num_syms;
@@ -858,13 +854,12 @@ int64_t *construct_pairs_dtz(void *data, uint64_t size, int minfreq,
     exit(EXIT_FAILURE);
   }
 
+  set_compress_active_threads(compress_static_work_units);
   if (!wide) {
     cf_u8 *countfreq = countfreq_dtz;
-    fill_compress_static_work(size);
-    set_compress_active_threads();
     for (int tt = 0; tt < compress_num_active_threads; tt++)
       memset(countfreq[compress_active_threads[tt]], 0, sizeof *countfreq);
-    run_threaded(count_pairs_dtz_u8, &compress_work);
+    run_threaded(count_pairs_dtz_u8, &compress_static_work);
     for (int tt = 0; tt < compress_num_active_threads; tt++) {
       int t = compress_active_threads[tt];
       for (int i = 0; i < num_syms; i++)
@@ -873,11 +868,9 @@ int64_t *construct_pairs_dtz(void *data, uint64_t size, int minfreq,
     }
   } else {
     cf_u16 *countfreq = countfreq_dtz;
-    fill_compress_static_work(size);
-    set_compress_active_threads();
     for (int tt = 0; tt < compress_num_active_threads; tt++)
       memset(countfreq[compress_active_threads[tt]], 0, sizeof *countfreq);
-    run_threaded(count_pairs_dtz_u16, &compress_work);
+    run_threaded(count_pairs_dtz_u16, &compress_static_work);
     for (int tt = 0; tt < compress_num_active_threads; tt++) {
       int t = compress_active_threads[tt];
       for (int i = 0; i < num_syms; i++)
@@ -910,11 +903,9 @@ int64_t *construct_pairs_dtz(void *data, uint64_t size, int minfreq,
       newtest[i][j] = 0;
 
   if (!wide) {
-    fill_compress_work(size, 4);
     adjust_work_dontcares_u8(work, work_adj);
     run_threaded(fill_dontcares_u8, &compress_work_adj);
   } else {
-    fill_compress_work(size, 4);
     adjust_work_dontcares_u16(work, work_adj);
     run_threaded(fill_dontcares_u16, &compress_work_adj);
   }
@@ -923,13 +914,12 @@ int64_t *construct_pairs_dtz(void *data, uint64_t size, int minfreq,
     for (int j = 0; j < num_syms; j++)
       pairfreq[i][j] = 0;
 
+  set_compress_active_threads(compress_static_work_units);
   if (!wide) {
     cf_u8 *countfreq = countfreq_dtz;
-    fill_compress_static_work(size);
-    set_compress_active_threads();
     for (int tt = 0; tt < compress_num_active_threads; tt++)
       memset(countfreq[compress_active_threads[tt]], 0, sizeof *countfreq);
-    run_threaded(count_pairs_dtz_u8, &compress_work);
+    run_threaded(count_pairs_dtz_u8, &compress_static_work);
     for (int tt = 0; tt < compress_num_active_threads; tt++) {
       int t = compress_active_threads[tt];
       for (int i = 0; i < num_syms; i++)
@@ -938,11 +928,9 @@ int64_t *construct_pairs_dtz(void *data, uint64_t size, int minfreq,
     }
   } else {
     cf_u16 *countfreq = countfreq_dtz;
-    fill_compress_static_work(size);
-    set_compress_active_threads();
     for (int tt = 0; tt < compress_num_active_threads; tt++)
       memset(countfreq[compress_active_threads[tt]], 0, sizeof *countfreq);
-    run_threaded(count_pairs_dtz_u16, &compress_work);
+    run_threaded(count_pairs_dtz_u16, &compress_static_work);
     for (int tt = 0; tt < compress_num_active_threads; tt++) {
       int t = compress_active_threads[tt];
       for (int i = 0; i < num_syms; i++)
@@ -1037,8 +1025,7 @@ int64_t *construct_pairs_dtz(void *data, uint64_t size, int minfreq,
     for (int i = 0; i < num; i++)
       newtest[newpairs[i].s1][newpairs[i].s2] = i + 1;
 
-    fill_compress_work(size, 4);
-    set_compress_active_threads();
+    set_compress_active_threads(compress_work_units);
 
     for (int tt = 0; tt < compress_num_active_threads; tt++) {
       int t = compress_active_threads[tt];
@@ -1051,11 +1038,9 @@ int64_t *construct_pairs_dtz(void *data, uint64_t size, int minfreq,
 
     if (!wide) {
       adjust_work_replace_u8(work);
-      compress_work.schedule = WORK_DYNAMIC;
       run_threaded(replace_pairs_u8, &compress_work);
     } else {
       adjust_work_replace_u16(work);
-      compress_work.schedule = WORK_DYNAMIC;
       run_threaded(replace_pairs_u16, &compress_work);
     }
 
