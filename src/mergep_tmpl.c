@@ -232,12 +232,11 @@ static void NAME(merge_bitmaps)(int stm, int s)
 
   // wins
   for (int n = 1; n < max_iteration; n++)
-    if (   (n == 1 || n == DRAW_RULE + 1
-            || g_stats[stm][2 + n + 2 * (n > DRAW_RULE)])
+    if (  (n == 1 || n == DRAW_RULE + 1 || g_stats[stm][stats_n(n)])
         && k16slice_test(s, stm, "W", n)
         && k16slice_read(-1, s, stm, "W", n))
     {
-      merge_n = n <= DRAW_RULE ? 2 + n : 4 + n;
+      merge_n = stats_n(n);
       run_threaded(NAME(merge_worker), work_g16);
       if (!include_wins)
         stat_count(stats, merge_n);

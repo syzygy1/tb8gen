@@ -7,8 +7,9 @@
 #ifndef CHECKSUM_H
 #define CHECKSUM_H
 
-void add_checksum(const char *name);
-void verify_checksum(const char *name);
+void add_cityhash(const char *name);
+void add_xxhash(const char *name);
+void verify_checksum(const char *name, bool new);
 void print_checksum(const char *name, char *sum);
 
 #endif

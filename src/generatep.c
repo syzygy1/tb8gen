@@ -14,7 +14,7 @@
 #include "kslicep.h"
 #include "movegen.h"
 #include "probe.h"
-#include "tb8genp.h"
+#include "tb8gen.h"
 #include "threads.h"
 #include "types.h"
 #include "util.h"

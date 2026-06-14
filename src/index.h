@@ -13,19 +13,8 @@
 #include <x86intrin.h>
 
 #include "defs.h"
-//#include "probe.h"
-#ifndef HAS_PAWNS
 #include "tb8gen.h"
-#else
-#include "tb8genp.h"
-#endif
 #include "types.h"
-
-#ifndef HAS_PAWNS
-static constexpr bool has_pawns = false;
-#else
-static constexpr bool has_pawns = true;
-#endif
 
 static constexpr int MAX_MULT = MAX_PIECES - (has_pawns ? 3 : 2);
 

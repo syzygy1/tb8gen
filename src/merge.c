@@ -185,23 +185,23 @@ void merge(int stm)
   // Count the number of distinct values to see if we can fit them all
   // in one byte.
   int win_vals = 0, cwin_vals = 0, bloss_vals = 0, loss_vals = 0;
-  for (int i = 2; i <= DRAW_RULE + 1; i++)
+  for (int i = 3; i <= DRAW_RULE + 2; i++)
     win_vals += (stats[i] != 0);
-  for (int i = DRAW_RULE + 3; i < MAX_STATS / 2; i++)
+  for (int i = DRAW_RULE + 5; i < MAX_STATS / 2 + 1; i++)
     cwin_vals += (stats[i] != 0);
   for (int i = 0; i <= DRAW_RULE; i++)
     loss_vals += (stats[MAX_STATS - 1 - i] != 0);
-  for (int i = DRAW_RULE + 1; i < MAX_STATS / 2 - 2; i++)
+  for (int i = DRAW_RULE + 1; i < MAX_STATS / 2 - 3; i++)
     bloss_vals += (stats[MAX_STATS - 1 - i] != 0);
 
   mi.v_wdl[0] = loss_vals;
   mi.v_wdl[1] = bloss_vals;
-  mi.v_wdl[2] = stats[MAX_STATS / 2 + 1];
+  mi.v_wdl[2] = stats[MAX_STATS / 2 + 2];
   mi.v_wdl[3] = cwin_vals;
   mi.v_wdl[4] = win_vals;
 
   bool dc[4] = {
-    sub_cnt[stm ^ 1][3], stats[MAX_STATS / 2], stats[DRAW_RULE + 2], true
+    sub_cnt[stm ^ 1][3], stats[MAX_STATS / 2 + 1], stats[DRAW_RULE + 3], true
   };
 
   int i, j;
@@ -213,9 +213,9 @@ void merge(int stm)
     mi.v_wdl[0] = true;
 
   int special = 1 + (stats[1] != 0)
-                  + (stats[DRAW_RULE + 2] != 0)
-                  + (stats[MAX_STATS / 2] != 0)
-                  + (stats[MAX_STATS / 2 + 1] != 0);
+                  + (stats[DRAW_RULE + 3] != 0)
+                  + (stats[MAX_STATS / 2 + 1] != 0)
+                  + (stats[MAX_STATS / 2 + 2] != 0);
 
   int wins_red = (win_vals != 0) + (cwin_vals != 0);
   int losses_red = (loss_vals != 0) + (bloss_vals != 0);

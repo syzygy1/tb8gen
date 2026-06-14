@@ -524,7 +524,8 @@ static void check_zero_worker(struct ThreadData *thread)
       pos.sq[stm] = tmp;
       if (v || (    check_stalemate
                 && !my_king_attacked(&pos)
-                && !has_legal_moves(&pos)))
+                && !has_legal_moves(&pos)
+                && !has_legal_caps(&pos)))
       {
 fail:
         report_fail(s, cur, &pos);
@@ -561,7 +562,8 @@ static void check_zero_ref_worker(struct ThreadData *thread)
       pos.sq[stm] = tmp;
       if (v || (    check_stalemate
                 && !my_king_attacked(&pos)
-                && !has_legal_moves(&pos)))
+                && !has_legal_moves(&pos)
+                && !has_legal_caps(&pos)))
       {
 fail:
         report_fail(s, cur, &pos);
@@ -877,7 +879,7 @@ INLINE void store_wdl(uint64_t idx, uint8_t *restrict tmp, int v)
 }
 
 #define NUM 16
-void depermute_worker(struct ThreadData *thread)
+void depermute_462_worker(struct ThreadData *thread)
 {
   alignas(64) uint8_t tmp[64];
   uint8_t sq[MAX_PIECES];
@@ -925,7 +927,7 @@ void depermute_worker(struct ThreadData *thread)
     store_wdl(idx, tmp, 0);
 }
 
-void depermute_ref_worker(struct ThreadData *thread)
+void depermute_462_ref_worker(struct ThreadData *thread)
 {
   alignas(64) uint8_t tmp[64];
   uint8_t sq[MAX_PIECES];
@@ -974,7 +976,7 @@ bool flip[2], btm_side[2];
 
 uint64_t wdl_cnt[2][5];
 
-void decompress_kslice(struct Tbase *tb, int stm, int s)
+void decompress_kslice_462(struct Tbase *tb, int stm, int s)
 {
   Position pos = g_pos;
 
@@ -999,9 +1001,9 @@ void decompress_kslice(struct Tbase *tb, int stm, int s)
     table_info = table;
 
     if (s < 441)
-      run_threaded(depermute_worker, &work_g_static[0]);
+      run_threaded(depermute_462_worker, &work_g_static[0]);
     else
-      run_threaded(depermute_ref_worker, &work_g_static[1]);
+      run_threaded(depermute_462_ref_worker, &work_g_static[1]);
   }
 
   // Reconstruct proper win/cwin/draw/bloss/loss slices of legal positions.
@@ -1050,7 +1052,7 @@ void verify(void)
     exit(EXIT_FAILURE);
   }
 
-  if (tb->layout != LT_PIECE_KK) {
+  if (tb->layout != LT_PIECE_K && tb->layout != LT_PIECE_KK) {
     fprintf(stderr, "Layout type %d is currently not supported.\n", tb->layout);
     exit(EXIT_FAILURE);
   }
@@ -1077,33 +1079,74 @@ void verify(void)
     for (int i = 0; i < 5; i++)
       create_dir(-1, stm, wdl_name[i]);
 
-    tb_ri[stm] = ri;
-    g_pos.stm = stm;
-    flip[stm] = !symmetric ? !tb->flipped : stm != WHITE;
-    btm_side[stm] = (stm == WHITE) == flip[stm];
+    if (tb->layout == LT_PIECE_KK) {
 
-    for (int k = 0; k < ri.numsets; k++) {
-      int pt = g_pos.pt[ri.first[k]] ^ (flip[stm] << 3);
-      for (int j = 0; j < g_pos.num; j++)
-        if (tb->pt[j] == pt) {
-          tb_ri[stm].first[k] = j;
-          break;
-        }
-    }
-
-    for (int s = 0; s < 462; s++) {
-      show_progress(phase, s, 462, false);
-
-      g_pos.sq[0] = KKSquare[s][0];
-      g_pos.sq[1] = KKSquare[s][1];
+      tb_ri[stm] = ri;
       g_pos.stm = stm;
+      flip[stm] = !symmetric ? !tb->flipped : stm != WHITE;
+      btm_side[stm] = (stm == WHITE) == flip[stm];
 
-      if (flip[stm])
-        Swap(g_pos.sq[0], g_pos.sq[1]);
+      for (int k = 0; k < ri.numsets; k++) {
+        int pt = g_pos.pt[ri.first[k]] ^ (flip[stm] << 3);
+        for (int j = 0; j < g_pos.num; j++)
+          if (tb->pt[j] == pt) {
+            tb_ri[stm].first[k] = j;
+            break;
+          }
+      }
 
-      decompress_kslice(tb, stm, s);
+      for (int s = 0; s < 462; s++) {
+        show_progress(phase, s, 462, false);
+
+        g_pos.sq[0] = KKSquare[s][0];
+        g_pos.sq[1] = KKSquare[s][1];
+        g_pos.stm = stm;
+
+        if (flip[stm]) {
+          int s1 = KKMap[g_pos.sq[1]][g_pos.sq[0]];
+          g_pos.sq[0] = KKSquare[s1][0];
+          g_pos.sq[1] = KKSquare[s1][1];
+        }
+
+        decompress_kslice_462(tb, stm, s);
+      }
+      show_progress(phase, 462, 462, true);
+
+    } else { /* tb_layout == LT_PIECE_K */
+
+      tb_ri[stm] = ri;
+      g_pos.stm = stm;
+      flip[stm] = !symmetric ? !tb->flipped : stm != WHITE;
+      btm_side[stm] = (stm == WHITE) == flip[stm];
+
+      for (int k = 0; k < ri.numsets; k++) {
+        int pt = g_pos.pt[ri.first[k]] ^ (flip[stm] << 3);
+        for (int j = 0; j < g_pos.num; j++)
+          if (tb->pt[j] == pt) {
+            tb_ri[stm].first[k] = j;
+            break;
+          }
+      }
+
+      for (int s = 0; s < 462; s++) {
+        show_progress(phase, s, 462, false);
+
+        g_pos.sq[0] = KKSquare[s][0];
+        g_pos.sq[1] = KKSquare[s][1];
+        g_pos.stm = stm;
+
+        int s1 = s;
+        if (flip[stm]) {
+          int s1 = KKMap[g_pos.sq[1]][g_pos.sq[0]];
+          g_pos.sq[0] = KKSquare[s1][0];
+          g_pos.sq[1] = KKSquare[s1][1];
+        }
+
+        decompress_kslice_462(tb, stm, s1);
+      }
+      show_progress(phase, 462, 462, true);
+
     }
-    show_progress(phase, 462, 462, true);
 
     for (int i = 4; i >= 0; i--)
       printf("wdl_cnt[%d][%d] = %lu\n", stm, i, wdl_cnt[stm][i]);

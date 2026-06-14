@@ -9,6 +9,7 @@
 #include <stdlib.h>
 
 #include "defs.h"
+#include "generate.h"
 #include "index.h"
 #include "kslice.h"
 #include "movegen.h"
@@ -25,11 +26,6 @@ const char clr_W[4][4] = { "94", "93", "92", "91" };
 
 uint64_t sub_cnt[2][5];
 int max_iteration;
-
-INLINE int stats_n(int n)
-{
-  return 1 + n + (n > DRAW_RULE);
-}
 
 INLINE void mark_king_unmoves(int stm, Bitboard occ, uint8_t *restrict sq)
 {
@@ -307,7 +303,7 @@ static void add_wins(int s, int stm, int n, uint64_t cost)
 static void read_wins(int s, int slice, int stm, int n)
 {
   if (n < 0)
-    for (n = MAX_STATS / 2 - 3; n > 0; n--)
+    for (n = MAX_STATS / 2 - 4; n > 0; n--)
       if (g_stats[stm][stats_n(n)])
         break;
 
@@ -1245,8 +1241,8 @@ void generate(void)
   }
 
   // CAPT_CWIN
-  calc_capt(WHITE, 1, 2 + DRAW_RULE);
-  calc_capt(BLACK, 1, 2 + DRAW_RULE);
+  calc_capt(WHITE, 1, 3 + DRAW_RULE);
+  calc_capt(BLACK, 1, 3 + DRAW_RULE);
 
   more_wb_next = calc_L(WHITE, n, more_lw);
   more_ww_next = calc_L(BLACK, n, more_lb);
@@ -1269,19 +1265,19 @@ void generate(void)
   }
 
   // CAPT_DRAW
-  calc_capt(WHITE, 0, MAX_STATS / 2);
-  calc_capt(BLACK, 0, MAX_STATS / 2);
+  calc_capt(WHITE, 0, MAX_STATS / 2 + 1);
+  calc_capt(BLACK, 0, MAX_STATS / 2 + 1);
 
   max_iteration = n;
 
   // Remove some double counting.
   for (int stm = 0; stm < 2; stm++) {
-    g_stats[stm][2] -= g_stats[stm][1];
-    g_stats[stm][3 + DRAW_RULE] -= g_stats[stm][2 + DRAW_RULE];
+    g_stats[stm][3] -= g_stats[stm][1];
+    g_stats[stm][4 + DRAW_RULE] -= g_stats[stm][3 + DRAW_RULE];
     uint64_t tot = 0;
     for (int i = 0; i < MAX_STATS; i++)
       tot += g_stats[stm][i];
-    g_stats[stm][MAX_STATS / 2 + 1] = 462 * kslice_size - tot;
+    g_stats[stm][MAX_STATS / 2 + 2] = 462 * kslice_size - tot;
   }
 
   F = file_open_write("generate_info");

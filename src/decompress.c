@@ -20,50 +20,7 @@
 #include "threads.h"
 #include "util.h"
 
-#if 0
-void decomp_init_piece(uint8_t *pcs)
-{
-  pawns0 = pawns1 = 0;
-  load_be = malloc(sizeof(struct PieceEntry));
-  load_be->has_pawns = false;
-  load_be->symmetric = symmetric;
-  load_be->num = g_pos.num;
-  load_be->kk_enc = enc_type;
-  int j = 0;
-  for (int i = 0; i < 16; i++)
-    if (pcs[i] == 1)
-      j++;
-  load_be->kk_enc = j == 2;
-}
-
-void decomp_init_pawn(uint8_t *pcs, uint8_t *pt)
-{
-  if (pt[0] == WPAWN) {
-    pawns0 = pcs[WPAWN];
-    pawns1 = pcs[BPAWN];
-  } else {
-    pawns0 = pcs[BPAWN];
-    pawns1 = pcs[WPAWN];
-  }
-  load_be = malloc(sizeof(struct PawnEntry));
-  load_be->has_pawns = true;
-  load_be->symmetric = symmetric;
-  load_be->num = g_pos.num;
-  load_be->pawns[0] = pawns0;
-  load_be->pawns[1] = pawns1;
-}
-
-void decomp_init_table(int type)
-{
-  if (!init_table(load_be, g_tablename, type, type != DTM)) {
-    fprintf(stderr, "Could not find or initialize %s%s.\n", g_tablename,
-        suffix[type]);
-    exit(EXIT_FAILURE);
-  }
-}
-#endif
-
-uint64_t expand_symbol(uint8_t *restrict dst, int sym, uint64_t idx,
+static uint64_t expand_symbol(uint8_t *restrict dst, int sym, uint64_t idx,
     uint64_t end, const uint8_t *sympat, const uint8_t *symlen)
 {
   if (idx == end) return idx;
@@ -203,21 +160,6 @@ void decompress_table(struct TbTable2 *table, uint8_t *decomp_table,
 }
 
 #if 0
-void set_perm(struct EncInfo *ei, uint8_t *perm, int n, uint8_t *pt, bool flip)
-{
-  uint8_t *pieces = ei->pieces;
-  int k = 0;
-
-  for (int i = 0, j = 0; i < n;) {
-    if (pieces[i] != k) {
-      k = pieces[i];
-      j = 0;
-    }
-    while ((pt[j] ^ (flip ? 8 : 0)) != k) j++;
-    perm[j++] = i++;
-  }
-}
-
 void print_decompression_info(struct EncInfo *ei)
 {
   struct PairsData *d = ei->precomp;

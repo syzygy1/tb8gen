@@ -167,8 +167,6 @@ static int find_partition(int len, uint8_t mult[])
   assume(0);
 }
 
-static uint8_t transition_id[30][8];
-
 // Per transition, one case per number of 2-orbits filled.
 struct TransitionCase {
   uint8_t d;
@@ -347,6 +345,8 @@ void init_ranking(void)
         count[id][p - 25][s] = total;
       }
   }
+
+  uint8_t transition_id[30][8] = { 0 };
 
   id = 0;
   for (int part_id = 1; part_id < 30; part_id++) {

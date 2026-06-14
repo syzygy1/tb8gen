@@ -12,39 +12,45 @@ static int NAME(init_merge_value_map)(uint64_t *stats)
   NAME(mi.v)[0] = n;
   n += (stats[1] != 0);
   NAME(mi.v)[1] = n;
+  assert(stats[2] == 0);
+  NAME(mi.v)[2] = n;
   if (include_wins) {
-    for (int i = 2; i <= DRAW_RULE + 1; i++) {
+    for (int i = 3; i <= DRAW_RULE + 2; i++) {
       n += (stats[i] != 0);
       NAME(mi.v)[i] = n;
     }
-    n += (stats[DRAW_RULE + 2] != 0);
-    NAME(mi.v)[DRAW_RULE + 2] = n;
-    for (int i = DRAW_RULE + 3; i < MAX_STATS / 2; i++) {
+    n += (stats[DRAW_RULE + 3] != 0);
+    NAME(mi.v)[DRAW_RULE + 3] = n;
+    assert(stats[DRAW_RULE + 4] == 0);
+    NAME(mi.v)[DRAW_RULE + 4] = n;
+    for (int i = DRAW_RULE + 5; i < MAX_STATS / 2 + 1; i++) {
       n += (stats[i] != 0);
       NAME(mi.v)[i] = n;
     }
   } else {
     n += mi.v_wdl[4];
-    for (int i = 2; i <= DRAW_RULE + 1; i++)
+    for (int i = 3; i <= DRAW_RULE + 2; i++)
       NAME(mi.v)[i] = n;
-    n += (stats[DRAW_RULE + 2] != 0);
-    NAME(mi.v)[DRAW_RULE + 2] = n;
+    n += (stats[DRAW_RULE + 3] != 0);
+    NAME(mi.v)[DRAW_RULE + 3] = n;
+    assert(stats[DRAW_RULE + 4] == 0);
+    NAME(mi.v)[DRAW_RULE + 4] = n;
     n += mi.v_wdl[3];
-    for (int i = DRAW_RULE + 3; i < MAX_STATS / 2; i++)
+    for (int i = DRAW_RULE + 5; i < MAX_STATS / 2 + 1; i++)
       NAME(mi.v)[i] = n;
   }
-  n += (stats[MAX_STATS / 2] != 0);
-  NAME(mi.v)[MAX_STATS / 2] = n;
   n += (stats[MAX_STATS / 2 + 1] != 0);
   NAME(mi.v)[MAX_STATS / 2 + 1] = n;
+  n += (stats[MAX_STATS / 2 + 2] != 0);
+  NAME(mi.v)[MAX_STATS / 2 + 2] = n;
   if (include_losses) {
-    for (int i = MAX_STATS / 2 - 3; i >= 0; i--) {
+    for (int i = MAX_STATS / 2 - 4; i >= 0; i--) {
       n += (stats[MAX_STATS - 1 - i] != 0);
       NAME(mi.v)[MAX_STATS - 1 - i] = n;
     }
   } else {
     n += mi.v_wdl[1];
-    for (int i = MAX_STATS / 2 - 3; i >= DRAW_RULE + 1; i--)
+    for (int i = MAX_STATS / 2 - 4; i >= DRAW_RULE + 1; i--)
       NAME(mi.v)[MAX_STATS - 1 - i] = n;
     n += mi.v_wdl[0];
     for (int i = DRAW_RULE; i >= 0; i--)
@@ -69,7 +75,7 @@ static void NAME(merge_transform)(struct ThreadData *thread)
 static void NAME(merge_draw_worker)(struct ThreadData *thread)
 {
   T *restrict const q = merge_table;
-  T n = NAME(mi.v)[MAX_STATS / 2 + 1];
+  T n = NAME(mi.v)[MAX_STATS / 2 + 2];
   for (uint64_t idx = thread->begin, end = thread->end; idx < end; idx++)
     q[idx] = n;
 }
@@ -189,13 +195,13 @@ static void NAME(merge_statistics_worker)(struct ThreadData *thread)
 // u16:
 // ILLEGAL     = 0
 // CAPT_WIN    = 1
-// wins          2..101 -> win-in-1 to win-in-100
-// CAPT_CWIN   = 102
-// wins          103-127  -> win-in-101 to-win-in-125
-// CAPT_DRAW   = MAX_STATS/2
-// unknown       MAX_STATS/2+1 -> draw
+// wins          3..102 -> win-in-1 to win-in-100
+// CAPT_CWIN   = 103
+// wins          105-127  -> win-in-101 to-win-in-125
+// CAPT_DRAW   = MAX_STATS/2+1
+// unknown       MAX_STATS/2+2 -> draw
 // CAPT_CLOSS  = x
-// losses        130..154 -> loss-in-125 to loss-in-101
+// losses        131..154 -> loss-in-124 to loss-in-101
 // losses        MAX_STATS-101..MAX_STATS-2 -> loss-in-100 to loss-in-1
 // losses        MAX_STATS-1 -> mate
 
@@ -245,7 +251,7 @@ static void NAME(merge_bitmaps)(int stm, int s)
   for (int n = 1; n < max_iteration; n++)
     if (kslice_test(s, stm, "W", n)) {
       kslice_read(-1, s, stm, "W", n);
-      merge_n = n <= DRAW_RULE ? 1 + n : 2 + n;
+      merge_n = stats_n(n);
       run_threaded(NAME(merge_worker), &work_g_merge_dynamic[s >= 441]);
       if (!include_wins)
         stats[merge_n] = kslice_read_count;
@@ -265,14 +271,14 @@ static void NAME(merge_bitmaps)(int stm, int s)
   // CAPT_CWIN
   if (sub_cnt[stm ^ 1][1]) {
     kslice_read(-1, s, stm, "capt/cwin", -1);
-    merge_n = 2 + DRAW_RULE;
+    merge_n = DRAW_RULE + 3;
     run_threaded(NAME(merge_worker), &work_g_merge_dynamic[s >= 441]);
   }
 
   // CAPT_DRAW
   if (sub_cnt[stm ^ 1][2]) {
     kslice_read(-1, s, stm, "capt/draw", -1);
-    merge_n = MAX_STATS / 2;
+    merge_n = MAX_STATS / 2 + 1;
     run_threaded(NAME(merge_worker), &work_g_merge_dynamic[s >= 441]);
   }
 
@@ -286,9 +292,9 @@ static void NAME(merge_bitmaps)(int stm, int s)
   run_threaded(NAME(merge_statistics_worker), &work_g_merge_static[s >= 441]);
 
   uint64_t win_tmp, cwin_tmp, bloss_tmp, loss_tmp;
-  win_tmp = stats[2];
-  cwin_tmp = stats[DRAW_RULE + 3];
-  bloss_tmp = stats[MAX_STATS / 2 + 2];
+  win_tmp = stats[3];
+  cwin_tmp = stats[DRAW_RULE + 5];
+  bloss_tmp = stats[MAX_STATS / 2 + 3];
   loss_tmp = stats[MAX_STATS - 1 - DRAW_RULE];
 
   for (int tt = 0; tt < merge_num_active_threads; tt++) {
@@ -299,12 +305,12 @@ static void NAME(merge_bitmaps)(int stm, int s)
 
   // This is a bit hackish.
   if (!include_wins) {
-    stats[2] = win_tmp - stats[1];
-    stats[DRAW_RULE + 3] = cwin_tmp - stats[DRAW_RULE + 2];
+    stats[3] = win_tmp - stats[1];
+    stats[DRAW_RULE + 5] = cwin_tmp - stats[DRAW_RULE + 3];
   }
 
   if (!include_losses) {
-    stats[MAX_STATS / 2 + 2] = bloss_tmp;
+    stats[MAX_STATS / 2 + 3] = bloss_tmp;
     stats[MAX_STATS - 1 - DRAW_RULE] = loss_tmp;
   }
 
@@ -321,14 +327,14 @@ static void NAME(merge_bitmaps)(int stm, int s)
     T z[MAX] = { 0 };
 
     if (one_sided || wins_only) {
-      for (int i = 2; i <= DRAW_RULE + 1; i++)
+      for (int i = 3; i <= DRAW_RULE + 2; i++)
         z[NAME(mi.v)[i]] = NAME(mi.v)[i];
-      for (int i = DRAW_RULE + 3; i < MAX_STATS / 2; i++)
+      for (int i = DRAW_RULE + 5; i < MAX_STATS / 2 + 1; i++)
         z[NAME(mi.v)[i]] = NAME(mi.v)[i];
     }
 
     if (one_sided || !wins_only)
-      for (int i = 0; i < MAX_STATS / 2 - 2; i++)
+      for (int i = 0; i < MAX_STATS / 2 - 3; i++)
         z[NAME(mi.v)[MAX_STATS - 1 - i]] = NAME(mi.v)[MAX_STATS - 1 - i];
 
     create_name(str, s, stm, "merged/dtz", -1);
@@ -344,14 +350,14 @@ static void NAME(merge_bitmaps)(int stm, int s)
   T w[MAX];
   for (int i = 0; i <= DRAW_RULE; i++)
     w[NAME(mi.v)[MAX_STATS - 1 - i]] = 0;
-  for (int i = DRAW_RULE + 1; i < MAX_STATS / 2 - 2; i++)
+  for (int i = DRAW_RULE + 1; i < MAX_STATS / 2 - 3; i++)
     w[NAME(mi.v)[MAX_STATS - 1 - i]] = 1;
-  w[NAME(mi.v)[MAX_STATS / 2 + 1]] = 2;
-  w[NAME(mi.v)[MAX_STATS / 2]] = 6;
-  for (int i = MAX_STATS / 2 - 1; i >= DRAW_RULE + 3; i--)
+  w[NAME(mi.v)[MAX_STATS / 2 + 2]] = 2;
+  w[NAME(mi.v)[MAX_STATS / 2 + 1]] = 6;
+  for (int i = MAX_STATS / 2; i >= DRAW_RULE + 4; i--)
     w[NAME(mi.v)[i]] = 3;
-  w[NAME(mi.v)[DRAW_RULE + 2]] = 7;
-  for (int i = DRAW_RULE + 1; i >= 2; i--)
+  w[NAME(mi.v)[DRAW_RULE + 3]] = 7;
+  for (int i = DRAW_RULE + 2; i >= 2; i--)
     w[NAME(mi.v)[i]] = 4;
   w[NAME(mi.v)[1]] = 8;
   w[NAME(mi.v)[0]] = 8;

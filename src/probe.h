@@ -123,42 +123,42 @@ struct DtzTable {
 
 struct TbTable2 {
   struct PairsData *precomp;
-  uint8_t first[MAX_SETS];
   union {
     struct RankInfo *ri;
     struct RankInfo10 *ri_10;
   };
+  uint8_t first[MAX_SETS];
 };
 
 struct WdlTable2 {
   struct PairsData *precomp;
-  uint8_t first[MAX_SETS];
- union {
+  union {
     struct RankInfo *ri;
     struct RankInfo10 *ri_10;
   };
+  uint8_t first[MAX_SETS];
 };
 
 struct DtmTable2 {
   struct PairsData *precomp;
-  uint8_t first[MAX_SETS];
   union {
     struct RankInfo *ri;
     struct RankInfo10 *ri_10;
   };
+  uint8_t first[MAX_SETS];
   uint8_t mapped;
   uint8_t dist_format;
-  const uint16_t *map_dtm;
   uint16_t map_dtm_idx[2];
+  const uint16_t *map_dtm;
 };
 
 struct DtzTable2 {
   struct PairsData *precomp;
-  uint8_t first[MAX_SETS];
   union {
     struct RankInfo *ri;
     struct RankInfo10 *ri_10;
   };
+  uint8_t first[MAX_SETS];
   uint8_t mapped;
   uint8_t dist_format;
   uint16_t map_dtz_idx[4];

@@ -12,6 +12,24 @@
 #include "movegen.h"
 #include "stats.h"
 
+#ifdef HAS_PAWNS
+struct DtzFormat {
+  bool one_sided, wins_only;
+  int one_sided_stm;
+};
+
+extern struct DtzFormat dtz_format[24];
+extern bool flipped;
+extern int g_num_pawns;
+extern char pawnstr[24][3];
+extern struct Work *work_g16;
+static constexpr bool has_pawns = true;
+#else
+static constexpr bool flipped = false;
+static constexpr int g_num_pawns = 0;
+static constexpr bool has_pawns = false;
+#endif
+
 extern struct MaxFen mf;
 
 extern int one_sided_stm;
@@ -28,7 +46,5 @@ extern Position g_pos;
 extern struct Work *work_g, *work_capt[MAX_SETS];
 extern uint64_t g_stats[2][MAX_STATS];
 extern const char *typename[3];
-
-static constexpr int g_num_pawns = 0;
 
 #endif

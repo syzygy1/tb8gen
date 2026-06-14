@@ -319,10 +319,10 @@ int main(int argc, char **argv)
   } else {
     for (int stm = 0; stm < 2; stm++) {
       int n, m;
-      for (n = MAX_STATS / 2 - 3; n > DRAW_RULE; n--)
+      for (n = MAX_STATS / 2 - 4; n > DRAW_RULE; n--)
         if (g_stats[stm][stats_n(n)])
           break;
-      for (m = MAX_STATS / 2 - 3; m > n; m--)
+      for (m = MAX_STATS / 2 - 4; m > n; m--)
         if (g_stats[stm ^ 1][MAX_STATS - 1 - m])
           break;
       mf.dtz[stm][1] = m > n ? 2 * m : n > DRAW_RULE ? 2 * n + 1 : -1;
@@ -344,6 +344,8 @@ int main(int argc, char **argv)
   // Read out the files in "stats".
   collect_stats(WHITE);
   collect_stats(BLACK);
+
+  calc_stats_checksums();
 
   size_t stats_file_len = strlen(g_output_dir) + strlen(g_tablename) + 6;
   char *stats_file = malloc(stats_file_len);

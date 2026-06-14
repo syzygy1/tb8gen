@@ -81,11 +81,11 @@ static void sort_values(int stm, uint64_t *stats, struct DtzMap *dtzmap,
 
   if (one_sided || wins_only) {
     for (int i = 1; i <= DRAW_RULE; i++)
-      freq[0][i - 1] += stats[1 + i];
+      freq[0][i - 1] += stats[2 + i];
     dtzmap->num[0] = sort_list(freq[0], map[0], inv_map[0]);
 
-    for (int i = DRAW_RULE + 1; i < MAX_STATS / 2 - 2; i++)
-      freq[2][(i - DRAW_RULE - 1) / 2] += stats[2 + i];
+    for (int i = DRAW_RULE + 1; i < MAX_STATS / 2 - 3; i++)
+      freq[2][(i - DRAW_RULE - 1) / 2] += stats[4 + i];
     dtzmap->num[2] = sort_list(freq[2], map[2], inv_map[2]);
   }
 
@@ -95,7 +95,7 @@ static void sort_values(int stm, uint64_t *stats, struct DtzMap *dtzmap,
       freq[1][i - 1] += stats[MAX_STATS - 1 - i];
     dtzmap->num[1] = sort_list(freq[1], map[1], inv_map[1]);
 
-    for (int i = DRAW_RULE + 1; i < MAX_STATS / 2 - 2; i++)
+    for (int i = DRAW_RULE + 1; i < MAX_STATS / 2 - 3; i++)
       freq[3][(i - DRAW_RULE - 1) / 2] += stats[MAX_STATS - 1 - i];
     dtzmap->num[3] = sort_list(freq[3], map[3], inv_map[3]);
   }
@@ -130,15 +130,15 @@ static void prepare_dtz_map(uint16_t *v, struct DtzMap *map)
 
   if (one_sided || wins_only) {
     for (int i = 1; i <= DRAW_RULE; i++)
-      v[1 + i] = inv_map[0][i - 1];
-    for (int i = DRAW_RULE + 1; i < MAX_STATS / 2 - 2; i++)
-      v[2 + i] = inv_map[2][(i - DRAW_RULE - 1) / 2];
+      v[2 + i] = inv_map[0][i - 1];
+    for (int i = DRAW_RULE + 1; i < MAX_STATS / 2 - 3; i++)
+      v[4 + i] = inv_map[2][(i - DRAW_RULE - 1) / 2];
   }
   if (one_sided || !wins_only) {
     v[MAX_STATS - 1] = inv_map[1][0];
     for (int i = 1; i <= DRAW_RULE; i++)
       v[MAX_STATS - 1 - i] = inv_map[1][i - 1];
-    for (int i = DRAW_RULE + 1; i < MAX_STATS / 2 - 2; i++)
+    for (int i = DRAW_RULE + 1; i < MAX_STATS / 2 - 3; i++)
       v[MAX_STATS - 1 - i] = inv_map[3][(i - DRAW_RULE - 1) / 2];
   }
 }
@@ -148,18 +148,18 @@ static void prepare_wdl_map(uint64_t *stats, bool *v, bool has_capt_bloss)
   for (int i = 0; i < 5; i++)
     v[i] = false;
 
-  for (int i = 2; i <= DRAW_RULE + 1; i++)
+  for (int i = 2; i <= DRAW_RULE + 2; i++)
     if (stats[i]) {
       v[4] = true;
       break;
     }
-  for (int i = DRAW_RULE + 3; i < MAX_STATS / 2; i++)
+  for (int i = DRAW_RULE + 4; i < MAX_STATS / 2 + 1; i++)
     if (stats[i]) {
       v[3] = true;
       break;
     }
-  v[2] = (bool)stats[MAX_STATS / 2 + 1];
-  for (int i = DRAW_RULE + 1; i < MAX_STATS / 2 - 2; i++)
+  v[2] = (bool)stats[MAX_STATS / 2 + 2];
+  for (int i = DRAW_RULE + 1; i < MAX_STATS / 2 - 3; i++)
     if (stats[MAX_STATS - 1 - i]) {
       v[1] = true;
       break;
@@ -171,7 +171,7 @@ static void prepare_wdl_map(uint64_t *stats, bool *v, bool has_capt_bloss)
     }
 
   bool dc[4] = {
-    has_capt_bloss, stats[MAX_STATS / 2], stats[DRAW_RULE + 2], true
+    has_capt_bloss, stats[MAX_STATS / 2 + 1], stats[DRAW_RULE + 3], true
   };
 
   int i, j;
@@ -600,6 +600,14 @@ void join_final_462(int type)
   }
   p = buf + (((p - buf) + 7) & ~7);
 
+  if (type == WDL) {
+    memcpy(p, &wdl_checksum, sizeof wdl_checksum);
+    p += sizeof wdl_checksum;
+  } else if (type == DTZ) {
+    memcpy(p, &dtz_checksum, sizeof dtz_checksum);
+    p += sizeof dtz_checksum;
+  }
+
   int num = 0;
   for (int s = 0; s < 462; s++)
     for (int stm = 0; stm < 2; stm++) {
@@ -686,7 +694,7 @@ void join_final_462(int type)
     }
   }
   close(fd);
-  add_checksum(tmp);
+  add_xxhash(tmp);
   file_rename(fname);
   free(tmp);
   free(fname);
@@ -885,14 +893,14 @@ static void join_dtz_10(int stm)
       uint64_t tmp[MAX_STATS];
       read_data(F, tmp, sizeof tmp);
       fclose(F);
+      // We count the stats for s >= 441 double because nearly all these
+      // positions will be present twice.
       for (int i = 0; i < MAX_STATS; i++)
-        stats[i] += tmp[i];
+        stats[i] += tmp[i] * (1 + (s >= 441));
 
       num++;
     }
 
-    // FIXME: should perhaps double contribution of s >= 441 slices to stats.
-    // - or properly count them and reduce num * kslice_size accordingly
     sort_values(stm, stats, &dtzmap, num * kslice_size);
     prepare_dtz_map(v, &dtzmap);
 
@@ -1113,7 +1121,7 @@ static void join_final_10(int type)
     }
   }
   close(fd);
-  add_checksum(tmp);
+  add_xxhash(tmp);
   file_rename(fname);
   free(tmp);
   free(fname);

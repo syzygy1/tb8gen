@@ -17,7 +17,7 @@ extern int max_iteration;
 
 INLINE int stats_n(int n)
 {
-  return 1 + n + (n > DRAW_RULE);
+  return 2 + n + 2 * (n > DRAW_RULE);
 }
 
 void generate(void);

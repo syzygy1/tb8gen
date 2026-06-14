@@ -15,7 +15,7 @@
 #include "merge.h"
 #include "movegen.h"
 #include "stats.h"
-#include "tb8genp.h"
+#include "tb8gen.h"
 #include "threads.h"
 #include "types.h"
 

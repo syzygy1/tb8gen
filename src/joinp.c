@@ -20,7 +20,7 @@
 #include "movegen.h"
 #include "permutep.h"
 #include "permutepk.h"
-#include "tb8genp.h"
+#include "tb8gen.h"
 #include "threads.h"
 #include "types.h"
 #include "util.h"
@@ -618,7 +618,7 @@ void join_final_pk(int type)
     }
   }
   close(fd);
-  add_checksum(tmp);
+  add_xxhash(tmp);
   file_rename(fname);
   free(tmp);
   free(fname);
@@ -1062,7 +1062,7 @@ static void join_final_p(int type)
     }
   }
   close(fd);
-  add_checksum(tmp);
+  add_xxhash(tmp);
   file_rename(fname);
   free(tmp);
   free(fname);

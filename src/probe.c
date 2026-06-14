@@ -20,7 +20,6 @@
 #include "index.h"
 #include "movegen.h"
 #include "probe.h"
-#include "tb8gen.h"
 #include "threads.h"
 #include "types.h"
 #include "util.h"
@@ -30,7 +29,7 @@ static constexpr int TB_HASHBITS = 13;
 
 const char *suffix[] = { ".rtbw", ".rtbm", ".rtbz" };
 uint32_t magic[] = { 0x5d23e871, 0x88ac504b, 0xa50c66d7 };
-uint32_t magic2[] = { 0xe5c0db4d, 0x97ad8bad, 0x432c57d6 };
+uint32_t magic2[] = { 0x1cc16da5, 0x97ad8bad, 0x4cf550cf };
 
 struct HashEntry {
   uint64_t key;
@@ -333,19 +332,6 @@ static const uint8_t InvDiag[16] = {
 const uint8_t InvTriangle[10] = {
   1, 2, 3, 10, 11, 19, 0, 9, 18, 27
 };
-
-#if 0
-const uint8_t FlipDiag[64] = {
-   0,  8, 16, 24, 32, 40, 48, 56,
-   1,  9, 17, 25, 33, 41, 49, 57,
-   2, 10, 18, 26, 34, 42, 50, 58,
-   3, 11, 19, 27, 35, 43, 51, 59,
-   4, 12, 20, 28, 36, 44, 52, 60,
-   5, 13, 21, 29, 37, 45, 53, 61,
-   6, 14, 22, 30, 38, 46, 54, 62,
-   7, 15, 23, 31, 39, 47, 55, 63
-};
-#endif
 
 static const uint8_t Lower[64] = {
   28,  0,  1,  2,  3,  4,  5,  6,
@@ -1306,6 +1292,8 @@ NOINLINE struct Tbase *init_tbase(struct TbEntry *entry, const char *str,
     tbase->layout = layout;
     if (type != WDL && layout <= LT_PIECE_KK)
       tbase->dist_format = dist_format;
+    // Skip WDL/DTZ checksums.
+    p += type == WDL ? 16: 32;
     tbase->offset = (uint64_t *)p - (uint64_t *)data;
     tbase->pt[0] = 6;
     tbase->pt[1] = 14;
@@ -1344,7 +1332,7 @@ NOINLINE struct TbTable2 *init_new_table(struct Tbase *tb, int num, int type,
 
   struct TbTable2 *table = malloc(TABLE_SIZE2[type]);
 
-  int mapped, dist_format;
+  int mapped = 0, dist_format;
   if (type != WDL) {
     mapped = *data++;
     dist_format = tb->layout >= LT_PAWN_P ? *data++ : 0;
@@ -1431,6 +1419,27 @@ NOINLINE struct TbTable2 *init_new_table(struct Tbase *tb, int num, int type,
       dtm->map_dtm = (uint16_t *)data;
       for (int i = 0; i < 2; i++) {
         dtm->map_dtm_idx[i] = (uint16_t *)data + 1 - dtm->map_dtm;
+        data += 2 + 2 * read_le_u16(data);
+      }
+    }
+  }
+
+  if (type == DTZ) {
+    struct DtzTable2 *dtz = (struct DtzTable2 *)table;
+    dtz->mapped = mapped;
+    dtz->dist_format = dist_format;
+    if (mapped == 1) {
+      dtz->map_dtz = data;
+      for (int i = 0; i < 4; i++) {
+        dtz->map_dtz_idx[i] = data + 1 - dtz->map_dtz;
+        data += 1 + data[0];
+      }
+      data += (uintptr_t)data & 1;
+    }
+    else if (mapped == 2) {
+      dtz->map_dtz16 = (uint16_t *)data;
+      for (int i = 0; i < 4; i++) {
+        dtz->map_dtz_idx[i] = (uint16_t *)data + 1 - dtz->map_dtz16;
         data += 2 + 2 * read_le_u16(data);
       }
     }
@@ -1621,6 +1630,10 @@ INLINE void list_squares(Position *pos, const uint8_t *restrict pt, bool flip,
   }
 }
 
+static constexpr int CHANGE_STM = -1;
+static constexpr int WdlToMap[5] = { 1, 3, 0, 2, 0 };
+static constexpr uint8_t PAFlags[5] = { 8, 0, 0, 0, 4 };
+
 INLINE int probe_table(Position *pos, int s, const int type)
 {
   // Test for KvK
@@ -1656,13 +1669,10 @@ INLINE int probe_table(Position *pos, int s, const int type)
     UNLOCK(mutex);
   }
 
-  if (    type == DTM
+  if (   (type == DTM || (type == DTZ && tb->layout <= LT_PIECE_KK))
       && (tb->dist_format & WIN_OR_LOSS)
       && (bool)(tb->dist_format & WIN_ONLY) != (s > 0))
-  {
-    // Unsupported for now.
-    probe_failed(pos, type);
-  }
+    return CHANGE_STM;
 
   uint8_t p[MAX_PIECES];
   bool flip = !entry->symmetric ? (key != entry->key) != tb->flipped
@@ -1676,7 +1686,14 @@ INLINE int probe_table(Position *pos, int s, const int type)
     struct TbTable *table;
 
     if (!entry->has_pawns) {
-      table = atomic_load_explicit(&tb->table[btm_side], memory_order_relaxed);
+      int t =  type == WDL ? btm_side
+             : !(tb->dist_format && WTM_OR_BTM) ? btm_side : 0;
+      table = atomic_load_explicit(&tb->table[t], memory_order_relaxed);
+      if (type == DTZ) {
+        struct DtzTable *dtz = (struct DtzTable *)table;
+        if ((dtz->dtz_flags & 1) != btm_side && !entry->symmetric)
+          return CHANGE_STM;
+      }
       ei = &table->ei;
       list_squares(pos, ei->pieces, flip, p);
       idx = encode_piece(p, ei, entry);
@@ -1687,6 +1704,11 @@ INLINE int probe_table(Position *pos, int s, const int type)
       t +=  !(btm_side && (tb->dist_format & TWO_SIDED)) ? 0
           : tb->layout == LT_PAWN_FILE ? 4 : 6;
       table = atomic_load_explicit(&tb->table[t], memory_order_relaxed);
+      if (type == DTZ) {
+        struct DtzTable *dtz = (struct DtzTable *)table;
+        if ((dtz->dtz_flags & 1) != btm_side && !entry->symmetric)
+          return CHANGE_STM;
+      }
       ei = &table->ei;
       list_squares(pos, ei->pieces, flip, p);
       // Bring the leading pawn back to the front.
@@ -1703,20 +1725,31 @@ INLINE int probe_table(Position *pos, int s, const int type)
 
     if (type == DTM) {
       struct DtmTable *dtm = (struct DtmTable *)table;
-      v = from_le_u16(dtm->map_dtm[dtm->map_dtm_idx[s] + v]);
+      if (!(tb->dist_format & WIN_OR_LOSS))
+        v = from_le_u16(dtm->map_dtm[dtm->map_dtm_idx[s] + v]);
+    }
+
+    if (type == DTZ) {
+      struct DtzTable *dtz = (struct DtzTable *)table;
+      if (dtz->dtz_flags & 2) {
+        int m = WdlToMap[s + 2];
+        if (!(dtz->dtz_flags & 16))
+          v = dtz->map_dtz[dtz->map_dtz_idx[m] + v];
+        else
+          v = dtz->map_dtz16[dtz->map_dtz_idx[m] + v];
+      }
+      if (!(dtz->dtz_flags & PAFlags[s + 2]) || (s & 1))
+        v *= 2;
     }
 
     return v;
 
   } else {
 
-    if (    type == DTM
+    if (   (type == DTM || (type == DTZ && tb->layout <= LT_PIECE_KK))
         && (tb->dist_format & WTM_OR_BTM)
         && (bool)(tb->dist_format & WTM_ONLY) == btm_side)
-    {
-      // Unsupported for now.
-      probe_failed(pos, type);
-    }
+      return CHANGE_STM;
 
     struct TbTable2 *table;
     list_squares(pos, tb->pt, flip, p);
@@ -1775,22 +1808,27 @@ INLINE int probe_table(Position *pos, int s, const int type)
     }
 
     if (type != WDL && (uintptr_t)table == 1)
-      probe_failed(pos, type);
+      return CHANGE_STM;
 
     if (!table->precomp) {
       struct TbTableConst *tbl = (struct TbTableConst *)table;
       if (   type != WDL
           && tbl->dist_format
           && (bool)(tbl->dist_format & WIN_ONLY) != (s > 0))
-        probe_failed(pos, type);
-      return (int)tbl->const_value
-        + (type == WDL ? -2 : 0);
+        return CHANGE_STM;
+      return (int)tbl->const_value + (type == WDL ? -2 : 0);
     }
 
     if (type == DTM) {
       struct DtmTable2 *dtm = (struct DtmTable2 *)table;
       if (dtm->dist_format && (bool)(dtm->dist_format & WIN_ONLY) != (s > 0))
-        probe_failed(pos, type);
+        return CHANGE_STM;
+    }
+
+    if (type == DTZ) {
+      struct DtzTable2 *dtz = (struct DtzTable2 *)table;
+      if (dtz->dist_format && (bool)(dtz->dist_format & WIN_ONLY) != (s > 0))
+        return CHANGE_STM;
     }
 
     // Calculate index.
@@ -1836,12 +1874,21 @@ INLINE int probe_table(Position *pos, int s, const int type)
         v = from_le_u16(dtm->map_dtm[dtm->map_dtm_idx[s] + v]);
     }
 
+    if (type == DTZ) {
+      struct DtzTable2 *dtz = (struct DtzTable2 *)table;
+      if (dtz->mapped) {
+        int m = WdlToMap[s + 2];
+        v = dtz->mapped == 1 ? dtz->map_dtz  [dtz->map_dtz_idx[m] + v]
+                             : dtz->map_dtz16[dtz->map_dtz_idx[m] + v];
+      }
+      if (s & 1)
+        v *= 2;
+    }
+
     return v;
- 
   }
 }
 
-// No need to instantiate the DTZ version
 NOINLINE static int probe_wdl_table(Position *pos)
 {
   return probe_table(pos, 0, WDL);
@@ -1850,6 +1897,11 @@ NOINLINE static int probe_wdl_table(Position *pos)
 NOINLINE static int probe_dtm_table(Position *pos, bool won)
 {
   return probe_table(pos, won, DTM);
+}
+
+NOINLINE static int probe_dtz_table(Position *pos, int wdl)
+{
+  return probe_table(pos, wdl, DTZ);
 }
 
 [[gnu::always_inline]]
@@ -1898,6 +1950,60 @@ int probe_wdl(Position *pos, int alpha, int beta)
 
   int v = probe_wdl_table(pos);
   return max(alpha, v);
+}
+
+// TODO: For tables with 2+ pawns we will need to deal with en passant.
+static int probe_wdl_helper(Position *pos, bool *capture_is_best)
+{
+  *capture_is_best = false;
+  int best_cap = -3;
+
+  for (int i = 0; i < pos->num; i++) {
+    if ((pos->pt[i] >> 3) != pos->stm) continue;
+#ifdef HAS_PAWNS
+    bool is_pawn = (pos->pt[i] & 7) == PAWN;
+#endif
+    int from = pos->sq[i];
+    Bitboard b = piece_attacks(pos->pt[i], from, pos->occ) & pos->occ;
+    while (b) {
+      int to = pop_lsb(&b);
+      int j = piece_idx(pos, to);
+      if (!((pos->pt[i] ^ pos->pt[j]) & 8))
+        continue;
+      if (do_capture(pos, from, to, i, j)) {
+        int v;
+#ifdef HAS_PAWNS
+        if (!(is_pawn && rank18(to))) {
+          v = -probe_capts_wdl(pos, -2, -best_cap);
+        } else {
+          int l = i == pos->num ? j : i;
+          pos->pt[l] += QUEEN - PAWN;
+          for (int k = 0; k < 4; k++, pos->pt[l]--)
+            if (v < 2)
+              v = max(v, -probe_capts_wdl(pos, -2, -best_cap));
+        }
+#else
+        v = -probe_capts_wdl(pos, -2, -best_cap);
+#endif
+        if (v > best_cap) {
+          if (v == 2) {
+            *capture_is_best = true;
+            return 2;
+          }
+          best_cap = v;
+        }
+      }
+    }
+  }
+
+  int v = probe_wdl_table(pos);
+
+  if (best_cap >= v) {
+    *capture_is_best = best_cap > 0;
+    return best_cap;
+  }
+
+  return v;
 }
 
 #ifdef HAS_PAWNS
@@ -2069,4 +2175,105 @@ skip:
   }
 
   return beta;
+}
+
+static constexpr int WdlToDtz[5] = { -1, -101, 0, 101, 1 };
+
+// This function assumes probe_wdl() has been called and *result has
+// been checked for ZEROING_IS_BEST (or != OK).
+// FIXME: Handling of en passant may have to be added at some point.
+int probe_dtz_helper(Position *pos, int wdl)
+{
+#ifdef HAS_PAWNS
+  // If winning, check for a winning pawn move.
+  if (wdl > 0) {
+    // Loop through all quiet pawn moves including promotions.
+    for (int i = 0; i < pos->num; i++) {
+      if (pos->pt[i] != PAWN + (pos->stm << 3))
+        continue;
+      int from = pos->sq[i];
+      Bitboard b = piece_moves(pos->pt[i], from, pos->occ);
+      while (b) {
+        int to = pop_lsb(&b);
+        if (do_move(pos, from, to, i)) {
+          int v;
+          if (rank18(to)) {
+            pos->pt[i] += QUEEN - PAWN;
+            int v = -2;
+            for (int k = 0; k < 4; k++, pos->pt[i]--)
+              if (v < wdl)
+                v = max(v, -probe_wdl(pos, -2, -v));
+          } else
+            v = -probe_wdl(pos, -2, 2); // in general this could have ep rights
+          undo_move(pos, from, to, i);
+          if (v == wdl)
+            return WdlToDtz[wdl + 2];
+        }
+      }
+    }
+  }
+#endif
+
+  // If we are here, we know that the best move is not an ep capture.
+  // In other words, the value of wdl corresponds to the WDL value of
+  // the position without ep rights. It is therefore safe to probe the
+  // DTZ table with the current value of wdl.
+
+  int dtz = probe_dtz_table(pos, wdl);
+  if (dtz != CHANGE_STM)
+    return WdlToDtz[wdl + 2] + ((wdl > 0) ? dtz : -dtz);
+
+  // CHANGE_STM means we need to probe DTZ for the other side to move.
+  int best = INT32_MAX;
+  // If wdl > 0, we have already generated quiet moves.
+  if (wdl < 0) {
+    // If (blessed) loss, the worst case is a losing capture or pawn move
+    // as the "best" move, meaning dtz is -1 or -101.
+    // In case of mate, this will cause -1 to be returned.
+    best = WdlToDtz[wdl + 2];
+  }
+
+  // Loop through all quiet non-pawn moves. We can skip pawn moves because
+  // if wdl > 0, we already checked them, and they were worse than wdl.
+  // If wdl < 0, the initial value of best already takes account of them.
+  for (int i = 0; i < pos->num; i++) {
+    if ((pos->pt[i] >> 3) != pos->stm || (pos->pt[i] & 7) == PAWN)
+      continue;
+    int from = pos->sq[i];
+    Bitboard b = piece_moves(pos->pt[i], from, pos->occ);
+    while (b) {
+      int to = pop_lsb(&b);
+      if (do_move(pos, from, to, i)) {
+        bool capture_is_best;
+        int wdl_next = probe_wdl_helper(pos, &capture_is_best);
+        // Only look further at move m if it does not worsen the position.
+        if (wdl <= -wdl_next) {
+          int v =  capture_is_best ? -WdlToDtz[wdl_next + 2]
+                 : -probe_dtz_helper(pos, wdl_next);
+          if (   v == 1
+              && opp_king_attacked(pos)
+              && !has_legal_moves(pos)
+              && !has_legal_caps(pos))
+            best = 1; // mate
+          else if (wdl > 0)
+            best = min(best, v + 1);
+          else
+            best = min(best, v - 1);
+        }
+        undo_move(pos, from, to, i);
+      }
+    }
+  }
+
+  return best;
+}
+
+// Probe the DTZ table for a particular position.
+int probe_dtz(Position *pos)
+{
+  bool capture_is_best;
+  int wdl = probe_wdl_helper(pos, &capture_is_best);
+  return  wdl ==  0 || capture_is_best
+        ? WdlToMap[wdl + 2]
+        : probe_dtz_helper(pos, wdl);
 }

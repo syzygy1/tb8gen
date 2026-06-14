@@ -23,7 +23,7 @@
 #include "kslicep.h"
 #include "permutep.h"
 #include "probe.h"
-#include "tb8genp.h"
+#include "tb8gen.h"
 #include "threads.h"
 #include "util.h"
 

@@ -22,7 +22,6 @@
 #include "permute.h"
 #include "probe.h"
 #include "rans.h"
-#include "tb8gen.h"
 #include "threads.h"
 #include "types.h"
 #include "util.h"
@@ -416,7 +415,7 @@ static void adjust_work_dontcares_wdl(uint64_t *restrict work1,
       work2[i] = work2[i - 1];
       continue;
     }
-    while (idx < end && (data[idx -1] >= 5 || data[idx] >= 5))
+    while (idx < end && (data[idx - 1] >= 5 || data[idx] >= 5))
       idx++;
     work2[i] = idx;
   }
@@ -1509,7 +1508,7 @@ void merge_tb(struct tb_handle *F)
   if (!tmp)
     out_of_mem();
   strcat(strcpy(tmp, name), ".tmp");
-  add_checksum(tmp);
+  add_cityhash(tmp);
   file_rename(name);
   free(tmp);
   free(name);

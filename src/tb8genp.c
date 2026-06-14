@@ -24,7 +24,7 @@
 #include "movegen.h"
 #include "probe.h"
 #include "stats.h"
-#include "tb8genp.h"
+#include "tb8gen.h"
 #include "threads.h"
 #include "types.h"
 #include "util.h"
@@ -371,15 +371,6 @@ int main(int argc, char **argv)
     }
   }
 
-  switch (layout) {
-  case 1:
-    join_slices_p();
-    break;
-  case 2:
-    join_slices_pk();
-    break;
-  }
-
   memset(g_stats, 0, sizeof g_stats);
   uint64_t tmp[2][MAX_STATS];
   for (int q = 0; q < 24; q++) {
@@ -392,6 +383,8 @@ int main(int argc, char **argv)
       for (int i = 0; i < MAX_STATS; i++)
         g_stats[stm][i] += tmp[stm][i];
   }
+
+  calc_stats_checksums();
 
   size_t stats_file_len = strlen(g_output_dir) + strlen(g_tablename) + 6;
   char *stats_file = malloc(stats_file_len);
@@ -413,6 +406,15 @@ int main(int argc, char **argv)
   print_stats(stdout, BLACK);
   printf("\n");
   print_max_fens(stdout, &mmf);
+
+  switch (layout) {
+  case 1:
+    join_slices_p();
+    break;
+  case 2:
+    join_slices_pk();
+    break;
+  }
 
   if (g_cleanup) {
     char str[64];
