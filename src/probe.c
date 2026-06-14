@@ -41,7 +41,7 @@ static char *path_string = nullptr;
 static int num_paths = 0;
 static char **paths;
 
-static int num_tbs;
+static int num_tbs, num_dtz;
 //static int num_wdl, num_dtm;
 
 static struct TbEntry *tb_entry;
@@ -167,6 +167,7 @@ static void detect_tb(char *str)
   for (int i = 2; i < 6; i++)
     entry->numsets += (pcs[i] != 0) + (pcs[i + 8] != 0);
 
+  num_dtz += entry->has_dtz = test_tb(str, DTZ);
 //  num_dtm += be->has_dtm = test_tb(str, DTM);
 
   for (int t = 0; t < 3; t++)
@@ -298,7 +299,7 @@ void init_tablebases(const char *path_list)
       }
 
 //  printf("Found %d WDL and %d DTM tablebase files.\n", num_tbs, num_dtz);
-  printf("Found %d WDL tablebase files.\n", num_tbs);
+  printf("Found %d WDL %d DTZ tablebase files.\n", num_tbs, num_dtz);
 }
 
 const int8_t OffDiag[64] = {
@@ -1046,7 +1047,7 @@ struct PairsData *setup_rans(const uint8_t **ptr)
 
   int num_syms;
   d->rans = calloc(1, sizeof(struct RansDecode));
-  const uint8_t *p = read_freq_table(d->rans, &num_syms, data + 10);
+  const uint8_t *p = read_freq_table(d->rans, &num_syms, data + 8);
   d->num_syms = num_syms;
   make_alias_table(d->rans, nullptr);
 
@@ -1953,7 +1954,7 @@ int probe_wdl(Position *pos, int alpha, int beta)
 }
 
 // TODO: For tables with 2+ pawns we will need to deal with en passant.
-static int probe_wdl_helper(Position *pos, bool *capture_is_best)
+int probe_wdl_helper(Position *pos, bool *capture_is_best)
 {
   *capture_is_best = false;
   int best_cap = -3;
@@ -1974,17 +1975,18 @@ static int probe_wdl_helper(Position *pos, bool *capture_is_best)
         int v;
 #ifdef HAS_PAWNS
         if (!(is_pawn && rank18(to))) {
-          v = -probe_capts_wdl(pos, -2, -best_cap);
+          v = -probe_wdl(pos, -2, -best_cap);
         } else {
           int l = i == pos->num ? j : i;
           pos->pt[l] += QUEEN - PAWN;
           for (int k = 0; k < 4; k++, pos->pt[l]--)
             if (v < 2)
-              v = max(v, -probe_capts_wdl(pos, -2, -best_cap));
+              v = max(v, -probe_wdl(pos, -2, -best_cap));
         }
 #else
-        v = -probe_capts_wdl(pos, -2, -best_cap);
+        v = -probe_wdl(pos, -2, -best_cap);
 #endif
+        undo_capture(pos, from, to, i, j);
         if (v > best_cap) {
           if (v == 2) {
             *capture_is_best = true;

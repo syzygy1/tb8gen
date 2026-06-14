@@ -319,22 +319,20 @@ static void calc_capt(int stm, int wdl)
   if (!sub_cnt[stm ^ 1][2 - wdl])
     return;
 
+  uint64_t cnt = 0;
+
   char capt_name[32], sub_name[32];
   strcat(strcpy(capt_name, "capt/"), wdl_name[2 + wdl]);
   strcat(strcpy(sub_name , "sub/" ), wdl_name[2 - wdl]);
 
   char str[64];
   sprintf(str, "%s/%c/done", capt_name, "wb"[stm]);
-  if (file_exists(str))
-    return;
-#if 0
   FILE *F = fopen(str, "rb");
   if (F) {
-    file_read(&g_stats[stm][n], 8, F);
+    file_read(&cnt, 8, F);
     fclose(F);
-    return;
+    goto finished;
   }
-#endif
 
   char phase[64];
   snprintf(phase, sizeof phase, "calculating %s captures for %s",
@@ -345,7 +343,7 @@ static void calc_capt(int stm, int wdl)
   create_dir(-1, stm, capt_name);
 
   struct KSliceIterator iter;
-  uint64_t num, cnt = 0;
+  uint64_t num;
   int num_done = 0;
 
   kslice_iter_init(&iter, stm);
@@ -377,8 +375,12 @@ static void calc_capt(int stm, int wdl)
     }
   }
 
-  create_empty(str);
+  F = file_open_write(str);
+  file_write(&cnt, 8, F);
+  fclose(F);
+  file_rename(str);
 
+finished:
   snprintf(phase, sizeof phase, "%s %s captures: %lu", side[stm],
       wdl_name[2 + wdl], cnt);
   show_progress(phase, 462, 462, true);
@@ -489,10 +491,42 @@ static void report_fail(int s, uint64_t idx, Position *pos)
   mtx_unlock(&report_mutex);
 }
 
-static int work_slice;
-static bool check_stalemate;
+static bool check_dtz_101(struct Position *pos)
+{
+  // First check that the position has dtz == 101.
+  if (probe_dtz(pos) != 101)
+    return false;
 
-static void check_zero_worker(struct ThreadData *thread)
+  // Now check that the best quiet move reaches dtz == 100.
+  bool pos_ok = false;
+  for (int i = 0; i < pos->num; i++) {
+    if ((pos->pt[i] >> 3) != pos->stm) continue;
+    int from = pos->sq[i];
+    Bitboard b = piece_moves(pos->pt[i], from, pos->occ);
+    while (b) {
+      int to = pop_lsb(&b);
+      if (do_move(pos, from, to, i)) {
+        bool capture_is_best;
+        int dtz, wdl = probe_wdl_helper(pos, &capture_is_best);
+        if (wdl == -2 && !capture_is_best)
+          dtz = probe_dtz_helper(pos, wdl);
+        undo_move(pos, from, to, i);
+        if (wdl == -2) {
+          if (capture_is_best || dtz != -100)
+            return false;
+          pos_ok = true;
+        }
+      }
+    }
+  }
+  return pos_ok;
+}
+
+enum { CZ_REGULAR, CZ_CWIN, CZ_LOSS };
+
+static int work_slice;
+
+INLINE void check_zero_worker_tmpl(struct ThreadData *thread, const int T)
 {
   struct IdxState is;
   Position pos = g_pos;
@@ -512,28 +546,38 @@ static void check_zero_worker(struct ThreadData *thread)
       uint64_t cur = idx + pop_lsb(&w);
       idx_state_add(&is, cur - last, &ri);
       last = cur;
+      bool v = false;
       Bitboard occ = pos.occ = idx_state_to_sq(&is, pos.sq, &ri);
       for (int i = 0; pos.pcs[stm][i] >= 0; i++) {
         int j = pos.pcs[stm][i];
-        if (test_moves(j, s, q, occ, pos.sq))
-          goto fail;
+        v = test_moves(j, s, q, occ, pos.sq);
+        if (v) break;
       }
-      uint8_t tmp = pos.sq[stm];
-      bool v = test_king_moves(stm, occ, pos.sq);
-      pos.sq[stm] = tmp;
-      if (v || (    check_stalemate
-                && !my_king_attacked(&pos)
-                && !has_legal_moves(&pos)
-                && !has_legal_caps(&pos)))
-      {
-fail:
-        report_fail(s, cur, &pos);
+      if (!v) {
+        uint8_t tmp = pos.sq[stm];
+        v = test_king_moves(stm, occ, pos.sq);
+        pos.sq[stm] = tmp;
+      }
+      switch (T) {
+      case CZ_REGULAR:
+        if (v) report_fail(s, cur, &pos);
+        break;
+      case CZ_LOSS:
+        if (v || (   !my_king_attacked(&pos)
+                  && !has_legal_moves(&pos)
+                  && !has_legal_caps(&pos)))
+          report_fail(s, cur, &pos);
+        break;
+      case CZ_CWIN:
+        if (v && !check_dtz_101(&pos))
+          report_fail(s, cur, &pos);
+        break;
       }
     }
   }
 }
 
-static void check_zero_ref_worker(struct ThreadData *thread)
+INLINE void check_zero_ref_worker_tmpl(struct ThreadData *thread, const int T)
 {
   Position pos = g_pos;
   int stm = pos.stm;
@@ -550,41 +594,99 @@ static void check_zero_ref_worker(struct ThreadData *thread)
     while (w) {
       unsigned bt = pop_lsb(&w);
       uint64_t cur = idx + bt;
+      bool v = false;
       Bitboard occ = pos.occ = unrank_reflection(cur, pos.sq, kings, &ri);
       for (int i = 0; pos.pcs[stm][i] >= 0; i++) {
         int j = pos.pcs[stm][i];
-        if (test_moves_ref(j, s, q, occ, pos.sq))
-          goto fail;
+        v = test_moves_ref(j, s, q, occ, pos.sq);
+        if (v) break;
       }
-      uint8_t tmp = pos.sq[stm];
-      bool v = test_king_moves(stm, occ, pos.sq);
-      pos.sq[stm] = tmp;
-      if (v || (    check_stalemate
-                && !my_king_attacked(&pos)
-                && !has_legal_moves(&pos)
-                && !has_legal_caps(&pos)))
-      {
-fail:
-        report_fail(s, cur, &pos);
+      if (!v) {
+        uint8_t tmp = pos.sq[stm];
+        v = test_king_moves(stm, occ, pos.sq);
+        pos.sq[stm] = tmp;
+      }
+      switch (T) {
+      case CZ_REGULAR:
+        if (v) report_fail(s, cur, &pos);
+        break;
+      case CZ_LOSS:
+        if (v || (   !my_king_attacked(&pos)
+                  && !has_legal_moves(&pos)
+                  && !has_legal_caps(&pos)))
+          report_fail(s, cur, &pos);
+        break;
+      case CZ_CWIN:
+        if (v && probe_dtz_helper(&pos, 1) != 101)
+          report_fail(s, cur, &pos);
+        break;
       }
     }
   }
 }
 
-static void check_zero(int stm, int s)
+static void check_zero_regular_worker(struct ThreadData *thread)
+{
+  check_zero_worker_tmpl(thread, CZ_REGULAR);
+}
+
+static void check_zero_loss_worker(struct ThreadData *thread)
+{
+  check_zero_worker_tmpl(thread, CZ_LOSS);
+}
+
+static void check_zero_cwin_worker(struct ThreadData *thread)
+{
+  check_zero_worker_tmpl(thread, CZ_CWIN);
+}
+
+static void check_zero_ref_regular_worker(struct ThreadData *thread)
+{
+  check_zero_ref_worker_tmpl(thread, CZ_REGULAR);
+}
+
+static void check_zero_ref_loss_worker(struct ThreadData *thread)
+{
+  check_zero_ref_worker_tmpl(thread, CZ_LOSS);
+}
+
+static void check_zero_ref_cwin_worker(struct ThreadData *thread)
+{
+  check_zero_ref_worker_tmpl(thread, CZ_CWIN);
+}
+
+static void check_zero(int stm, int s, const int T)
 {
   work_slice = s;
   g_pos.stm = stm;
   g_pos.sq[0] = KKSquare[s][0];
   g_pos.sq[1] = KKSquare[s][1];
 
-  if (s < 441)
-    run_threaded(check_zero_worker, &work_g_dynamic[0]);
-  else
-    run_threaded(check_zero_ref_worker, &work_g_dynamic[1]);
+  switch (T) {
+  case CZ_REGULAR:
+    if (s < 441)
+      run_threaded(check_zero_regular_worker, &work_g_dynamic[0]);
+    else
+      run_threaded(check_zero_ref_regular_worker, &work_g_dynamic[1]);
+    break;
+  case CZ_LOSS:
+    if (s < 441)
+      run_threaded(check_zero_loss_worker, &work_g_dynamic[0]);
+    else
+      run_threaded(check_zero_ref_loss_worker, &work_g_dynamic[1]);
+    break;
+  case CZ_CWIN:
+    if (s < 441)
+      run_threaded(check_zero_cwin_worker, &work_g_dynamic[0]);
+    else
+      run_threaded(check_zero_ref_cwin_worker, &work_g_dynamic[1]);
+    break;
+  }
 }
 
-static void check_one_worker(struct ThreadData *thread)
+enum { CO_REGULAR, CO_DRAW, CO_CWIN };
+
+INLINE void check_one_worker_tmpl(struct ThreadData *thread, const int T)
 {
   struct IdxState is;
   Position pos = g_pos;
@@ -604,26 +706,39 @@ static void check_one_worker(struct ThreadData *thread)
       uint64_t cur = idx + pop_lsb(&w);
       idx_state_add(&is, cur - last, &ri);
       last = cur;
+      bool v = false;
       Bitboard occ = idx_state_to_sq(&is, pos.sq, &ri);
       for (int i = 0; pos.pcs[stm][i] >= 0; i++) {
         int j = pos.pcs[stm][i];
-        if (test_moves(j, s, q, occ, pos.sq))
-          goto next;
+        v = test_moves(j, s, q, occ, pos.sq);
+        if (v) break;
       }
-      uint8_t tmp = pos.sq[stm];
-      bool v = test_king_moves(stm, occ, pos.sq);
-      pos.sq[stm] = tmp;
+      if (!v) {
+        uint8_t tmp = pos.sq[stm];
+        v = test_king_moves(stm, occ, pos.sq);
+        pos.sq[stm] = tmp;
+      }
       if (!v) {
         pos.occ = occ;
-        if (!check_stalemate || has_legal_moves(&pos))
+        switch (T) {
+        case CO_REGULAR:
           report_fail(s, cur, &pos);
+          break;
+        case CO_DRAW:
+          if (has_legal_moves(&pos))
+            report_fail(s, cur, &pos);
+          break;
+        case CO_CWIN:
+          if (!check_dtz_101(&pos))
+            report_fail(s, cur, &pos);
+          break;
+        }
       }
     }
-next:
   }
 }
 
-static void check_one_ref_worker(struct ThreadData *thread)
+INLINE void check_one_ref_worker_tmpl(struct ThreadData *thread, const int T)
 {
   Position pos = g_pos;
   int stm = pos.stm;
@@ -640,36 +755,95 @@ static void check_one_ref_worker(struct ThreadData *thread)
     while (w) {
       unsigned bt = pop_lsb(&w);
       uint64_t cur = idx + bt;
+      bool v = false;
       Bitboard occ = unrank_reflection(cur, pos.sq, kings, &ri);
       for (int i = 0; pos.pcs[stm][i] >= 0; i++) {
         int j = pos.pcs[stm][i];
-        if (test_moves_ref(j, s, q, occ, pos.sq))
-          goto next;
+        v = test_moves_ref(j, s, q, occ, pos.sq);
+        if (v) break;
       }
-      uint8_t tmp = pos.sq[stm];
-      bool v = test_king_moves(stm, occ, pos.sq);
-      pos.sq[stm] = tmp;
+      if (!v) {
+        uint8_t tmp = pos.sq[stm];
+        v = test_king_moves(stm, occ, pos.sq);
+        pos.sq[stm] = tmp;
+      }
       if (!v) {
         pos.occ = occ;
-        if (!check_stalemate || has_legal_moves(&pos))
+        switch (T) {
+        case CO_REGULAR:
           report_fail(s, cur, &pos);
+          break;
+        case CO_DRAW:
+          if (has_legal_moves(&pos))
+            report_fail(s, cur, &pos);
+          break;
+        case CO_CWIN:
+          if (!check_dtz_101(&pos))
+            report_fail(s, cur, &pos);
+          break;
+        }
       }
     }
-next:
   }
 }
 
-static void check_one(int stm, int s)
+static void check_one_regular_worker(struct ThreadData *thread)
+{
+  check_one_worker_tmpl(thread, CO_REGULAR);
+}
+
+static void check_one_draw_worker(struct ThreadData *thread)
+{
+  check_one_worker_tmpl(thread, CO_DRAW);
+}
+
+static void check_one_cwin_worker(struct ThreadData *thread)
+{
+  check_one_worker_tmpl(thread, CO_CWIN);
+}
+
+static void check_one_regular_ref_worker(struct ThreadData *thread)
+{
+  check_one_ref_worker_tmpl(thread, CO_REGULAR);
+}
+
+static void check_one_draw_ref_worker(struct ThreadData *thread)
+{
+  check_one_ref_worker_tmpl(thread, CO_DRAW);
+}
+
+static void check_one_cwin_ref_worker(struct ThreadData *thread)
+{
+  check_one_ref_worker_tmpl(thread, CO_CWIN);
+}
+
+static void check_one(int stm, int s, const int T)
 {
   work_slice = s;
   g_pos.stm = stm;
   g_pos.sq[0] = KKSquare[s][0];
   g_pos.sq[1] = KKSquare[s][1];
 
-  if (s < 441)
-    run_threaded(check_one_worker, &work_g_dynamic[0]);
-  else
-    run_threaded(check_one_ref_worker, &work_g_dynamic[1]);
+  switch (T) {
+  case CO_REGULAR:
+    if (s < 441)
+      run_threaded(check_one_regular_worker, &work_g_dynamic[0]);
+    else
+      run_threaded(check_one_regular_ref_worker, &work_g_dynamic[1]);
+    break;
+  case CO_DRAW:
+    if (s < 441)
+      run_threaded(check_one_draw_worker, &work_g_dynamic[0]);
+    else
+      run_threaded(check_one_draw_ref_worker, &work_g_dynamic[1]);
+    break;
+  case CO_CWIN:
+    if (s < 441)
+      run_threaded(check_one_cwin_worker, &work_g_dynamic[0]);
+    else
+      run_threaded(check_one_cwin_ref_worker, &work_g_dynamic[1]);
+    break;
+  }
 }
 
 static void check_win(int stm)
@@ -679,7 +853,6 @@ static void check_win(int stm)
   char phase[64];
   snprintf(phase, sizeof phase, "check %s win, cwin-", side[stm]);
   int num_done = 0;
-  check_stalemate = false;
 
   kslice_iter_init(&iter, stm);
   int s, s1;
@@ -691,11 +864,11 @@ static void check_win(int stm)
 
     kslice_read(-1, s, stm, "wins", -1);
     kslice_read_andnot(-1, s, stm, "capt/win", -1);
-    check_one(stm, s);
+    check_one(stm, s, CO_REGULAR);
 
     kslice_read(-1, s, stm, "cwin", -1);
     kslice_read_andnot(-1, s, stm, "capt/cwin", -1);
-    check_zero(stm, s);
+    check_zero(stm, s, CZ_CWIN);
 
     while (kslice_iter_out(&iter, &s));
   }
@@ -709,7 +882,6 @@ static void check_cwin(int stm)
   char phase[64];
   snprintf(phase, sizeof phase, "check %s cwin+", side[stm]);
   int num_done = 0;
-  check_stalemate = false;
 
   kslice_iter_init(&iter, stm);
   int s, s1;
@@ -721,7 +893,7 @@ static void check_cwin(int stm)
 
     kslice_read(-1, s, stm, "cwin", -1);
     kslice_read_andnot(-1, s, stm, "capt/cwin", -1);
-    check_one(stm, s);
+    check_one(stm, s, CO_CWIN);
 
     while (kslice_iter_out(&iter, &s));
   }
@@ -735,7 +907,6 @@ static void check_draw(int stm)
   char phase[64];
   snprintf(phase, sizeof phase, "check %s draw-", side[stm]);
   int num_done = 0;
-  check_stalemate = false;
 
   kslice_iter_init(&iter, stm);
   int s, s1;
@@ -749,7 +920,7 @@ static void check_draw(int stm)
 
     kslice_read(-1, s, stm, "draw", -1);
     kslice_read_andnot(-1, s, stm, "capt/draw", -1);
-    check_zero(stm, s);
+    check_zero(stm, s, CZ_REGULAR);
 
     while (kslice_iter_out(&iter, &s));
   }
@@ -757,7 +928,6 @@ static void check_draw(int stm)
 
   snprintf(phase, sizeof phase, "check %s draw+", side[stm]);
   num_done = 0;
-  check_stalemate = true;
   kslice_iter_init(&iter, stm);
   while (kslice_iter_next(&iter, &s)) {
     show_progress(phase, num_done++, 462, false);
@@ -767,7 +937,7 @@ static void check_draw(int stm)
 
     kslice_read(-1, s, stm, "draw", -1);
     kslice_read_andnot(-1, s, stm, "capt/draw", -1);
-    check_one(stm, s);
+    check_one(stm, s, CO_DRAW);
 
     while (kslice_iter_out(&iter, &s));
   }
@@ -781,7 +951,6 @@ static void check_bloss(int stm)
   char phase[64];
   snprintf(phase, sizeof phase, "check %s bloss-", side[stm]);
   int num_done = 0;
-  check_stalemate = false;
 
   kslice_iter_init(&iter, stm);
   int s, s1;
@@ -796,7 +965,7 @@ static void check_bloss(int stm)
 
     kslice_read(-1, s, stm, "bloss", -1);
     kslice_read_andnot(-1, s, stm, "capt/bloss", -1);
-    check_zero(stm, s);
+    check_zero(stm, s, CZ_REGULAR);
 
     while (kslice_iter_out(&iter, &s));
   }
@@ -813,7 +982,7 @@ static void check_bloss(int stm)
 
     kslice_read(-1, s, stm, "bloss", -1);
     kslice_read_andnot(-1, s, stm, "capt/bloss", -1);
-    check_one(stm, s);
+    check_one(stm, s, CO_REGULAR);
 
     while (kslice_iter_out(&iter, &s));
   }
@@ -827,7 +996,6 @@ static void check_loss(int stm)
   char phase[64];
   snprintf(phase, sizeof phase, "check %s loss", side[stm]);
   int num_done = 0;
-  check_stalemate = true;
 
   kslice_iter_init(&iter, stm);
   int s, s1;
@@ -841,7 +1009,7 @@ static void check_loss(int stm)
     }
 
     kslice_read(-1, s, stm, "loss", -1);
-    check_zero(stm, s);
+    check_zero(stm, s, CZ_LOSS);
 
     while (kslice_iter_out(&iter, &s));
   }
@@ -1161,10 +1329,11 @@ void verify(void)
 
   XXH128_hash_t wdl_checksum = XXH3_128bits(wdl_cnt, sizeof wdl_cnt);
   uint64_t *p = (uint64_t *)tb->data + tb->offset - 2;
-  if (memcmp(&wdl_checksum, p, 16) == 0)
-    printf("WDL counts checksum is OK.\n");
+  bool table_is_ok = memcmp(&wdl_checksum, p, 16) == 0;
+  if (table_is_ok)
+    printf("\x1b[92mWDL counts checksum is OK.\x1b[0m\n");
   else
-    printf("WDL counts checksum does not match.\n");
+    printf("\x1b[91mWDL counts checksum does not match.\x1b[0m\n");
 
   mtx_init(&report_mutex, mtx_plain);
 
@@ -1180,8 +1349,10 @@ void verify(void)
   check_bloss(BLACK);
   check_loss(BLACK);
 
-  if (num_fails == 0)
-    printf("WDL table is OK.\n");
+  if (table_is_ok && num_fails == 0)
+    printf("\x1b[92mWDL table is OK.\x1b[0m\n");
+  else
+    printf("\x1b[91mWDL table is not OK.\x1b[0m\n");
 
   mtx_destroy(&report_mutex);
 }

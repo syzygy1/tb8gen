@@ -173,32 +173,35 @@ void NAME(replace_pairs)(struct ThreadData *thread)
   uint64_t idx = thread->begin;
   uint64_t end = thread->end;
   T *restrict data = compress_state.data;
-  int s1, s2, a;
   int t = thread->thread_id;
 
   if (idx == end) return;
 
-  a = -1;
-  s1 = read_symbol(data[idx]);
+  int a = -1;
+  int s1 = read_symbol(data[idx]);
   idx += symtable[s1].len;
   while (idx < end) {
-    s2 = read_symbol(data[idx]);
+    int s2 = read_symbol(data[idx]);
     idx += symtable[s2].len;
-    if (newtest[s1][s2]) {
-      struct Symbol *sym = &symtable[newpairs[newtest[s1][s2] - 1].sym];
-      write_symbol(data[idx - sym->len], sym);
-      if (likely(a >= 0))
-        countfirst[t][newtest[s1][s2] - 1][a]++;
-      a = newtest[s1][s2] - 1;
-      if (unlikely(idx == compress_state.size)) break;
-      s1 = read_symbol(data[idx]);
-      idx += symtable[s1].len;
-      countsecond[t][a][s1]++;
-      a = newpairs[a].sym;
-    } else {
+    int nt = newtest[s1][s2];
+    if (likely(!nt)) {
       a = s1;
       s1 = s2;
+      continue;
     }
+    int pair = nt - 1;
+    int newsym = newpairs[pair].sym;
+    struct Symbol *sym = &symtable[newsym];
+    write_symbol(data[idx - sym->len], sym);
+    if (likely(a >= 0))
+      countfirst[t][pair][a]++;
+    a = pair;
+    if (unlikely(idx == compress_state.size))
+      break;
+    s1 = read_symbol(data[idx]);
+    idx += symtable[s1].len;
+    countsecond[t][a][s1]++;
+    a = newsym;
   }
 }
 

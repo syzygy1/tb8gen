@@ -243,7 +243,10 @@ int probe_capts_wdl(Position *pos, int alpha, int beta);
 int probe_capts_dtm(Position *pos, int lower, int upper, const bool won);
 
 int probe_wdl(Position *pos, int alpha, int beta);
+int probe_wdl_helper(Position *pos, bool *capture_is_best);
 int probe_dtm_win(Position *pos, int lower, int upper);
 int probe_dtm_loss(Position *pos, int lower, int upper);
+int probe_dtz(Position *pos);
+int probe_dtz_helper(Position *pos, int wdl);
 
 #endif

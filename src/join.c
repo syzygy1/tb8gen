@@ -313,7 +313,7 @@ static void join_dtz(int stm, struct tb_handle *G)
 
     uint8_t w[MAX_STATS];
     for (int i = 0; i < MAX_STATS; i++)
-      w[i] = v[i];
+      w[i] = v[mi.v_inv_u16[i]];
 
     uint8_t *table = join_table;
     table[462 * kslice_size] = dtzmap.max_num;
@@ -328,6 +328,10 @@ static void join_dtz(int stm, struct tb_handle *G)
 
   } else {
 
+    uint16_t w[MAX_STATS];
+    for (int i = 0; i < MAX_STATS; i++)
+      w[i] = v[mi.v_inv_u16[i]];
+
     uint16_t *table = join_table;
     table[462 * kslice_size] = dtzmap.max_num;
 
@@ -335,7 +339,7 @@ static void join_dtz(int stm, struct tb_handle *G)
       create_name(str, s, stm, "merged/dtz", -1);
       FILE *F = file_open_read(str);
       read_data_transform_u16(F, table + s * kslice_size,
-          kslice_sizes[s >= 441] * 2, v);
+          kslice_sizes[s >= 441] * 2, w);
       fclose(F);
     }
 
@@ -530,7 +534,7 @@ static void join_dtz_462(int stm)
 
       uint8_t w[MAX_STATS];
       for (int i = 0; i < MAX_STATS; i++)
-        w[i] = v[i];
+        w[i] = v[mi.v_inv_u16[i]];
 
       uint8_t *table = join_table;
 
@@ -541,11 +545,15 @@ static void join_dtz_462(int stm)
 
     } else {
 
+      uint16_t w[MAX_STATS];
+      for (int i = 0; i < MAX_STATS; i++)
+        w[i] = v[mi.v_inv_u16[i]];
+
       uint16_t *table = join_table;
 
       create_name(str, s, stm, "merged/dtz", -1);
       FILE *F = file_open_read(str);
-      read_data_transform_u16(F, table, kslice_sizes[s >= 441] * 2, v);
+      read_data_transform_u16(F, table, kslice_sizes[s >= 441] * 2, w);
       fclose(F);
 
     }
@@ -934,7 +942,7 @@ static void join_dtz_10(int stm)
 
       uint8_t w[MAX_STATS];
       for (int i = 0; i < MAX_STATS; i++)
-        w[i] = v[i];
+        w[i] = v[mi.v_inv_u16[i]];
 
       uint8_t *table = join_table;
 
@@ -956,6 +964,10 @@ static void join_dtz_10(int stm)
 
     } else {
 
+      uint16_t w[MAX_STATS];
+      for (int i = 0; i < MAX_STATS; i++)
+        w[i] = v[mi.v_inv_u16[i]];
+
       uint16_t *table = join_table;
 
       for (int l = 0; l < 64; l++) {
@@ -968,7 +980,7 @@ static void join_dtz_10(int stm)
         create_name(str, s, stm, "merged/dtz", -1);
         FILE *F = file_open_read(str);
         read_data_transform_u16(F, table + n * kslice_size,
-            kslice_sizes[s >= 441] * 2, v);
+            kslice_sizes[s >= 441] * 2, w);
         fclose(F);
 
         n++;
