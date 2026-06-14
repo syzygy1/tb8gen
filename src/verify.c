@@ -18,11 +18,10 @@
 #include "threads.h"
 #include "types.h"
 #include "util.h"
+#include "hash/xxhash.h"
 
 const char wdl_name[5][8] = { "loss", "bloss", "draw", "cwin", "win" };
 const char side[2][8] = { "white", "black" };
-const char clr_L[4][4] = { "31", "32", "33", "34" };
-const char clr_W[4][4] = { "94", "93", "92", "91" };
 
 static uint64_t sub_cnt[2][5];
 
@@ -883,6 +882,7 @@ void depermute_462_worker(struct ThreadData *thread)
 {
   alignas(64) uint8_t tmp[64];
   uint8_t sq[MAX_PIECES];
+  uint8_t sq2[MAX_PIECES];
   uint8_t *restrict src = tb_table;
   struct TbTable2 *table = table_info;
   struct RankInfo *dst_ri = &tb_ri[g_pos.stm];
@@ -892,7 +892,6 @@ void depermute_462_worker(struct ThreadData *thread)
 
   sq[0] = g_pos.sq[0];
   sq[1] = g_pos.sq[1];
-  Bitboard occ = bit(sq[0]) | bit(sq[1]);
 
   idx_state_init(&is, thread->begin, sq, dst_ri);
 
@@ -903,7 +902,9 @@ void depermute_462_worker(struct ThreadData *thread)
   // Fill pipeline.
   for (; fill < NUM && idx < end; fill++, idx++, idx_state_inc(&is, dst_ri)) {
     idx_state_to_sq(&is, sq, dst_ri);
-    uint64_t idx_dec = rank_trivial_from(sq, 0, occ, table->first, table->ri);
+    normalize2(sq, sq2);
+    Bitboard occ2 = bit(sq2[0]) | bit(sq2[1]);
+    uint64_t idx_dec = rank_trivial_from(sq2, 0, occ2, table->first, table->ri);
     __builtin_prefetch(src + idx_dec, 0, 3);
     idx_dec_buf[fill] = idx_dec;
   }
@@ -911,7 +912,9 @@ void depermute_462_worker(struct ThreadData *thread)
   // Steady-state pipeline.
   for (; idx < end; idx++, idx_state_inc(&is, dst_ri)) {
     idx_state_to_sq(&is, sq, dst_ri);
-    uint64_t idx_dec = rank_trivial_from(sq, 0, occ, table->first, table->ri);
+    normalize2(sq, sq2);
+    Bitboard occ2 = bit(sq2[0]) | bit(sq2[1]);
+    uint64_t idx_dec = rank_trivial_from(sq2, 0, occ2, table->first, table->ri);
     __builtin_prefetch(src + idx_dec, 0, 3);
     store_wdl(idx - NUM, tmp, src[idx_dec_buf[head]]);
     idx_dec_buf[head] = idx_dec;
@@ -931,6 +934,7 @@ void depermute_462_ref_worker(struct ThreadData *thread)
 {
   alignas(64) uint8_t tmp[64];
   uint8_t sq[MAX_PIECES];
+  uint8_t sq2[MAX_PIECES];
   uint8_t *restrict src = tb_table;
   struct TbTable2 *table = table_info;
   struct RankInfo *dst_ri = &tb_ri[g_pos.stm];
@@ -948,7 +952,9 @@ void depermute_462_ref_worker(struct ThreadData *thread)
   // Fill pipeline.
   for (; fill < NUM && idx < end; fill++, idx++) {
     unrank_reflection(idx, sq, occ, dst_ri);
-    uint64_t idx_dec = rank_reflection(sq, occ, table->first, table->ri);
+    normalize2(sq, sq2);
+    Bitboard occ2 = bit(sq2[0]) | bit(sq2[1]);
+    uint64_t idx_dec = rank_reflection(sq2, occ2, table->first, table->ri);
     __builtin_prefetch(src + idx_dec, 0, 3);
     idx_dec_buf[fill] = idx_dec;
   }
@@ -956,7 +962,9 @@ void depermute_462_ref_worker(struct ThreadData *thread)
   // Steady-state pipeline.
   for (; idx < end; idx++) {
     unrank_reflection(idx, sq, occ, dst_ri);
-    uint64_t idx_dec = rank_reflection(sq, occ, table->first, table->ri);
+    normalize2(sq, sq2);
+    Bitboard occ2 = bit(sq2[0]) | bit(sq2[1]);
+    uint64_t idx_dec = rank_reflection(sq2, occ2, table->first, table->ri);
     __builtin_prefetch(src + idx_dec, 0, 3);
     store_wdl(idx - NUM, tmp, src[idx_dec_buf[head]]);
     idx_dec_buf[head] = idx_dec;
@@ -1102,11 +1110,8 @@ void verify(void)
         g_pos.sq[1] = KKSquare[s][1];
         g_pos.stm = stm;
 
-        if (flip[stm]) {
-          int s1 = KKMap[g_pos.sq[1]][g_pos.sq[0]];
-          g_pos.sq[0] = KKSquare[s1][0];
-          g_pos.sq[1] = KKSquare[s1][1];
-        }
+        if (flip[stm])
+          Swap(g_pos.sq[0], g_pos.sq[1]);
 
         decompress_kslice_462(tb, stm, s);
       }
@@ -1153,6 +1158,13 @@ void verify(void)
   }
 
   free(tb_table);
+
+  XXH128_hash_t wdl_checksum = XXH3_128bits(wdl_cnt, sizeof wdl_cnt);
+  uint64_t *p = (uint64_t *)tb->data + tb->offset - 2;
+  if (memcmp(&wdl_checksum, p, 16) == 0)
+    printf("WDL counts checksum is OK.\n");
+  else
+    printf("WDL counts checksum does not match.\n");
 
   mtx_init(&report_mutex, mtx_plain);
 

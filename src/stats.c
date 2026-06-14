@@ -190,12 +190,12 @@ void calc_stats_checksums(void)
     uint64_t *stats = g_stats[stm];
     for (int i = 0; i <= DRAW_RULE; i++)
       wdl_counts[stm][0] += stats[MAX_STATS - 1 - i];
-    for (int i = DRAW_RULE + 1; i < MAX_STATS / 2 - 2; i++)
+    for (int i = DRAW_RULE + 1; i < MAX_STATS / 2 - 3; i++)
       wdl_counts[stm][1] += stats[MAX_STATS - 1 - i];
-    wdl_counts[stm][2] += stats[MAX_STATS / 2] + stats[MAX_STATS / 2 + 1];
-    for (int i = DRAW_RULE + 2; i < MAX_STATS / 2; i++)
+    wdl_counts[stm][2] += stats[MAX_STATS / 2 + 1] + stats[MAX_STATS / 2 + 2];
+    for (int i = DRAW_RULE + 3; i < MAX_STATS / 2; i++)
       wdl_counts[stm][3] += stats[i];
-    for (int i = 1; i <= DRAW_RULE + 1; i++)
+    for (int i = 1; i <= DRAW_RULE + 2; i++)
       wdl_counts[stm][4] += stats[i];
   }
   wdl_checksum = XXH3_128bits(wdl_counts, sizeof wdl_counts);
