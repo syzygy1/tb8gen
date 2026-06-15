@@ -130,7 +130,7 @@ INLINE size_t bits_to_aligned(size_t size)
   return (size + 0x3f) & ~0x3f;
 }
 
-uint8_t *alloc_kslice(void)
+uint8_t *kslice_alloc(void)
 {
   size_t size = bits_to_aligned(kslice_sizes[0]);
   uint8_t *p = alloc_huge(size);
@@ -142,7 +142,7 @@ uint8_t *alloc_kslice(void)
 void kslice_setup(void)
 {
   for (int i = 0; i < 20; i++)
-    kslice_buf[i] = alloc_kslice();
+    kslice_buf[i] = kslice_alloc();
   kslice_slot[0] = 19;
   for (int i = 0; i < 462; i++)
     kslice_slot[i + 1] = -1;
@@ -446,7 +446,8 @@ void kslice_read_or(int s, int slice, int stm, const char *name, int n)
   fclose(F);
 }
 
-void kslice_read_andnot(int s, int slice, int stm, const char *name, int n)
+void kslice_read_andnot_addr(void *p, int slice, int stm, const char *name,
+    int n)
 {
   char str[64];
   create_name(str, slice, stm, name, n);
@@ -465,11 +466,15 @@ void kslice_read_andnot(int s, int slice, int stm, const char *name, int n)
     file_read(&num, sizeof(uint64_t), F);
 //    kslice_read_count += num;
     kslice_read_cost += st.st_size;
-    read_data_andnot(F, kslice_get_address(s),
-        kslice_cache_lines[slice >= 441] << 6);
-    kslice_clear_tail(s);
+    read_data_andnot(F, p, kslice_cache_lines[slice >= 441] << 6);
+    kslice_clear_tail_addr(p, slice);
   }
   fclose(F);
+}
+
+void kslice_read_andnot(int s, int slice, int stm, const char *name, int n)
+{
+  kslice_read_andnot_addr(kslice_get_address(s), slice, stm, name, n);
 }
 
 void kslice_delete(int slice, int stm, const char *name, int n)
@@ -565,6 +570,7 @@ void kslice_sub_andnot(int s1, int s2, int stm)
 
 void kslice_clear_tail_addr(void *p, int s)
 {
+  assert(s >= 0);
   uint8_t *restrict q = p;
   clear_tail(q, kslice_sizes[s >= 441], kslice_cache_lines[s >= 441] << 3);
 }

@@ -17,6 +17,11 @@
 #include "util.h"
 #include "xxhash.h"
 
+#ifdef HAS_PAWNS
+#include "generatep.h"
+#include "kslicep.h"
+#endif
+
 uint64_t g_stats[2][MAX_STATS];
 XXH128_hash_t wdl_checksum, dtz_checksum[2];
 
@@ -87,7 +92,7 @@ void print_stats(FILE *F, int stm)
         stats[DRAW_RULE + 3] + stats[DRAW_RULE + 5], stats[DRAW_RULE + 3],
         DRAW_RULE + 1);
 #else
-  if (stats[DRAW_RULE + 3] + stats[DRAW_RULE + 4] + stats[DRAWRULE + 5])
+  if (stats[DRAW_RULE + 3] + stats[DRAW_RULE + 4] + stats[DRAW_RULE + 5])
     fprintf(F, "%lu (%lu,%lu) positions win in %d ply.\n",
         stats[DRAW_RULE + 3] + stats[DRAW_RULE + 4] + stats[DRAW_RULE + 5],
         stats[DRAW_RULE + 3], stats[DRAW_RULE + 4], DRAW_RULE + 1);
@@ -148,9 +153,17 @@ void print_max_fens(FILE *F, struct MaxFen *mf)
   fprintf(F, "\n");
 }
 
-static void stats_to_freq(uint64_t stats[MAX_STATS], uint64_t f[2][MAX_VAL])
+// FIXME:
+// - checksum on "lossless" stats per ply
+// - checksum on actual stored vals
+//   - mate = 0, win-in-n -> n-1, rounding > DRAW_RULE
+//   - remove CAPT_WIN, PAWN_WIN, CAPT_CWIN, PAWN_CWIN
+//     i.e. all values not stored in the DTZ table.
+
+static void stats_to_freq(uint64_t stats[MAX_STATS],
+    uint64_t f[2][MAX_VAL + 101])
 {
-  memset(f, 0, MAX_VAL * 16);
+  memset(f, 0, 16 * (MAX_VAL + 101));
 
   f[0][1] = stats[1] + stats[2] + stats[3];
   for (int i = 4; i <= DRAW_RULE + 2; i++)
@@ -167,9 +180,9 @@ static void stats_to_freq(uint64_t stats[MAX_STATS], uint64_t f[2][MAX_VAL])
     f[1][DRAW_RULE + 1 + (i - DRAW_RULE - 1) / 2] += stats[MAX_STATS - 1 - i];
 }
 
-static XXH128_hash_t freq_to_hash(uint64_t f[2][2][MAX_VAL])
+static XXH128_hash_t freq_to_hash(uint64_t f[2][2][MAX_VAL + 101])
 {
-  uint64_t v[4 * MAX_VAL];
+  uint64_t v[4 * (MAX_VAL + 101)];
   int n;
   for (n = MAX_VAL; n >= 1; n--)
     if (f[0][0][n - 1] | f[0][1][n - 1] | f[1][0][n - 1] | f[1][1][n - 1])
@@ -200,7 +213,7 @@ void calc_stats_checksums(void)
   }
   wdl_checksum = XXH3_128bits(wdl_counts, sizeof wdl_counts);
 
-  uint64_t counts[2][2][MAX_VAL];
+  uint64_t counts[2][2][MAX_VAL + 101];
   stats_to_freq(g_stats[0], counts[0]);
   stats_to_freq(g_stats[1], counts[1]);
   dtz_checksum[0] = freq_to_hash(counts);

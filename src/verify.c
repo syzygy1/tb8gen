@@ -1016,7 +1016,7 @@ static void check_loss(int stm)
   show_progress(phase, 462, 462, true);
 }
 
-uint8_t *tb_table;
+uint8_t *tb_table, *dtz_table;
 struct TbTable2 *table_info;
 struct RankInfo tb_ri[2];
 
@@ -1046,7 +1046,7 @@ INLINE void store_wdl(uint64_t idx, uint8_t *restrict tmp, int v)
 }
 
 #define NUM 16
-void depermute_462_worker(struct ThreadData *thread)
+void depermute_wdl_462_worker(struct ThreadData *thread)
 {
   alignas(64) uint8_t tmp[64];
   uint8_t sq[MAX_PIECES];
@@ -1098,7 +1098,7 @@ void depermute_462_worker(struct ThreadData *thread)
     store_wdl(idx, tmp, 0);
 }
 
-void depermute_462_ref_worker(struct ThreadData *thread)
+void depermute_wdl_462_ref_worker(struct ThreadData *thread)
 {
   alignas(64) uint8_t tmp[64];
   uint8_t sq[MAX_PIECES];
@@ -1152,8 +1152,18 @@ bool flip[2], btm_side[2];
 
 uint64_t wdl_cnt[2][5];
 
-void decompress_kslice_462(struct Tbase *tb, int stm, int s)
+void decompress_kslice_wdl_462(struct Tbase *tb, int stm, int s)
 {
+  char str[64];
+  create_name(str, s, stm, wdl_name[4], -1);
+  if (file_exists(str)) {
+    uint64_t num;
+    for (int i = 0; i < 5; i++)
+      if (kslice_test_count(s, stm, wdl_name[i], -1, &num))
+        wdl_cnt[stm][i] += num;
+    return;
+  }
+
   Position pos = g_pos;
 
   int tsq = KKMap[pos.sq[0]][pos.sq[1]];
@@ -1177,9 +1187,9 @@ void decompress_kslice_462(struct Tbase *tb, int stm, int s)
     table_info = table;
 
     if (s < 441)
-      run_threaded(depermute_462_worker, &work_g_static[0]);
+      run_threaded(depermute_wdl_462_worker, &work_g_static[0]);
     else
-      run_threaded(depermute_462_ref_worker, &work_g_static[1]);
+      run_threaded(depermute_wdl_462_ref_worker, &work_g_static[1]);
   }
 
   // Reconstruct proper win/cwin/draw/bloss/loss slices of legal positions.
@@ -1202,13 +1212,204 @@ void decompress_kslice_462(struct Tbase *tb, int stm, int s)
   }
 }
 
+void depermute_dtz_462_worker(struct ThreadData *thread)
+{
+  uint8_t sq[MAX_PIECES];
+  uint8_t sq2[MAX_PIECES];
+  uint8_t *restrict src = tb_table;
+  uint8_t *restrict dst = dtz_table;
+  struct TbTable2 *table = table_info;
+  struct RankInfo *dst_ri = &tb_ri[g_pos.stm];
+  struct IdxState is;
+
+  uint64_t idx_dec_buf[NUM];
+
+  sq[0] = g_pos.sq[0];
+  sq[1] = g_pos.sq[1];
+
+  idx_state_init(&is, thread->begin, sq, dst_ri);
+
+  uint64_t idx = thread->begin, end = thread->end;
+  int fill = 0;
+  int head = 0; // Next buffered element to consume.
+
+  // Fill pipeline.
+  for (; fill < NUM && idx < end; fill++, idx++, idx_state_inc(&is, dst_ri)) {
+    idx_state_to_sq(&is, sq, dst_ri);
+    normalize2(sq, sq2);
+    Bitboard occ2 = bit(sq2[0]) | bit(sq2[1]);
+    uint64_t idx_dec = rank_trivial_from(sq2, 0, occ2, table->first, table->ri);
+    __builtin_prefetch(src + idx_dec, 0, 3);
+    idx_dec_buf[fill] = idx_dec;
+  }
+
+  // Steady-state pipeline.
+  for (; idx < end; idx++, idx_state_inc(&is, dst_ri)) {
+    idx_state_to_sq(&is, sq, dst_ri);
+    normalize2(sq, sq2);
+    Bitboard occ2 = bit(sq2[0]) | bit(sq2[1]);
+    uint64_t idx_dec = rank_trivial_from(sq2, 0, occ2, table->first, table->ri);
+    __builtin_prefetch(src + idx_dec, 0, 3);
+    dst[idx - NUM] = src[idx_dec_buf[head]];
+    idx_dec_buf[head] = idx_dec;
+    head = (head + 1) & (NUM - 1);
+  }
+
+  // Drain pipeline.
+  for (uint64_t out = idx - fill; fill-- > 0; out++) {
+    dst[out] = src[idx_dec_buf[head]];
+    head = (head + 1) & (NUM - 1);
+  }
+}
+
+void depermute_dtz_462_ref_worker(struct ThreadData *thread)
+{
+  uint8_t sq[MAX_PIECES];
+  uint8_t sq2[MAX_PIECES];
+  uint8_t *restrict src = tb_table;
+  uint8_t *restrict dst = dtz_table;
+  struct TbTable2 *table = table_info;
+  struct RankInfo *dst_ri = &tb_ri[g_pos.stm];
+
+  uint64_t idx_dec_buf[NUM];
+
+  sq[0] = g_pos.sq[0];
+  sq[1] = g_pos.sq[1];
+  Bitboard occ = bit(sq[0]) | bit(sq[1]);
+
+  uint64_t idx = thread->begin, end = thread->end;
+  int fill = 0;
+  int head = 0; // Next buffered element to consume.
+
+  // Fill pipeline.
+  for (; fill < NUM && idx < end; fill++, idx++) {
+    unrank_reflection(idx, sq, occ, dst_ri);
+    normalize2(sq, sq2);
+    Bitboard occ2 = bit(sq2[0]) | bit(sq2[1]);
+    uint64_t idx_dec = rank_reflection(sq2, occ2, table->first, table->ri);
+    __builtin_prefetch(src + idx_dec, 0, 3);
+    idx_dec_buf[fill] = idx_dec;
+  }
+
+  // Steady-state pipeline.
+  for (; idx < end; idx++) {
+    unrank_reflection(idx, sq, occ, dst_ri);
+    normalize2(sq, sq2);
+    Bitboard occ2 = bit(sq2[0]) | bit(sq2[1]);
+    uint64_t idx_dec = rank_reflection(sq2, occ2, table->first, table->ri);
+    __builtin_prefetch(src + idx_dec, 0, 3);
+    dst[idx - NUM] = src[idx_dec_buf[head]];
+    idx_dec_buf[head] = idx_dec;
+    head = (head + 1) & (NUM - 1);
+  }
+
+  // Drain pipeline.
+  for (uint64_t out = idx - fill; fill-- > 0; out++) {
+    dst[out] = src[idx_dec_buf[head]];
+    head = (head + 1) & (NUM - 1);
+  }
+}
+
+static bool dtz_stored[2][5];
+static uint16_t freq_map[MAX_VAL];
+static uint64_t (*dtz_freq)[2][2][MAX_VAL + 101];
+static int win_loss;
+
+void update_stats_worker(struct ThreadData *thread)
+{
+  const uint16_t *restrict map = freq_map;
+  uint64_t *restrict freq = dtz_freq[thread->thread_id][g_pos.stm][win_loss];
+  const uint64_t *restrict p = (uint64_t *)kslice_buf[0];
+  uint8_t *restrict q = dtz_table;
+  p += thread->begin >> 6;
+  for (uint64_t idx = thread->begin, end = thread->end; idx < end; idx += 64) {
+    uint64_t w = *p++;
+    while (w) {
+      uint64_t cur = idx + pop_lsb(&w);
+      freq[map[q[cur]]]++;
+    }
+  }
+}
+
+void decompress_kslice_dtz_462(struct Tbase *tb, int stm, int s)
+{
+  Position pos = g_pos;
+
+  int tsq = KKMap[pos.sq[0]][pos.sq[1]];
+  int t = (tb->dist_format & TWO_SIDED) ? 2 * tsq + btm_side[stm] : tsq;
+  if (!tb->table[t])
+    tb->table[t] = init_new_table(tb, pos.num, DTZ, t, tsq);
+  struct DtzTable2 *table = tb->table[t];
+
+  if (!table->precomp) {
+    struct TbTableConst *tbl = (struct TbTableConst *)table;
+    int v = tbl->const_value;
+    memset(dtz_table, v, kslice_sizes[s >= 441]);
+    table = &(struct DtzTable2){ .mapped = 0 };
+  }
+  else {
+    decompress_table((struct TbTable2 *)table, tb_table, kslice_sizes[s >= 441]);
+    table_info = (struct TbTable2 *)table;
+    if (s < 441)
+      run_threaded(depermute_dtz_462_worker, &work_g_static[0]);
+    else
+      run_threaded(depermute_dtz_462_ref_worker, &work_g_static[1]);
+  }
+
+  static constexpr int WdlToMap[5] = { 1, 3, 0, 2, 0 };
+  static constexpr int offset[4] = { 0, 0, 100, 100 };
+
+  int bound[4];
+  switch (table->mapped) {
+  case 1:
+    const uint8_t *data = table->map_dtz;
+    for (int i = 0; i < 4; i++) {
+      bound[i] = data[0];
+      data += 1 + data[0];
+    }
+    break;
+  case 2:
+    const uint16_t *data16 = table->map_dtz16;
+    for (int i = 0; i < 4; i++) {
+      bound[i] = data16[0];
+      data16 += 1 + data16[0];
+    }
+    break;
+  }
+
+  for (int i = 0; i < 5; i++) {
+    if (!dtz_stored[stm][i])
+      continue;
+    kslice_read_addr(kslice_buf[0], s, stm, wdl_name[i], -1);
+    if (i == 3 || i == 4) {
+      // Remove CAPT_WIN and CAPT_CWIN
+      char capt_name[32];
+      strcat(strcpy(capt_name, "capt/"), wdl_name[i]);
+      kslice_read_andnot_addr(kslice_buf[0], s, stm, capt_name, -1);
+    }
+    int m = WdlToMap[i];
+    win_loss = i > 2 ? 0 : 1;
+    memset(freq_map, 0, sizeof freq_map);
+    switch (table->mapped) {
+      case 0:
+        for (int j = 0; j < MAX_VAL; j++)
+          freq_map[j] = offset[m] + j;
+        break;
+      case 1:
+        for (int j = 0; j < bound[m]; j++)
+          freq_map[j] = offset[m] + table->map_dtz[table->map_dtz_idx[m] + j];
+        break;
+      case 2:
+        for (int j = 0; j < bound[m]; j++)
+          freq_map[j] = offset[m] + table->map_dtz16[table->map_dtz_idx[m] + j];
+        break;
+    }
+    run_threaded(update_stats_worker, &work_g_static[s >= 441]);
+  }
+}
+
 void verify(void)
 {
-  // Allocate memory for decompressed WDL K-slice.
-  tb_table = alloc_huge((kslice_size + 63) & ~0x3f);
-  if (!tb_table)
-    out_of_mem();
-
   // Initialize and mmap() tablebase file.
   struct TbEntry entry = {
     .has_pawns = false,
@@ -1224,7 +1425,7 @@ void verify(void)
 
   struct Tbase *tb = init_tbase(&entry, name, WDL, false);
   if (!tb) {
-    fprintf(stderr, "Could not open %s.\n", g_tablename);
+    fprintf(stderr, "Could not open %s.rtbw.\n", g_tablename);
     exit(EXIT_FAILURE);
   }
 
@@ -1248,9 +1449,21 @@ void verify(void)
   calc_capt(WHITE, -1);
   calc_capt(BLACK, -1);
 
+  // Release memory for K-slice bitmaps we don't need for now.
+  for (int i = 7; i < 20; i++)
+    if (kslice_buf[i]) {
+      free(kslice_buf[i]);
+      kslice_buf[i] = nullptr;
+    }
+
+  // Allocate memory for decompressed WDL K-slice.
+  tb_table = alloc_huge((kslice_size + 63) & ~0x3f);
+  if (!tb_table)
+    out_of_mem();
+
   for (int stm = 0; stm < 2; stm++) {
     char phase[64];
-    snprintf(phase, sizeof phase, "loading %ctm slices", "wb"[stm]);
+    snprintf(phase, sizeof phase, "loading %ctm WDL slices", "wb"[stm]);
 
     for (int i = 0; i < 5; i++)
       create_dir(-1, stm, wdl_name[i]);
@@ -1281,7 +1494,7 @@ void verify(void)
         if (flip[stm])
           Swap(g_pos.sq[0], g_pos.sq[1]);
 
-        decompress_kslice_462(tb, stm, s);
+        decompress_kslice_wdl_462(tb, stm, s);
       }
       show_progress(phase, 462, 462, true);
 
@@ -1301,23 +1514,19 @@ void verify(void)
           }
       }
 
-      for (int s = 0; s < 462; s++) {
-        show_progress(phase, s, 462, false);
+      for (int s = 0; s < 10; s++) {
+        show_progress(phase, s, 10, false);
 
         g_pos.sq[0] = KKSquare[s][0];
         g_pos.sq[1] = KKSquare[s][1];
         g_pos.stm = stm;
 
-        int s1 = s;
-        if (flip[stm]) {
-          int s1 = KKMap[g_pos.sq[1]][g_pos.sq[0]];
-          g_pos.sq[0] = KKSquare[s1][0];
-          g_pos.sq[1] = KKSquare[s1][1];
-        }
+        if (flip[stm])
+          Swap(g_pos.sq[0], g_pos.sq[1]);
 
-        decompress_kslice_462(tb, stm, s1);
+//        decompress_kslice_wdl_10(tb, stm, s);
       }
-      show_progress(phase, 462, 462, true);
+      show_progress(phase, 10, 10, true);
 
     }
 
@@ -1326,6 +1535,10 @@ void verify(void)
   }
 
   free(tb_table);
+
+  // Allocate memory for the K-slice bitmaps we released earlier.
+  for (int i = 7; i < 20; i++)
+    kslice_buf[i] = kslice_alloc();
 
   XXH128_hash_t wdl_checksum = XXH3_128bits(wdl_cnt, sizeof wdl_cnt);
   uint64_t *p = (uint64_t *)tb->data + tb->offset - 2;
@@ -1354,5 +1567,106 @@ void verify(void)
   else
     printf("\x1b[91mWDL table is not OK.\x1b[0m\n");
 
+  // Release memory for K-slice bitmaps we don't need for now.
+  for (int i = 1; i < 20; i++)
+    if (kslice_buf[i]) {
+      free(kslice_buf[i]);
+      kslice_buf[i] = nullptr;
+    }
+
+  // Allocate memory for decompressed and depermuted DTZ K-slices
+  // (1 byte per position).
+  tb_table = alloc_huge((kslice_size + 63) & ~0x3f);
+  dtz_table = alloc_huge((kslice_size + 63) & ~0x3f);
+  if (!tb_table || !dtz_table)
+    out_of_mem();
+
+  tb = init_tbase(&entry, name, DTZ, false);
+  if (!tb) {
+    fprintf(stderr, "Could not open %s.rtbz.\n", g_tablename);
+    exit(EXIT_FAILURE);
+  }
+
+  if (tb->layout != LT_PIECE_K && tb->layout != LT_PIECE_KK) {
+    fprintf(stderr, "Layout type %d is currently not supported.\n", tb->layout);
+    exit(EXIT_FAILURE);
+  }
+
+  bool one_sided = tb->dist_format & WTM_OR_BTM;
+  int one_sided_stm = (tb->dist_format & WTM_ONLY) ? WHITE : BLACK;
+  bool wins_only = tb->dist_format & WIN_ONLY;
+  bool has_stm[2] = {
+    !one_sided || one_sided_stm == WHITE,
+    !symmetric && (!one_sided || one_sided_stm == BLACK)
+  };
+
+  memset(dtz_stored, 0, sizeof dtz_stored);
+  if (one_sided) {
+    dtz_stored[one_sided_stm][0] = dtz_stored[one_sided_stm][1] = true;
+    dtz_stored[one_sided_stm][3] = dtz_stored[one_sided_stm][4] = true;
+  }
+  else if (wins_only) {
+    dtz_stored[WHITE][3] = dtz_stored[WHITE][4] = true;
+    dtz_stored[BLACK][3] = dtz_stored[BLACK][4] = true;
+  }
+  else {
+    dtz_stored[WHITE][0] = dtz_stored[WHITE][1] = true;
+    dtz_stored[BLACK][0] = dtz_stored[BLACK][1] = true;
+  }
+
+  dtz_freq = alloc_aligned(g_num_threads * sizeof *dtz_freq, 64);
+  memset(dtz_freq, 0, g_num_threads * sizeof *dtz_freq);
+
+  if (tb->layout == LT_PIECE_KK) {
+
+    for (int stm = 0; stm < 2; stm++) {
+      tb_ri[stm] = ri;
+      g_pos.stm = stm;
+      flip[stm] = !symmetric ? !tb->flipped : stm != WHITE;
+      btm_side[stm] = (stm == WHITE) == flip[stm];
+
+      for (int k = 0; k < ri.numsets; k++) {
+        int pt = g_pos.pt[ri.first[k]] ^ (flip[stm] << 3);
+        for (int j = 0; j < g_pos.num; j++)
+          if (tb->pt[j] == pt) {
+            tb_ri[stm].first[k] = j;
+            break;
+          }
+      }
+    }
+
+    for (int s = 0; s < 462; s++) {
+      show_progress("loading DTZ slices", s, 462, false);
+
+      for (int stm = 0; stm < 2; stm++) {
+        if (!has_stm[stm]) continue;
+
+        g_pos.sq[0] = KKSquare[s][0];
+        g_pos.sq[1] = KKSquare[s][1];
+        g_pos.stm = stm;
+
+        if (flip[stm])
+          Swap(g_pos.sq[0], g_pos.sq[1]);
+
+        decompress_kslice_dtz_462(tb, stm, s);
+      }
+    }
+    show_progress("loading DTZ slices", 462, 462, true);
+  }
+
+  uint64_t freq[2][2][MAX_VAL + 101] = { 0 };
+  for (int t = 0; t < g_num_threads; t++)
+    for (int stm = 0; stm < 2; stm++)
+      for (int wl = 0; wl < 2; wl++)
+        for (int i = 0; i < MAX_VAL + 101; i++)
+          freq[stm][wl][i] += dtz_freq[t][stm][wl][i];
+
+  for (int stm = 0; stm < 2; stm++)
+    for (int wl = 0; wl < 2; wl++)
+      for (int i = 0; i < MAX_VAL + 101; i++)
+        if (freq[stm][wl][i])
+          printf("freq[%d][%d][%d] = %lu\n", stm, wl, i, freq[stm][wl][i]);
+
+  kslice_free_buffers();
   mtx_destroy(&report_mutex);
 }

@@ -103,9 +103,9 @@ static void NAME(merge_capt_bloss_worker)(struct ThreadData *thread)
   for (uint64_t idx = thread->begin, end = thread->end; idx < end; idx += 64) {
     uint64_t w = *p++;
     while (w) {
-      unsigned bt = pop_lsb(&w);
-      if (q[idx + bt] == 1) {
-        q[idx + bt] = 5;
+      uint64_t cur = idx + pop_lsb(&w);
+      if (q[cur] == 1) {
+        q[cur] = 5;
         found = true;
       }
     }

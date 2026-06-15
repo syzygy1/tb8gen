@@ -11,8 +11,6 @@ struct RansCode;
 
 static constexpr int MAXSYMB = 4095 + 8;
 
-static constexpr int MAX_VAL = (MAX_STATS / 2 - DRAW_RULE) / 2;
-
 struct DtzMap {
   uint16_t map[4][MAX_VAL];
   uint16_t inv_map[4][MAX_VAL];

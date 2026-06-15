@@ -417,7 +417,7 @@ static void join_dtz_pk(int stm)
 
       uint8_t w[MAX_STATS];
       for (int i = 0; i < MAX_STATS; i++)
-        w[i] = v[i];
+        w[i] = v[mi.v_inv_u16[i]];
 
       uint8_t *table = join_table;
 
@@ -440,6 +440,10 @@ static void join_dtz_pk(int stm)
 
     } else {
 
+      uint16_t w[MAX_STATS];
+      for (int i = 0; i < MAX_STATS; i++)
+        w[i] = v[mi.v_inv_u16[i]];
+
       uint16_t *table = join_table;
 
       for (int k2 = 0; k2 < 64; k2++) {
@@ -454,7 +458,7 @@ static void join_dtz_pk(int stm)
           create_name_sq(str, g_pos.sq[0], g_pos.sq[1], stm, "merged/dtz", -1);
           FILE *F = file_open_read(str);
           read_data_transform_u16(F, table + n * kslice_size, kslice_size * 2,
-              v);
+              w);
           fclose(F);
         }
         n++;
@@ -868,7 +872,7 @@ static void join_dtz_p(int stm)
 
     uint8_t w[MAX_STATS];
     for (int i = 0; i < MAX_STATS; i++)
-      w[i] = v[i];
+      w[i] = v[mi.v_inv_u16[i]];
 
     uint8_t *table = join_table;
 
@@ -897,6 +901,10 @@ static void join_dtz_p(int stm)
 
   } else {
 
+    uint16_t w[MAX_STATS];
+    for (int i = 0; i < MAX_STATS; i++)
+      w[i] = v[mi.v_inv_u16[i]];
+
     uint16_t *table = join_table;
 
     for (int k1 = 0; k1 < 64; k1++) {
@@ -916,7 +924,7 @@ static void join_dtz_p(int stm)
           create_name_sq(str, k1, k2, stm, "merged/dtz", -1);
           FILE *F = file_open_read(str);
           read_data_transform_u16(F, table + n * kslice_size, kslice_size * 2,
-              v);
+              w);
           fclose(F);
         }
         n++;
