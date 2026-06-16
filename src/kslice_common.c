@@ -27,12 +27,12 @@ static void set_worker(struct ThreadData *thread)
 
   __m256i ones = _mm256_set1_epi32(-1);
   if (end - begin >= MIN_STREAMING_STORES_SIZE) {
-    for (idx = begin; idx < end; idx += 64) {
+    for (size_t idx = begin; idx < end; idx += 64) {
       _mm256_stream_si256((__m256i *)(p + idx), ones);
       _mm256_stream_si256((__m256i *)(p + idx + 32), ones);
     }
   } else {
-    for (idx = begin; idx < end; idx += 64) {
+    for (size_t idx = begin; idx < end; idx += 64) {
       _mm256_store_si256((__m256i *)(p + idx), ones);
       _mm256_store_si256((__m256i *)(p + idx + 32), ones);
     }
@@ -65,7 +65,7 @@ static void clear_worker(struct ThreadData *thread)
 #elifdef __AVX2__
 
   __m256i z = _mm256_setzero_si256();
-  if (thread->end - thread->begin >= MIN_STREAMING_STORES / 64) {
+  if (end - begin >= MIN_STREAMING_STORES_SIZE) {
     for (size_t idx = begin; idx < end; idx += 64) {
       _mm256_stream_si256((__m256i *)(p + idx), z);
       _mm256_stream_si256((__m256i *)(p + idx + 32), z);
@@ -95,16 +95,16 @@ static void not_worker(struct ThreadData *thread)
 
   __m512i ones = _mm512_set1_epi64(-1);
   for (; idx < end; idx += 8) {
-    __m512i a = _mm512_load_si512(p + idx);
-    _mm512_store_si512(p + idx, _mm512_xor_si512(a, ones));
+    __m512i a = _mm512_load_si512((__m512i *)(p + idx));
+    _mm512_store_si512((__m512i *)(p + idx), _mm512_xor_si512(a, ones));
   }
 
 #elifdef __AVX2__
 
   __m256i ones = _mm256_set1_epi32(-1);
   for (; idx < end; idx += 4) {
-    __m256i a = _mm256_load_si256(p + idx);
-    _mm256_store_si256(p + idx, _mm256_xor_si256(a, ones));
+    __m256i a = _mm256_load_si256((__m256i *)(p + idx));
+    _mm256_store_si256((__m256i *)(p + idx), _mm256_xor_si256(a, ones));
   }
 
 #else
@@ -126,17 +126,17 @@ static void or_worker(struct ThreadData *thread)
 #ifdef __AVX512F__
 
   for (; idx < end; idx += 8) {
-    __m512i a = _mm512_load_si512(p + idx);
-    __m512i b = _mm512_load_si512(q + idx);
-    _mm512_store_si512(p + idx, _mm512_or_si512(a, b));
+    __m512i a = _mm512_load_si512((__m512i *)(p + idx));
+    __m512i b = _mm512_load_si512((__m512i *)(q + idx));
+    _mm512_store_si512((__m512i *)(p + idx), _mm512_or_si512(a, b));
   }
 
 #elifdef __AVX2__
 
   for (; idx < end; idx += 4) {
-    __m256i a = _mm256_load_si256(p + idx);
-    __m256i b = _mm256_load_si256(q + idx);
-    _mm256_store_si256(p + idx, _mm256_or_si256(a, b));
+    __m256i a = _mm256_load_si256((__m256i *)(p + idx));
+    __m256i b = _mm256_load_si256((__m256i *)(q + idx));
+    _mm256_store_si256((__m256i *)(p + idx), _mm256_or_si256(a, b));
   }
 
 #else
@@ -158,18 +158,19 @@ static void ornot_worker(struct ThreadData *thread)
 #ifdef __AVX512F__
 
   for (; idx < end; idx += 8) {
-    __m512i a = _mm512_load_si512(p + idx);
-    __m512i b = _mm512_load_si512(q + idx);
-    _mm512_store_si512(p + idx, _mm512_ternarylogic_epi64(a, b, b, 0xF3));
+    __m512i a = _mm512_load_si512((__m512i *)(p + idx));
+    __m512i b = _mm512_load_si512((__m512i *)(q + idx));
+    _mm512_store_si512((__m512i *)(p + idx),
+        _mm512_ternarylogic_epi64(a, b, b, 0xF3));
   }
 
 #elifdef __AVX2__
 
   const __m256i ones = _mm256_set1_epi64x(-1);
   for (; idx < end; idx += 4) {
-    __m256i a = _mm256_load_si256(p + idx);
-    __m256i b = _mm256_xor_si256(_mm256_load_si256(q + idx), ones);
-    _mm256_store_si256(p + idx, _mm256_or_si256(a, b));
+    __m256i a = _mm256_load_si256((__m256i *)(p + idx));
+    __m256i b = _mm256_xor_si256(_mm256_load_si256((__m256i *)(q + idx)), ones);
+    _mm256_store_si256((__m256i *)(p + idx), _mm256_or_si256(a, b));
   }
 
 #else
@@ -191,17 +192,17 @@ static void and_worker(struct ThreadData *thread)
 #ifdef __AVX512F__
 
   for (; idx < end; idx += 8) {
-    __m512i a = _mm512_load_si512(p + idx);
-    __m512i b = _mm512_load_si512(q + idx);
-    _mm512_store_si512(p + idx, _mm512_and_si512(a, b));
+    __m512i a = _mm512_load_si512((__m512i *)(p + idx));
+    __m512i b = _mm512_load_si512((__m512i *)(q + idx));
+    _mm512_store_si512((__m512i *)(p + idx), _mm512_and_si512(a, b));
   }
 
 #elifdef __AVX2__
 
   for (; idx < end; idx += 4) {
-    __m256i a = _mm256_load_si256(p + idx);
-    __m256i b = _mm256_load_si256(q + idx);
-    _mm256_store_si256(p + idx, _mm256_and_si256(a, b));
+    __m256i a = _mm256_load_si256((__m256i *)(p + idx));
+    __m256i b = _mm256_load_si256((__m256i *)(q + idx));
+    _mm256_store_si256((__m256i *)(p + idx), _mm256_and_si256(a, b));
   }
 
 #else
@@ -223,17 +224,17 @@ static void andnot_worker(struct ThreadData *thread)
 #ifdef __AVX512F__
 
   for (; idx < end; idx += 8) {
-    __m512i a = _mm512_load_si512(p + idx);
-    __m512i b = _mm512_load_si512(q + idx);
-    _mm512_store_si512(p + idx, _mm512_andnot_epi64(b, a));
+    __m512i a = _mm512_load_si512((__m512i *)(p + idx));
+    __m512i b = _mm512_load_si512((__m512i *)(q + idx));
+    _mm512_store_si512((__m512i *)(p + idx), _mm512_andnot_epi64(b, a));
   }
 
 #elifdef __AVX2__
 
   for (; idx < end; idx += 4) {
-    __m256i a = _mm256_load_si256(p + idx);
-    __m256i b = _mm256_load_si256(q + idx);
-    _mm256_store_si256(p + idx, _mm256_andnot_si256(b, a));
+    __m256i a = _mm256_load_si256((__m256i *)(p + idx));
+    __m256i b = _mm256_load_si256((__m256i *)(q + idx));
+    _mm256_store_si256((__m256i *)(p + idx), _mm256_andnot_si256(b, a));
   }
 
 #else
@@ -255,17 +256,17 @@ static void notand_worker(struct ThreadData *thread)
 #ifdef __AVX512F__
 
   for (; idx < end; idx += 8) {
-    __m512i a = _mm512_load_si512(p + idx);
-    __m512i b = _mm512_load_si512(q + idx);
-    _mm512_store_si512(p + idx, _mm512_andnot_epi64(a, b));
+    __m512i a = _mm512_load_si512((__m512i *)(p + idx));
+    __m512i b = _mm512_load_si512((__m512i *)(q + idx));
+    _mm512_store_si512((__m512i *)(p + idx), _mm512_andnot_epi64(a, b));
   }
 
 #elifdef __AVX2__
 
   for (; idx < end; idx += 4) {
-    __m256i a = _mm256_load_si256(p + idx);
-    __m256i b = _mm256_load_si256(q + idx);
-    _mm256_store_si256(p + idx, _mm256_andnot_si256(a, b));
+    __m256i a = _mm256_load_si256((__m256i *)(p + idx));
+    __m256i b = _mm256_load_si256((__m256i *)(q + idx));
+    _mm256_store_si256((__m256i *)(p + idx), _mm256_andnot_si256(a, b));
   }
 
 #else
@@ -287,18 +288,20 @@ void nor_worker(struct ThreadData *thread)
 #ifdef __AVX512F__
 
   for (; idx < end; idx += 8) {
-    __m512i a = _mm512_load_si512(p + idx);
-    __m512i b = _mm512_load_si512(q + idx);
-    _mm512_store_si512(p + idx, _mm512_ternarylogic_epi64(a, b, b, 0x05));
+    __m512i a = _mm512_load_si512((__m512i *)(p + idx));
+    __m512i b = _mm512_load_si512((__m512i *)(q + idx));
+    _mm512_store_si512((__m512i *)(p + idx),
+        _mm512_ternarylogic_epi64(a, b, b, 0x05));
   }
 
 #elifdef __AVX2__
 
   const __m256i ones = _mm256_set1_epi64x(-1);
   for (; idx < end; idx += 4) {
-    __m256i a = _mm256_load_si256(p + idx);
-    __m256i b = _mm256_load_si256(q + idx);
-    _mm256_store_si256(p + idx, _mm256_xor_si256(_mm256_or_si256(a, b), ones);
+    __m256i a = _mm256_load_si256((__m256i *)(p + idx));
+    __m256i b = _mm256_load_si256((__m256i *)(q + idx));
+    _mm256_store_si256((__m256i *)(p + idx),
+        _mm256_xor_si256(_mm256_or_si256(a, b), ones));
   }
 
 #else
@@ -320,19 +323,19 @@ void split_worker(struct ThreadData *thread)
 #ifdef __AVX512F__
 
   for (; idx < end; idx += 8) {
-    __m512i a = _mm512_load_si512(p + idx);
-    __m512i b = _mm512_load_si512(q + idx);
-    _mm512_store_si512(p + idx, _mm512_andnot_si512(b, a));
-    _mm512_store_si512(p + idx, _mm512_and_si512(b, a));
+    __m512i a = _mm512_load_si512((__m512i *)(p + idx));
+    __m512i b = _mm512_load_si512((__m512i *)(q + idx));
+    _mm512_store_si512((__m512i *)(p + idx), _mm512_andnot_si512(b, a));
+    _mm512_store_si512((__m512i *)(p + idx), _mm512_and_si512(b, a));
   }
 
 #elifdef __AVX2__
 
   for (; idx < end; idx += 4) {
-    __m256i a = _mm256_load_si256(p + idx);
-    __m256i b = _mm256_load_si256(q + idx);
-    _mm256_store_si256(p + idx, _mm256_andnot_si256(b, a));
-    _mm256_store_si256(p + idx, _mm256_and_si256(b, a));
+    __m256i a = _mm256_load_si256((__m256i *)(p + idx));
+    __m256i b = _mm256_load_si256((__m256i *)(q + idx));
+    _mm256_store_si256((__m256i *)(p + idx), _mm256_andnot_si256(b, a));
+    _mm256_store_si256((__m256i *)(p + idx), _mm256_and_si256(b, a));
   }
 
 #else
@@ -359,22 +362,24 @@ void abc_worker(struct ThreadData *thread)
 #ifdef __AVX512F__
 
   for (; idx < end; idx += 8) {
-    __m512i a = _mm512_load_si512(p + idx);
-    __m512i b = _mm512_load_si512(q + idx);
-    __m512i c = _mm512_load_si512(r + idx);
-    _mm512_store_si512(p + idx, _mm512_ternarylogic_epi64(a, b, c, 0x32));
-    _mm512_store_si512(q + idx, _mm512_ternarylogic_epi64(a, b, c, 0xfe));
+    __m512i a = _mm512_load_si512((__m512i *)(p + idx));
+    __m512i b = _mm512_load_si512((__m512i *)(q + idx));
+    __m512i c = _mm512_load_si512((__m512i *)(r + idx));
+    _mm512_store_si512((__m512i *)(p + idx),
+        _mm512_ternarylogic_epi64(a, b, c, 0x32));
+    _mm512_store_si512((__m512i *)(q + idx),
+        _mm512_ternarylogic_epi64(a, b, c, 0xfe));
   }
 
 #elifdef __AVX2__
 
   for (; idx < end; idx += 4) {
-    __m256i a = _mm256_load_si256(p + idx);
-    __m256i b = _mm256_load_si256(q + idx);
-    __m256i c = _mm256_load_si256(r + idx);
-    __m256i a_or_c = _mm256_or_si512(a, c);
-    _mm256_store_si256(p + idx, _mm256_andnot_si256(b, a_or_c));
-    _mm256_store_si256(q + idx, _mm256_or_si256(b, a_or_c));
+    __m256i a = _mm256_load_si256((__m256i *)(p + idx));
+    __m256i b = _mm256_load_si256((__m256i *)(q + idx));
+    __m256i c = _mm256_load_si256((__m256i *)(r + idx));
+    __m256i a_or_c = _mm256_or_si256(a, c);
+    _mm256_store_si256((__m256i *)(p + idx), _mm256_andnot_si256(b, a_or_c));
+    _mm256_store_si256((__m256i *)(q + idx), _mm256_or_si256(b, a_or_c));
   }
 
 #else
@@ -413,7 +418,7 @@ static void count_worker(struct ThreadData *thread)
 
   __m512i sum = _mm512_setzero_si512();
   for (; idx < end; idx += 8) {
-    __m512i a = _mm512_load_si512(p + idx);
+    __m512i a = _mm512_load_si512((__m512i *)(p + idx));
     sum = _mm512_add_epi64(sum, _mm512_popcnt_epi64(a));
   }
   cnt = _mm512_reduce_add_epi64(sum);

@@ -203,7 +203,7 @@ static void calc_sub_kslices(int stm)
   for (int s = 0; s < 462; s++) {
     show_progress(phase, s, 462, false);
 
-    uint64_t c[5], cnt_ilgl = 0;
+    uint64_t c[5];
 
     if (kslice_test_count(s, stm, name[4], -1, &c[4])) {
       for (int i = 0; i < 4; i++)
@@ -224,9 +224,6 @@ static void calc_sub_kslices(int stm)
         work_set = k;
         run_threaded(calc_sub_worker, &work_capt_dynamic[k]);
       }
-
-      for (int t = 0; t < g_num_threads; t++)
-        cnt_ilgl += g_thread_data[t].cnt;
 
       for (int i = 0; i < 5; i++) {
         c[i] = kslice_sub_count_addr(kslice_sub_buf[i], stm);
