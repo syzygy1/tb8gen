@@ -371,7 +371,7 @@ void abc_worker(struct ThreadData *thread)
   for (; idx < end; idx += 4) {
     __m256i a = _mm256_load_si256(p + idx);
     __m256i b = _mm256_load_si256(q + idx);
-    __m256i c = _mm256_load_si256(q + idx);
+    __m256i c = _mm256_load_si256(r + idx);
     __m256i a_or_c = _mm256_or_si512(a, c);
     _mm256_store_si256(p + idx, _mm256_andnot_si256(b, a_or_c));
     _mm256_store_si256(q + idx, _mm256_or_si256(b, a_or_c));

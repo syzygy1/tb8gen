@@ -15,7 +15,7 @@
 #include "stats.h"
 #include "types.h"
 #include "util.h"
-#include "xxhash.h"
+#include "hash/xxhash.h"
 
 #ifdef HAS_PAWNS
 #include "generatep.h"
@@ -160,44 +160,63 @@ void print_max_fens(FILE *F, struct MaxFen *mf)
 //   - remove CAPT_WIN, PAWN_WIN, CAPT_CWIN, PAWN_CWIN
 //     i.e. all values not stored in the DTZ table.
 
-static void stats_to_freq(uint64_t stats[MAX_STATS],
-    uint64_t f[2][MAX_VAL + 101])
+static void stats_to_count(uint64_t stats[MAX_STATS],
+    uint64_t cnt[2][MAX_STATS / 2])
 {
-  memset(f, 0, 16 * (MAX_VAL + 101));
+  memset(cnt, 0, 8 * MAX_STATS);
 
-  f[0][1] = stats[1] + stats[2] + stats[3];
-  for (int i = 4; i <= DRAW_RULE + 2; i++)
-    f[0][i - 2] = stats[i];
+  cnt[0][1] = stats[1] + stats[2] + stats[3];
+  for (int i = 2; i <= DRAW_RULE; i++)
+    cnt[0][i] = stats[i + 2];
 
-  f[0][DRAW_RULE + 1] = stats[DRAW_RULE + 3] + stats[DRAW_RULE + 4];
-  for (int i = DRAW_RULE + 5; i <= MAX_STATS / 2; i++)
-    f[0][DRAW_RULE + 1 + (i - DRAW_RULE - 5) / 2] += stats[i];
+  cnt[0][DRAW_RULE + 1] =
+    stats[DRAW_RULE + 3] + stats[DRAW_RULE + 4] + stats[DRAW_RULE + 5];
 
-  for (int i = 0; i <= DRAW_RULE; i++)
-    f[1][i] = stats[MAX_STATS - 1 - i];
+  for (int i = DRAW_RULE + 2; i < MAX_STATS / 2 - 4; i++)
+    cnt[1][i] = stats[i + 4];
 
-  for (int i = DRAW_RULE + 1; i < MAX_STATS / 2 - 4; i++)
-    f[1][DRAW_RULE + 1 + (i - DRAW_RULE - 1) / 2] += stats[MAX_STATS - 1 - i];
+  for (int i = 0; i < MAX_STATS / 2 - 4; i++)
+    cnt[1][i] = stats[MAX_STATS - 1 - i];
 }
 
-static XXH128_hash_t freq_to_hash(uint64_t f[2][2][MAX_VAL + 101])
+static void stats_to_freq(uint64_t stats[MAX_STATS],
+    uint64_t f[2][MAX_VAL + DRAW_RULE])
 {
-  uint64_t v[4 * (MAX_VAL + 101)];
-  int n;
-  for (n = MAX_VAL; n >= 1; n--)
-    if (f[0][0][n - 1] | f[0][1][n - 1] | f[1][0][n - 1] | f[1][1][n - 1])
+  memset(f, 0, 16 * (MAX_VAL + DRAW_RULE));
+
+  for (int i = 1; i <= DRAW_RULE; i++)
+    f[0][i - 1] = stats[i + 2];
+
+  for (int i = DRAW_RULE + 1; i < MAX_STATS / 2 - 4; i++)
+    f[0][DRAW_RULE + (i - DRAW_RULE - 1) / 2] += stats[i + 4];
+
+  for (int i = 1; i <= DRAW_RULE; i++)
+    f[1][i - 1] = stats[MAX_STATS - 1 - i];
+  f[1][0] += stats[MAX_STATS - 1];
+
+  for (int i = DRAW_RULE + 1; i < MAX_STATS / 2 - 4; i++)
+    f[1][DRAW_RULE + (i - DRAW_RULE - 1) / 2] += stats[MAX_STATS - 1 - i];
+}
+
+XXH128_hash_t freq_to_hash(int n, uint64_t *f0, uint64_t *f1, uint64_t *f2,
+    uint64_t *f3)
+{
+  uint64_t v[2 * MAX_STATS];
+  for (; n >= 1; n--)
+    if (f0[n - 1] | f1[n - 1] | f2[n - 1] | f3[n - 1])
       break;
   for (int i = 0; i < n; i++) {
-    v[4 * i    ] = f[0][0][i];
-    v[4 * i + 1] = f[0][1][i];
-    v[4 * i + 2] = f[1][0][i];
-    v[4 * i + 3] = f[1][1][i];
+    v[4 * i    ] = f0[i];
+    v[4 * i + 1] = f1[i];
+    v[4 * i + 2] = f2[i];
+    v[4 * i + 3] = f3[i];
   }
   return XXH3_128bits(v, 32 * n);
 }
 
 void calc_stats_checksums(void)
 {
+  // WDL counts.
   uint64_t wdl_counts[2][5] = { 0 };
   for (int stm = 0; stm < 2; stm++) {
     uint64_t *stats = g_stats[stm];
@@ -213,24 +232,32 @@ void calc_stats_checksums(void)
   }
   wdl_checksum = XXH3_128bits(wdl_counts, sizeof wdl_counts);
 
-  uint64_t counts[2][2][MAX_VAL + 101];
-  stats_to_freq(g_stats[0], counts[0]);
-  stats_to_freq(g_stats[1], counts[1]);
-  dtz_checksum[0] = freq_to_hash(counts);
+  // Full per-ply win/loss stats.
+  uint64_t counts[2][2][MAX_STATS / 2];
+  stats_to_count(g_stats[0], counts[0]);
+  stats_to_count(g_stats[1], counts[1]);
+  dtz_checksum[0] = freq_to_hash(MAX_STATS / 2, counts[0][0], counts[0][1],
+      counts[1][0], counts[1][1]);
+
+  // Stats of the values actually stored in the compressed DTZ table.
+  uint64_t freq[2][2][MAX_VAL + DRAW_RULE];
+  stats_to_freq(g_stats[0], freq[0]);
+  stats_to_freq(g_stats[1], freq[1]);
 
   if (one_sided) {
-    memset(counts[one_sided_stm ^ 1], 0, 16 * MAX_VAL);
+    memset(freq[one_sided_stm ^ 1], 0, 16 * (MAX_VAL + DRAW_RULE));
   }
   else if (wins_only) {
-    memset(counts[0][1], 0, 8 * MAX_VAL);
-    memset(counts[1][1], 0, 8 * MAX_VAL);
+    memset(freq[0][1], 0, 8 * (MAX_VAL + DRAW_RULE));
+    memset(freq[1][1], 0, 8 * (MAX_VAL + DRAW_RULE));
   }
   else {
-    memset(counts[0][0], 0, 8 * MAX_VAL);
-    memset(counts[1][0], 0, 8 * MAX_VAL);
+    memset(freq[0][0], 0, 8 * (MAX_VAL + DRAW_RULE));
+    memset(freq[1][0], 0, 8 * (MAX_VAL + DRAW_RULE));
   }
 
-  dtz_checksum[1] = freq_to_hash(counts);
+  dtz_checksum[1] = freq_to_hash(MAX_VAL + DRAW_RULE, freq[0][0], freq[0][1],
+      freq[1][0], freq[1][1]);
 }
 
 // calculate DTZ entropy

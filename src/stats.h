@@ -24,6 +24,8 @@ extern XXH128_hash_t wdl_checksum, dtz_checksum[2];
 void collect_stats(int stm);
 void print_stats(FILE *F, int stm);
 void print_max_fens(FILE *F, struct MaxFen *mf);
+XXH128_hash_t freq_to_hash(int n, uint64_t *f0, uint64_t *f1, uint64_t *f2,
+    uint64_t *f3);
 void calc_stats_checksums(void);
 double entropy_one_sided(int stm);
 double entropy_loss_only(int stm);

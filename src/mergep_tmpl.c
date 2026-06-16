@@ -375,7 +375,7 @@ static void NAME(merge_bitmaps)(int stm, int s)
       create_name_r(str, s, r, stm, "merged/dtz", -1);
       FILE *F = file_open_write(str);
       NAME(write_data_transform)(F,
-          (T *)merge_table + r * 8 * kslice_alloc_size * sizeof(T),
+          (T *)merge_table + r * 8 * kslice_alloc_size,
           kslice_size * sizeof(T), z);
       fclose(F);
       file_rename(str);

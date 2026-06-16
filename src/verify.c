@@ -14,6 +14,7 @@
 #include "kslice.h"
 #include "movegen.h"
 #include "probe.h"
+#include "stats.h"
 #include "tb8gen.h"
 #include "threads.h"
 #include "types.h"
@@ -494,7 +495,7 @@ static void report_fail(int s, uint64_t idx, Position *pos)
 static bool check_dtz_101(struct Position *pos)
 {
   // First check that the position has dtz == 101.
-  if (probe_dtz(pos) != 101)
+  if (probe_dtz(pos) != DRAW_RULE + 1)
     return false;
 
   // Now check that the best quiet move reaches dtz == 100.
@@ -617,7 +618,7 @@ INLINE void check_zero_ref_worker_tmpl(struct ThreadData *thread, const int T)
           report_fail(s, cur, &pos);
         break;
       case CZ_CWIN:
-        if (v && probe_dtz_helper(&pos, 1) != 101)
+        if (v && probe_dtz_helper(&pos, 1) != DRAW_RULE + 1)
           report_fail(s, cur, &pos);
         break;
       }
@@ -718,21 +719,20 @@ INLINE void check_one_worker_tmpl(struct ThreadData *thread, const int T)
         v = test_king_moves(stm, occ, pos.sq);
         pos.sq[stm] = tmp;
       }
-      if (!v) {
-        pos.occ = occ;
-        switch (T) {
-        case CO_REGULAR:
+      if (v) continue;
+      pos.occ = occ;
+      switch (T) {
+      case CO_REGULAR:
+        report_fail(s, cur, &pos);
+        break;
+      case CO_DRAW:
+        if (has_legal_moves(&pos))
           report_fail(s, cur, &pos);
-          break;
-        case CO_DRAW:
-          if (has_legal_moves(&pos))
-            report_fail(s, cur, &pos);
-          break;
-        case CO_CWIN:
-          if (!check_dtz_101(&pos))
-            report_fail(s, cur, &pos);
-          break;
-        }
+        break;
+      case CO_CWIN:
+        if (!check_dtz_101(&pos))
+          report_fail(s, cur, &pos);
+        break;
       }
     }
   }
@@ -767,21 +767,20 @@ INLINE void check_one_ref_worker_tmpl(struct ThreadData *thread, const int T)
         v = test_king_moves(stm, occ, pos.sq);
         pos.sq[stm] = tmp;
       }
-      if (!v) {
-        pos.occ = occ;
-        switch (T) {
-        case CO_REGULAR:
+      if (v) continue;
+      pos.occ = occ;
+      switch (T) {
+      case CO_REGULAR:
+        report_fail(s, cur, &pos);
+        break;
+      case CO_DRAW:
+        if (has_legal_moves(&pos))
           report_fail(s, cur, &pos);
-          break;
-        case CO_DRAW:
-          if (has_legal_moves(&pos))
-            report_fail(s, cur, &pos);
-          break;
-        case CO_CWIN:
-          if (!check_dtz_101(&pos))
-            report_fail(s, cur, &pos);
-          break;
-        }
+        break;
+      case CO_CWIN:
+        if (!check_dtz_101(&pos))
+          report_fail(s, cur, &pos);
+        break;
       }
     }
   }
@@ -1312,7 +1311,7 @@ void depermute_dtz_462_ref_worker(struct ThreadData *thread)
 
 static bool dtz_stored[2][5];
 static uint16_t freq_map[MAX_VAL];
-static uint64_t (*dtz_freq)[2][2][MAX_VAL + 101];
+static uint64_t (*dtz_freq)[2][2][MAX_VAL + DRAW_RULE];
 static int win_loss;
 
 void update_stats_worker(struct ThreadData *thread)
@@ -1556,11 +1555,13 @@ void verify(void)
   check_bloss(WHITE);
   check_loss(WHITE);
 
-  check_win(BLACK);
-  check_cwin(BLACK);
-  check_draw(BLACK);
-  check_bloss(BLACK);
-  check_loss(BLACK);
+  if (!symmetric) {
+    check_win(BLACK);
+    check_cwin(BLACK);
+    check_draw(BLACK);
+    check_bloss(BLACK);
+    check_loss(BLACK);
+  }
 
   if (table_is_ok && num_fails == 0)
     printf("\x1b[92mWDL table is OK.\x1b[0m\n");
@@ -1601,15 +1602,19 @@ void verify(void)
   };
 
   memset(dtz_stored, 0, sizeof dtz_stored);
+  printf("DTZ format: ");
   if (one_sided) {
+    printf("%s to move only\n", side[one_sided_stm]);
     dtz_stored[one_sided_stm][0] = dtz_stored[one_sided_stm][1] = true;
     dtz_stored[one_sided_stm][3] = dtz_stored[one_sided_stm][4] = true;
   }
   else if (wins_only) {
+    printf("wins only\n");
     dtz_stored[WHITE][3] = dtz_stored[WHITE][4] = true;
     dtz_stored[BLACK][3] = dtz_stored[BLACK][4] = true;
   }
   else {
+    printf("losses only\n");
     dtz_stored[WHITE][0] = dtz_stored[WHITE][1] = true;
     dtz_stored[BLACK][0] = dtz_stored[BLACK][1] = true;
   }
@@ -1654,19 +1659,96 @@ void verify(void)
     show_progress("loading DTZ slices", 462, 462, true);
   }
 
-  uint64_t freq[2][2][MAX_VAL + 101] = { 0 };
+  free(tb_table);
+  free(dtz_table);
+  kslice_free_buffers();
+  mtx_destroy(&report_mutex);
+
+  uint64_t freq[2][2][MAX_VAL + DRAW_RULE] = { 0 };
   for (int t = 0; t < g_num_threads; t++)
     for (int stm = 0; stm < 2; stm++)
       for (int wl = 0; wl < 2; wl++)
-        for (int i = 0; i < MAX_VAL + 101; i++)
+        for (int i = 0; i < MAX_VAL + DRAW_RULE; i++)
           freq[stm][wl][i] += dtz_freq[t][stm][wl][i];
 
+  if (symmetric)
+    memcpy(freq[1], freq[0], sizeof freq[1]);
+
+  XXH128_hash_t dtz_checksum = freq_to_hash(MAX_VAL + DRAW_RULE,
+      freq[0][0], freq[0][1], freq[1][0], freq[1][1]);
+
+  p = (uint64_t *)tb->data + tb->offset - 2;
+  table_is_ok = memcmp(&dtz_checksum, p, 16) == 0;
+  if (table_is_ok)
+    printf("\x1b[92mDTZ stored values checksum is OK.\x1b[0m\n");
+  else
+    printf("\x1b[91mDTZ stored values checksum does not match.\x1b[0m\n");
+
+#if 0
   for (int stm = 0; stm < 2; stm++)
     for (int wl = 0; wl < 2; wl++)
-      for (int i = 0; i < MAX_VAL + 101; i++)
+      for (int i = 0; i < MAX_VAL + DRAW_RULE; i++)
         if (freq[stm][wl][i])
           printf("freq[%d][%d][%d] = %lu\n", stm, wl, i, freq[stm][wl][i]);
+#endif
 
-  kslice_free_buffers();
-  mtx_destroy(&report_mutex);
+  strcat(name, ".txt");
+  FILE *F = fopen(name, "rb");
+  if (!F) {
+    printf("%s not found.\n", name);
+    exit(EXIT_SUCCESS);
+  }
+
+  printf("reading %s.txt\n", g_tablename);
+
+  uint64_t stats[2][2][MAX_STATS / 2] = { 0 };
+  char line[128];
+  int stm = -1;
+
+  while (fgets(line, sizeof line, F)) {
+    if (strcmp(line, "White to move:\n") == 0) {
+      stm = WHITE;
+      continue;
+    }
+
+    if (strcmp(line, "Black to move:\n") == 0) {
+      stm = BLACK;
+      continue;
+    }
+
+    if (stm < 0)
+      continue;
+
+    uint64_t n, dummy;
+    unsigned ply;
+    char what[8];
+
+    if (sscanf(line, "%lu positions %7s in %u ply.", &n, what, &ply) != 3) {
+      if (sscanf(line, "%lu (%lu) positions %7s in %u ply.", &n, &dummy, what,
+            &ply) != 4)
+        continue;
+    }
+
+    int wl;
+    if (strcmp(what, "win") == 0)
+      wl = 0;
+    else if (strcmp(what, "lose") == 0)
+      wl = 1;
+    else
+      continue;
+
+    if (ply >= MAX_STATS / 2)
+      break;
+
+    stats[stm][wl][ply] = n;
+  }
+  fclose(F);
+
+  dtz_checksum = freq_to_hash(MAX_STATS / 2, stats[0][0], stats[0][1],
+      stats[1][0], stats[1][1]);
+  table_is_ok = memcmp(&dtz_checksum, p - 2, 16) == 0;
+  if (table_is_ok)
+    printf("\x1b[92mDTZ full stats checksum is OK.\x1b[0m\n");
+  else
+    printf("\x1b[91mDTZ full stats checksum does not match.\x1b[0m\n");
 }

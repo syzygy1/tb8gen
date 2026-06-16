@@ -6,7 +6,7 @@ GENOBJS = tb8gen.o movegen.o index.o generate.o merge.o kslice.o probe.o \
 	  huffman.o util.o threads.o checksum.o hash.o
 
 VEROBJS = tb8ver.o movegen.o index.o verify.o kslice.o probe.o decompress.o \
-	  rans.o huffman.o util.o threads.o hash.o
+	  rans.o huffman.o stats.o util.o threads.o hash.o
 
 GENPOBJS = tb8genp.o movegen.o index.o generatep.o mergep.o kslicep.o \
 	   probe.o stats.o joinp.o permutepk.o permutep.o compress.o rans.o \

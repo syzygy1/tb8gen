@@ -1441,7 +1441,10 @@ void compress_data_single_valued(struct tb_handle *F, int num)
     F->single_val[num] = i;
   } else {
     F->map[num] = current_map;
-    F->single_val[num] = current_map->map[0][0];
+    for (i = 0; i < 4; i++)
+      if (current_map->num[i] == 1)
+        break;
+    F->single_val[num] = i < 4 ? current_map->map[i][0] : 0;
   }
 }
 
@@ -1550,10 +1553,13 @@ void compress_data_slice(const char *name, int stm, int type, void *data,
           break;
         }
     } else {
-      write_u8(F, current_map->map[0][0]);
+      int i;
+      for (i = 0; i < 4; i++)
+        if (current_map->num[i] == 1)
+          break;
+      write_u8(F, i < 4 ? current_map->map[i][0] : 0);
 #ifdef HAS_PAWNS
-      if (type != WDL)
-        write_u8(F, g_dist_format);
+      write_u8(F, g_dist_format);
 #endif
     }
     goto finished;
