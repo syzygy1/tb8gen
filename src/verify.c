@@ -26,6 +26,10 @@ const char side[2][8] = { "white", "black" };
 
 static uint64_t sub_cnt[2][5];
 
+// Dummy definitions.
+bool one_sided, wins_only;
+int one_sided_stm;
+
 INLINE void mark_king_unmoves(int stm, Bitboard occ, uint8_t *restrict sq)
 {
   uint8_t sq2[MAX_PIECES];
@@ -489,13 +493,13 @@ static void report_fail(int s, uint64_t idx, Position *pos)
   mtx_unlock(&report_mutex);
 }
 
-static bool check_dtz_101(struct Position *pos)
+static bool check_dtz_W101(struct Position *pos)
 {
   // First check that the position has dtz == 101.
   if (probe_dtz(pos) != DRAW_RULE + 1)
     return false;
 
-  // Now check that the best quiet move reaches dtz == 100.
+  // Now check that the best quiet move reaches dtz == -100.
   bool pos_ok = false;
   for (int i = 0; i < pos->num; i++) {
     if ((pos->pt[i] >> 3) != pos->stm) continue;
@@ -510,7 +514,7 @@ static bool check_dtz_101(struct Position *pos)
           dtz = probe_dtz_helper(pos, wdl);
         undo_move(pos, from, to, i);
         if (wdl == -2) {
-          if (capture_is_best || dtz != -100)
+          if (capture_is_best || dtz != -DRAW_RULE)
             return false;
           pos_ok = true;
         }
@@ -519,6 +523,37 @@ static bool check_dtz_101(struct Position *pos)
   }
   return pos_ok;
 }
+
+static bool check_dtz_L101(struct Position *pos)
+{
+  // First check that the position has dtz == -101.
+  if (probe_dtz(pos) != -DRAW_RULE - 1)
+    return false;
+
+  // Now check that the best quiet move reaches dtz == 100.
+  bool pos_ok = false;
+  for (int i = 0; i < pos->num; i++) {
+    if ((pos->pt[i] >> 3) != pos->stm) continue;
+    int from = pos->sq[i];
+    Bitboard b = piece_moves(pos->pt[i], from, pos->occ);
+    while (b) {
+      int to = pop_lsb(&b);
+      if (do_move(pos, from, to, i)) {
+        bool capture_is_best;
+        int dtz, wdl = probe_wdl_helper(pos, &capture_is_best);
+        if (wdl != 2)
+          return false;
+        if (!capture_is_best)
+          dtz = probe_dtz_helper(pos, wdl);
+        undo_move(pos, from, to, i);
+        if (dtz == DRAW_RULE)
+          pos_ok = true;
+      }
+    }
+  }
+  return pos_ok;
+}
+
 
 enum { CZ_REGULAR, CZ_CWIN, CZ_LOSS };
 
@@ -567,7 +602,7 @@ INLINE void check_zero_worker_tmpl(struct ThreadData *thread, const int T)
           report_fail(s, cur, &pos);
         break;
       case CZ_CWIN:
-        if (v && !check_dtz_101(&pos))
+        if (v && !check_dtz_W101(&pos))
           report_fail(s, cur, &pos);
         break;
       }
@@ -615,7 +650,7 @@ INLINE void check_zero_ref_worker_tmpl(struct ThreadData *thread, const int T)
           report_fail(s, cur, &pos);
         break;
       case CZ_CWIN:
-        if (v && probe_dtz_helper(&pos, 1) != DRAW_RULE + 1)
+        if (v && !check_dtz_W101(&pos))
           report_fail(s, cur, &pos);
         break;
       }
@@ -682,7 +717,7 @@ static void check_zero(int stm, int s, const int T)
   }
 }
 
-enum { CO_REGULAR, CO_DRAW, CO_CWIN };
+enum { CO_REGULAR, CO_DRAW, CO_BLOSS };
 
 INLINE void check_one_worker_tmpl(struct ThreadData *thread, const int T)
 {
@@ -726,10 +761,12 @@ INLINE void check_one_worker_tmpl(struct ThreadData *thread, const int T)
         if (has_legal_moves(&pos))
           report_fail(s, cur, &pos);
         break;
-      case CO_CWIN:
-        if (!check_dtz_101(&pos))
+      case CO_BLOSS:
+        if (!check_dtz_L101(&pos))
           report_fail(s, cur, &pos);
         break;
+      default:
+        abort();
       }
     }
   }
@@ -774,10 +811,12 @@ INLINE void check_one_ref_worker_tmpl(struct ThreadData *thread, const int T)
         if (has_legal_moves(&pos))
           report_fail(s, cur, &pos);
         break;
-      case CO_CWIN:
-        if (!check_dtz_101(&pos))
+      case CO_BLOSS:
+        if (!check_dtz_L101(&pos))
           report_fail(s, cur, &pos);
         break;
+      default:
+        abort();
       }
     }
   }
@@ -793,9 +832,9 @@ static void check_one_draw_worker(struct ThreadData *thread)
   check_one_worker_tmpl(thread, CO_DRAW);
 }
 
-static void check_one_cwin_worker(struct ThreadData *thread)
+static void check_one_bloss_worker(struct ThreadData *thread)
 {
-  check_one_worker_tmpl(thread, CO_CWIN);
+  check_one_worker_tmpl(thread, CO_BLOSS);
 }
 
 static void check_one_regular_ref_worker(struct ThreadData *thread)
@@ -808,9 +847,9 @@ static void check_one_draw_ref_worker(struct ThreadData *thread)
   check_one_ref_worker_tmpl(thread, CO_DRAW);
 }
 
-static void check_one_cwin_ref_worker(struct ThreadData *thread)
+static void check_one_bloss_ref_worker(struct ThreadData *thread)
 {
-  check_one_ref_worker_tmpl(thread, CO_CWIN);
+  check_one_ref_worker_tmpl(thread, CO_BLOSS);
 }
 
 static void check_one(int stm, int s, const int T)
@@ -833,16 +872,18 @@ static void check_one(int stm, int s, const int T)
     else
       run_threaded(check_one_draw_ref_worker, &work_g_dynamic[1]);
     break;
-  case CO_CWIN:
+  case CO_BLOSS:
     if (s < 441)
-      run_threaded(check_one_cwin_worker, &work_g_dynamic[0]);
+      run_threaded(check_one_bloss_worker, &work_g_dynamic[0]);
     else
-      run_threaded(check_one_cwin_ref_worker, &work_g_dynamic[1]);
+      run_threaded(check_one_bloss_ref_worker, &work_g_dynamic[1]);
     break;
+  default:
+    abort();
   }
 }
 
-static void check_win(int stm)
+static void check_win_cwin(int stm)
 {
   struct KSliceIterator iter;
 
@@ -871,37 +912,12 @@ static void check_win(int stm)
   show_progress(phase, 462, 462, true);
 }
 
-static void check_cwin(int stm)
+static void check_cwin_draw(int stm)
 {
   struct KSliceIterator iter;
 
   char phase[64];
-  snprintf(phase, sizeof phase, "check %s cwin+", side[stm]);
-  int num_done = 0;
-
-  kslice_iter_init(&iter, stm);
-  int s, s1;
-  while (kslice_iter_next(&iter, &s)) {
-    show_progress(phase, num_done++, 462, false);
-
-    while (kslice_iter_in(&iter, &s1))
-      kslice_read(s1, s1, stm ^ 1, "bloss", -1);
-
-    kslice_read(-1, s, stm, "cwin", -1);
-    kslice_read_andnot(-1, s, stm, "capt/cwin", -1);
-    check_one(stm, s, CO_CWIN);
-
-    while (kslice_iter_out(&iter, &s));
-  }
-  show_progress(phase, 462, 462, true);
-}
-
-static void check_draw(int stm)
-{
-  struct KSliceIterator iter;
-
-  char phase[64];
-  snprintf(phase, sizeof phase, "check %s draw-", side[stm]);
+  snprintf(phase, sizeof phase, "check %s cwin+, draw-", side[stm]);
   int num_done = 0;
 
   kslice_iter_init(&iter, stm);
@@ -914,6 +930,14 @@ static void check_draw(int stm)
       kslice_read_or(s1, s1, stm ^ 1, "bloss", -1);
     }
 
+    // We already know that no cwin position reaches "loss" (with the
+    // exception of dtz==101 -> dtz==100). So it does not hurt to test against
+    // "loss" and "bloss" here to ensure that one cwin position reaches
+    // "bloss". As a bonus, no special check is needed for the 101->100 case.
+    kslice_read(-1, s, stm, "cwin", -1);
+    kslice_read_andnot(-1, s, stm, "capt/cwin", -1);
+    check_one(stm, s, CO_REGULAR);
+
     kslice_read(-1, s, stm, "draw", -1);
     kslice_read_andnot(-1, s, stm, "capt/draw", -1);
     check_zero(stm, s, CZ_REGULAR);
@@ -921,31 +945,14 @@ static void check_draw(int stm)
     while (kslice_iter_out(&iter, &s));
   }
   show_progress(phase, 462, 462, true);
-
-  snprintf(phase, sizeof phase, "check %s draw+", side[stm]);
-  num_done = 0;
-  kslice_iter_init(&iter, stm);
-  while (kslice_iter_next(&iter, &s)) {
-    show_progress(phase, num_done++, 462, false);
-
-    while (kslice_iter_in(&iter, &s1))
-      kslice_read(s1, s1, stm ^ 1, "draw", -1);
-
-    kslice_read(-1, s, stm, "draw", -1);
-    kslice_read_andnot(-1, s, stm, "capt/draw", -1);
-    check_one(stm, s, CO_DRAW);
-
-    while (kslice_iter_out(&iter, &s));
-  }
-  show_progress(phase, 462, 462, true);
 }
 
-static void check_bloss(int stm)
+static void check_draw_bloss(int stm)
 {
   struct KSliceIterator iter;
 
   char phase[64];
-  snprintf(phase, sizeof phase, "check %s bloss-", side[stm]);
+  snprintf(phase, sizeof phase, "check %s draw+, bloss-", side[stm]);
   int num_done = 0;
 
   kslice_iter_init(&iter, stm);
@@ -959,6 +966,12 @@ static void check_bloss(int stm)
       kslice_read_or(s1, s1, stm ^ 1, "draw", -1);
     }
 
+    // Again, we already checked that drawn positions do not hit "loss" and
+    // "bloss". So we can combine draw+ with bloss-.
+    kslice_read(-1, s, stm, "draw", -1);
+    kslice_read_andnot(-1, s, stm, "capt/draw", -1);
+    check_one(stm, s, CO_DRAW);
+
     kslice_read(-1, s, stm, "bloss", -1);
     kslice_read_andnot(-1, s, stm, "capt/bloss", -1);
     check_zero(stm, s, CZ_REGULAR);
@@ -966,31 +979,14 @@ static void check_bloss(int stm)
     while (kslice_iter_out(&iter, &s));
   }
   show_progress(phase, 462, 462, true);
-
-  snprintf(phase, sizeof phase, "check %s bloss+", side[stm]);
-  num_done = 0;
-  kslice_iter_init(&iter, stm);
-  while (kslice_iter_next(&iter, &s)) {
-    show_progress(phase, num_done++, 462, false);
-
-    while (kslice_iter_in(&iter, &s1))
-      kslice_read(s1, s1, stm ^ 1, "cwin", -1);
-
-    kslice_read(-1, s, stm, "bloss", -1);
-    kslice_read_andnot(-1, s, stm, "capt/bloss", -1);
-    check_one(stm, s, CO_REGULAR);
-
-    while (kslice_iter_out(&iter, &s));
-  }
-  show_progress(phase, 462, 462, true);
 }
 
-static void check_loss(int stm)
+static void check_bloss_loss(int stm)
 {
   struct KSliceIterator iter;
 
   char phase[64];
-  snprintf(phase, sizeof phase, "check %s loss", side[stm]);
+  snprintf(phase, sizeof phase, "check %s bloss+, loss", side[stm]);
   int num_done = 0;
 
   kslice_iter_init(&iter, stm);
@@ -998,11 +994,16 @@ static void check_loss(int stm)
   while (kslice_iter_next(&iter, &s)) {
     show_progress(phase, num_done++, 462, false);
 
+    // Load "loss" | "bloss" | "draw" | "cwin".
     while (kslice_iter_in(&iter, &s1)) {
       kslice_read(s1, s1, stm ^ 1, "win", -1);
       kslice_read_or(s1, s1, stm ^ 1, "illegal", -1);
       kslice_not(s1);
     }
+
+    kslice_read(-1, s, stm, "bloss", -1);
+    kslice_read_andnot(-1, s, stm, "capt/bloss", -1);
+    check_one(stm, s, CO_BLOSS);
 
     kslice_read(-1, s, stm, "loss", -1);
     check_zero(stm, s, CZ_LOSS);
@@ -1022,7 +1023,7 @@ INLINE void store_wdl(uint64_t idx, uint8_t *restrict tmp, int v)
   tmp[idx & 63] = v;
   if ((idx & 63) == 63) {
 #ifdef __AVX512BW__
-    __m512i x = _mm512_load_si512(tmp);
+    __m512i x = _mm512_load_si512((__m512i *)tmp);
     p[0][idx >> 6] = _mm512_cmpeq_epu8_mask(x, _mm512_set1_epi8(0));
     p[1][idx >> 6] = _mm512_cmpeq_epu8_mask(x, _mm512_set1_epi8(1));
     p[2][idx >> 6] = _mm512_cmpeq_epu8_mask(x, _mm512_set1_epi8(2));
@@ -1233,7 +1234,7 @@ static uint64_t rank_10(uint8_t *restrict sq, Bitboard occ,
   return idx;
 }
 
-static int k2sq_10(void)
+INLINE int k2sq_10(void)
 {
   return g_pos.sq[g_pos.stm ^ 1];
 }
@@ -1922,18 +1923,16 @@ void verify(void)
 
   mtx_init(&report_mutex, mtx_plain);
 
-  check_win(WHITE);
-  check_cwin(WHITE);
-  check_draw(WHITE);
-  check_bloss(WHITE);
-  check_loss(WHITE);
+  check_win_cwin(WHITE);
+  check_cwin_draw(WHITE);
+  check_draw_bloss(WHITE);
+  check_bloss_loss(WHITE);
 
   if (!symmetric) {
-    check_win(BLACK);
-    check_cwin(BLACK);
-    check_draw(BLACK);
-    check_bloss(BLACK);
-    check_loss(BLACK);
+    check_win_cwin(BLACK);
+    check_cwin_draw(BLACK);
+    check_draw_bloss(BLACK);
+    check_bloss_loss(BLACK);
   }
 
   if (table_is_ok && num_fails == 0)

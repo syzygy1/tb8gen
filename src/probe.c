@@ -2278,6 +2278,6 @@ int probe_dtz(Position *pos)
   bool capture_is_best;
   int wdl = probe_wdl_helper(pos, &capture_is_best);
   return  wdl ==  0 || capture_is_best
-        ? WdlToMap[wdl + 2]
+        ? WdlToDtz[wdl + 2]
         : probe_dtz_helper(pos, wdl);
 }
