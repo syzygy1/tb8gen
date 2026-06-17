@@ -172,10 +172,10 @@ static void stats_to_count(uint64_t stats[MAX_STATS],
   cnt[0][DRAW_RULE + 1] =
     stats[DRAW_RULE + 3] + stats[DRAW_RULE + 4] + stats[DRAW_RULE + 5];
 
-  for (int i = DRAW_RULE + 2; i < MAX_STATS / 2 - 4; i++)
-    cnt[1][i] = stats[i + 4];
+  for (int i = DRAW_RULE + 2; i < MAX_STATS / 2 - 3; i++)
+    cnt[0][i] = stats[i + 4];
 
-  for (int i = 0; i < MAX_STATS / 2 - 4; i++)
+  for (int i = 0; i < MAX_STATS / 2 - 3; i++)
     cnt[1][i] = stats[MAX_STATS - 1 - i];
 }
 
@@ -187,14 +187,14 @@ static void stats_to_freq(uint64_t stats[MAX_STATS],
   for (int i = 1; i <= DRAW_RULE; i++)
     f[0][i - 1] = stats[i + 2];
 
-  for (int i = DRAW_RULE + 1; i < MAX_STATS / 2 - 4; i++)
+  for (int i = DRAW_RULE + 1; i < MAX_STATS / 2 - 3; i++)
     f[0][DRAW_RULE + (i - DRAW_RULE - 1) / 2] += stats[i + 4];
 
   for (int i = 1; i <= DRAW_RULE; i++)
     f[1][i - 1] = stats[MAX_STATS - 1 - i];
   f[1][0] += stats[MAX_STATS - 1];
 
-  for (int i = DRAW_RULE + 1; i < MAX_STATS / 2 - 4; i++)
+  for (int i = DRAW_RULE + 1; i < MAX_STATS / 2 - 3; i++)
     f[1][DRAW_RULE + (i - DRAW_RULE - 1) / 2] += stats[MAX_STATS - 1 - i];
 }
 

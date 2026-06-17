@@ -1618,7 +1618,7 @@ void create_material_string(Position *pos, char str[16], bool flip)
 
   LOCK(fail_mutex);
   create_material_string(pos, str, false);
-  fprintf(stderr, "Missing table: %s%s\n", str, suffix[type]);
+  fprintf(stderr, "\nMissing table: %s%s\n", str, suffix[type]);
   exit(EXIT_FAILURE);
 }
 
