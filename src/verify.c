@@ -1012,9 +1012,9 @@ static void check_loss(int stm)
   show_progress(phase, 462, 462, true);
 }
 
-uint8_t *tb_table, *dtz_table;
-struct TbTable2 *table_info;
-struct RankInfo tb_ri[2];
+static uint8_t *tb_table, *dtz_table;
+static struct TbTable2 *table_info;
+static struct RankInfo tb_ri[2];
 
 INLINE void store_wdl(uint64_t idx, uint8_t *restrict tmp, int v)
 {
@@ -1042,7 +1042,7 @@ INLINE void store_wdl(uint64_t idx, uint8_t *restrict tmp, int v)
 }
 
 #define NUM 16
-void depermute_wdl_462_worker(struct ThreadData *thread)
+static void depermute_wdl_462_worker(struct ThreadData *thread)
 {
   alignas(64) uint8_t tmp[64];
   uint8_t sq[MAX_PIECES];
@@ -1094,7 +1094,7 @@ void depermute_wdl_462_worker(struct ThreadData *thread)
     store_wdl(idx, tmp, 0);
 }
 
-void depermute_wdl_462_ref_worker(struct ThreadData *thread)
+static void depermute_wdl_462_ref_worker(struct ThreadData *thread)
 {
   alignas(64) uint8_t tmp[64];
   uint8_t sq[MAX_PIECES];
@@ -1144,11 +1144,11 @@ void depermute_wdl_462_ref_worker(struct ThreadData *thread)
     store_wdl(idx, tmp, 0);
 }
 
-bool flip[2], btm_side[2];
+static bool flip[2], btm_side[2];
 
-uint64_t wdl_cnt[2][5];
+static uint64_t wdl_cnt[2][5];
 
-void decompress_kslice_wdl_462(struct Tbase *tb, int stm, int s)
+static void decompress_kslice_wdl_462(struct Tbase *tb, int stm, int s)
 {
   char str[64];
   create_name(str, s, stm, wdl_name[4], -1);
@@ -1160,12 +1160,10 @@ void decompress_kslice_wdl_462(struct Tbase *tb, int stm, int s)
     return;
   }
 
-  Position pos = g_pos;
-
-  int tsq = KKMap[pos.sq[0]][pos.sq[1]];
+  int tsq = KKMap[g_pos.sq[0]][g_pos.sq[1]];
   int t = !symmetric ? 2 * tsq + btm_side[stm] : tsq;
   if (!tb->table[t])
-    tb->table[t] = init_new_table(tb, pos.num, WDL, t, tsq);
+    tb->table[t] = init_new_table(tb, g_pos.num, WDL, t, tsq);
   struct TbTable2 *table = tb->table[t];
 
   if (!table->precomp) {
@@ -1205,6 +1203,209 @@ void decompress_kslice_wdl_462(struct Tbase *tb, int stm, int s)
   for (int i = 0; i < 5; i++) {
     wdl_cnt[stm][i] += num = kslice_count_addr(kslice_buf[i], s);
     kslice_write_addr(kslice_buf[i], s, stm, wdl_name[i], -1, num);
+  }
+}
+
+static uint8_t Offset10[64];
+
+static uint64_t rank_10(uint8_t *restrict sq, Bitboard occ,
+    const struct TbTable2 *table)
+{
+  struct RankInfo10 *ri = table->ri_10;
+  uint64_t idx = 0;
+  for (int k = 0; k < ri->numsets; k++) {
+    size_t s = 0;
+    if (ri->mult[k] == 0)
+      s = Offset10[sq[1]];
+    else {
+      int m = table->first[k];
+      sort_squares(ri->mult[k], &sq[m]);
+      Bitboard occ2 = occ;
+      for (int i = 0; i < ri->mult[k]; i++, m++) {
+        int rank = rank_among_free(sq[m], occ);
+        occ2 |= bit(sq[m]);
+        s += Binomial[i + 1][rank];
+      }
+      occ = occ2;
+    }
+    idx = idx * ri->factor[k] + s;
+  }
+  return idx;
+}
+
+// Do the inverse of permute10.c/_tmpl.c
+static void depermute_wdl_10_worker(struct ThreadData *thread)
+{
+  alignas(64) uint8_t tmp[64];
+  uint8_t sq[MAX_PIECES];
+  uint8_t sq2[MAX_PIECES];
+  const uint8_t *restrict src = tb_table;
+  const struct TbTable2 *table = table_info;
+  const struct RankInfo *dst_ri = &tb_ri[g_pos.stm];
+  struct IdxState is;
+
+  uint64_t idx_dec_buf[NUM];
+
+  int s = KKMap[g_pos.sq[0]][g_pos.sq[1]];
+  sq[0] = KKSquare[s][0];
+  sq[1] = KKSquare[s][1];
+  if (flip[g_pos.stm])
+    Swap(sq[0], sq[1]);
+
+  idx_state_init(&is, thread->begin, sq, dst_ri);
+
+  uint64_t idx = thread->begin, end = thread->end;
+  int fill = 0;
+  int head = 0; // Next buffered element to consume.
+
+  // We loop through the K-slice bitmaps.
+  // So we'll need a separate function for depermute_wdl_10_ref_worker().
+
+  // Fill pipeline.
+  for (; fill < NUM && idx < end; fill++, idx++, idx_state_inc(&is, dst_ri)) {
+    idx_state_to_sq(&is, sq, dst_ri);
+    normalize2(sq, sq2);
+    Bitboard occ2 = bit(sq2[0]) | bit(sq2[1]);
+    // Now basically just probe the wdl_10 table slice.
+    uint64_t idx_dec = rank_10(sq2, occ2, table);
+    __builtin_prefetch(src + idx_dec, 0, 3);
+    idx_dec_buf[fill] = idx_dec;
+  }
+
+  // Steady-state pipeline.
+  for (; idx < end; idx++, idx_state_inc(&is, dst_ri)) {
+    idx_state_to_sq(&is, sq, dst_ri);
+    normalize2(sq, sq2);
+    Bitboard occ2 = bit(sq2[0]) | bit(sq2[1]);
+    uint64_t idx_dec = rank_10(sq2, occ2, table);
+    __builtin_prefetch(src + idx_dec, 0, 3);
+    store_wdl(idx - NUM, tmp, src[idx_dec_buf[head]]);
+    idx_dec_buf[head] = idx_dec;
+    head = (head + 1) & (NUM - 1);
+  }
+
+  // Drain pipeline.
+  for (uint64_t out = idx - fill; fill-- > 0; out++) {
+    store_wdl(out, tmp, src[idx_dec_buf[head]]);
+    head = (head + 1) & (NUM - 1);
+  }
+  for (; idx & 0x3f; idx++)
+    store_wdl(idx, tmp, 0);
+}
+
+static void depermute_wdl_10_ref_worker(struct ThreadData *thread)
+{
+  alignas(64) uint8_t tmp[64];
+  uint8_t sq[MAX_PIECES];
+  uint8_t sq2[MAX_PIECES];
+  uint8_t *restrict src = tb_table;
+  struct TbTable2 *table = table_info;
+  struct RankInfo *dst_ri = &tb_ri[g_pos.stm];
+
+  uint64_t idx_dec_buf[NUM];
+
+  int s = KKMap[g_pos.sq[0]][g_pos.sq[1]];
+  sq[0] = KKSquare[s][0];
+  sq[1] = KKSquare[s][1];
+  if (flip[g_pos.stm])
+    Swap(sq[0], sq[1]);
+  Bitboard occ = bit(sq[0]) | bit(sq[1]);
+
+  uint64_t idx = thread->begin, end = thread->end;
+  int fill = 0;
+  int head = 0; // Next buffered element to consume.
+
+  // Fill pipeline.
+  for (; fill < NUM && idx < end; fill++, idx++) {
+    unrank_reflection(idx, sq, occ, dst_ri);
+    normalize2(sq, sq2);
+    Bitboard occ2 = bit(sq2[0]) | bit(sq2[1]);
+    uint64_t idx_dec = rank_10(sq2, occ2, table);
+    __builtin_prefetch(src + idx_dec, 0, 3);
+    idx_dec_buf[fill] = idx_dec;
+  }
+
+  // Steady-state pipeline.
+  for (; idx < end; idx++) {
+    unrank_reflection(idx, sq, occ, dst_ri);
+    normalize2(sq, sq2);
+    Bitboard occ2 = bit(sq2[0]) | bit(sq2[1]);
+    uint64_t idx_dec = rank_10(sq2, occ2, table);
+    __builtin_prefetch(src + idx_dec, 0, 3);
+    store_wdl(idx - NUM, tmp, src[idx_dec_buf[head]]);
+    idx_dec_buf[head] = idx_dec;
+    head = (head + 1) & (NUM - 1);
+  }
+
+  // Drain pipeline.
+  for (uint64_t out = idx - fill; fill-- > 0; out++) {
+    store_wdl(out, tmp, src[idx_dec_buf[head]]);
+    head = (head + 1) & (NUM - 1);
+  }
+  for (; idx & 0x3f; idx++)
+    store_wdl(idx, tmp, 0);
+}
+
+static constexpr uint8_t knum[] = { 58, 58, 58, 55, 55, 55, 33, 30, 30, 30 };
+
+static void decompress_kslice_wdl_10(struct Tbase *tb, int stm, int k)
+{
+  int t = !symmetric ? 2 * k + btm_side[stm] : k;
+  if (!tb->table[t])
+    tb->table[t] = init_new_table(tb, g_pos.num, WDL, t, k);
+  struct TbTable2 *table = tb->table[t];
+
+  for (int l = 0, n = 0; l < 64; l++) {
+    if (KKIdx[k][l] < 0) continue;
+    Offset10[l] = n++;
+  }
+
+  if (!table->precomp) {
+    struct TbTableConst *tbl = (struct TbTableConst *)table;
+    int v = tbl->const_value;
+    memset(tb_table, v, knum[k] * kslice_sizes[0]);
+    // FIXME: think about this when the regular part is done.
+  }
+  else {
+    decompress_table(table, tb_table, knum[k] * kslice_sizes[0]);
+    table_info = table;
+
+    // Now decompress K-slice by K-slice inside the big slice.
+    // Note that everything is mixed up in the big slice.
+    for (int l = 0; l < 64; l++) {
+      if (KKIdx[k][l] < 0)
+        continue;
+
+      g_pos.sq[stm] = InvTriangle[k];
+      g_pos.sq[stm ^ 1] = l;
+      g_pos.stm = stm;
+
+      int s = KKMap[g_pos.sq[0]][g_pos.sq[1]];
+
+      if (s < 441)
+        run_threaded(depermute_wdl_10_worker, &work_g_static[0]);
+      else
+        run_threaded(depermute_wdl_10_ref_worker, &work_g_static[1]);
+
+      // Reconstruct proper win/cwin/draw/bloss/loss slices of legal positions.
+      kslice_read_addr(kslice_buf[5], s, stm, "illegal", -1);
+      kslice_read_addr(kslice_buf[6], s, stm, "capt/win", -1);
+      kslice_abc_addr(kslice_buf[4], kslice_buf[5], kslice_buf[6], s);
+      kslice_read_addr(kslice_buf[6], s, stm, "capt/cwin", -1);
+      kslice_abc_addr(kslice_buf[3], kslice_buf[5], kslice_buf[6], s);
+      kslice_read_addr(kslice_buf[6], s, stm, "capt/draw", -1);
+      kslice_abc_addr(kslice_buf[2], kslice_buf[5], kslice_buf[6], s);
+      kslice_read_addr(kslice_buf[6], s, stm, "capt/bloss", -1);
+      kslice_abc_addr(kslice_buf[1], kslice_buf[5], kslice_buf[6], s);
+      kslice_andnot_addr(kslice_buf[0], kslice_buf[5], s);
+
+      // Count and save win/cwin/draw/bloss/loss slices.
+      uint64_t num;
+      for (int i = 0; i < 5; i++) {
+        wdl_cnt[stm][i] += num = kslice_count_addr(kslice_buf[i], s);
+        kslice_write_addr(kslice_buf[i], s, stm, wdl_name[i], -1, num);
+      }
+    }
   }
 }
 
@@ -1485,7 +1686,6 @@ void verify(void)
 
         g_pos.sq[0] = KKSquare[s][0];
         g_pos.sq[1] = KKSquare[s][1];
-        g_pos.stm = stm;
 
         if (flip[stm])
           Swap(g_pos.sq[0], g_pos.sq[1]);
@@ -1510,17 +1710,11 @@ void verify(void)
           }
       }
 
-      for (int s = 0; s < 10; s++) {
-        show_progress(phase, s, 10, false);
+      for (int k = 0; k < 10; k++) {
+        show_progress(phase, k, 10, false);
 
-        g_pos.sq[0] = KKSquare[s][0];
-        g_pos.sq[1] = KKSquare[s][1];
-        g_pos.stm = stm;
-
-        if (flip[stm])
-          Swap(g_pos.sq[0], g_pos.sq[1]);
-
-//        decompress_kslice_wdl_10(tb, stm, s);
+        g_pos.sq[stm] = InvTriangle[k];
+        decompress_kslice_wdl_10(tb, stm, k);
       }
       show_progress(phase, 10, 10, true);
 
@@ -1654,6 +1848,8 @@ void verify(void)
       }
     }
     show_progress("loading DTZ slices", 462, 462, true);
+  }
+  else if (tb->layout == LT_PIECE_K) {
   }
 
   free(tb_table);

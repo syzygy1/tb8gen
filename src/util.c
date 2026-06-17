@@ -473,30 +473,30 @@ static void decompress_logical(struct CompressState *state, uint8_t *dst,
 #ifdef __AVX512F__
 
       for (size_t off = 0; off < out.pos; off += 64) {
-        __m512i d = _mm512_load_si512((const void *)(buf + off));
+        __m512i d = _mm512_load_si512((__m512i *)(buf + off));
 
         if (_mm512_test_epi64_mask(d, d) == 0)
           continue;
 
         uint8_t *p = dst + off;
 
-        __m512i old = _mm512_load_si512((const void *)p);
-        _mm512_store_si512((void *)p, _mm512_or_si512(old, d));
+        __m512i old = _mm512_load_si512((__m512i *)p);
+        _mm512_store_si512((__m512i *)p, _mm512_or_si512(old, d));
       }
 
 #elifdef __AVX2__
 
       for (size_t off = 0; off < out.pos; off += 64) {
-        __m256i d0 = _mm256_load_si256((const __m256i *)(buf + off));
-        __m256i d1 = _mm256_load_si256((const __m256i *)(buf + off + 32));
+        __m256i d0 = _mm256_load_si256((__m256i *)(buf + off));
+        __m256i d1 = _mm256_load_si256((__m256i *)(buf + off + 32));
 
         if (_mm256_testz_si256(d0, d0) && _mm256_testz_si256(d1, d1))
           continue;
 
         uint8_t *p = dst + off;
 
-        __m256i old0 = _mm256_load_si256((const __m256i *)(p));
-        __m256i old1 = _mm256_load_si256((const __m256i *)(p + 32));
+        __m256i old0 = _mm256_load_si256((__m256i *)(p));
+        __m256i old1 = _mm256_load_si256((__m256i *)(p + 32));
 
         _mm256_store_si256((__m256i *)(p), _mm256_or_si256(old0, d0));
         _mm256_store_si256((__m256i *)(p + 32), _mm256_or_si256(old1, d1));
@@ -520,30 +520,30 @@ static void decompress_logical(struct CompressState *state, uint8_t *dst,
 #ifdef __AVX512F__
 
       for (size_t off = 0; off < out.pos; off += 64) {
-        __m512i d = _mm512_load_si512((const void *)(buf + off));
+        __m512i d = _mm512_load_si512((__m512i *)(buf + off));
 
         if (_mm512_test_epi64_mask(d, d) == 0)
           continue;
 
         uint8_t *p = dst + off;
 
-        __m512i old = _mm512_load_si512((const void *)p);
-        _mm512_store_si512((void *)p, _mm512_andnot_si512(d, old));
+        __m512i old = _mm512_load_si512((__m512i *)p);
+        _mm512_store_si512((__m512i *)p, _mm512_andnot_si512(d, old));
       }
 
 #elifdef __AVX2__
 
       for (size_t off = 0; off < out.pos; off += 64) {
-        __m256i d0 = _mm256_load_si256((const __m256i *)(buf + off));
-        __m256i d1 = _mm256_load_si256((const __m256i *)(buf + off + 32));
+        __m256i d0 = _mm256_load_si256((__m256i *)(buf + off));
+        __m256i d1 = _mm256_load_si256((__m256i *)(buf + off + 32));
 
         if (_mm256_testz_si256(d0, d0) && _mm256_testz_si256(d1, d1))
           continue;
 
         uint8_t *p = dst + off;
 
-        __m256i old0 = _mm256_load_si256((const __m256i *)(p));
-        __m256i old1 = _mm256_load_si256((const __m256i *)(p + 32));
+        __m256i old0 = _mm256_load_si256((__m256i *)(p));
+        __m256i old1 = _mm256_load_si256((__m256i *)(p + 32));
 
         _mm256_store_si256((__m256i *)(p), _mm256_andnot_si256(d0, old0));
         _mm256_store_si256((__m256i *)(p + 32), _mm256_andnot_si256(d1, old1));

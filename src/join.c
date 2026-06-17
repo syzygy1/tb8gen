@@ -591,8 +591,18 @@ void join_final_462(int type)
     out_of_mem();
 
   uint8_t *p = buf;
+
   write_le_u32(p, magic2[type]);
   p += 4;
+
+  if (type == WDL) {
+    memcpy(p, &wdl_checksum, sizeof wdl_checksum);
+    p += sizeof wdl_checksum;
+  } else if (type == DTZ) {
+    memcpy(p, &dtz_checksum, sizeof dtz_checksum);
+    p += sizeof dtz_checksum;
+  }
+
   *p++ = 1; // version number
   *p++ = g_pos.num;
   for (int i = 2; i < g_pos.num; i++)
@@ -607,14 +617,6 @@ void join_final_462(int type)
     *p++ = dist_format;
   }
   p = buf + (((p - buf) + 7) & ~7);
-
-  if (type == WDL) {
-    memcpy(p, &wdl_checksum, sizeof wdl_checksum);
-    p += sizeof wdl_checksum;
-  } else if (type == DTZ) {
-    memcpy(p, &dtz_checksum, sizeof dtz_checksum);
-    p += sizeof dtz_checksum;
-  }
 
   int num = 0;
   for (int s = 0; s < 462; s++)
@@ -1032,6 +1034,15 @@ static void join_final_10(int type)
   uint8_t *p = buf;
   write_le_u32(p, magic2[type]);
   p += 4;
+
+  if (type == WDL) {
+    memcpy(p, &wdl_checksum, sizeof wdl_checksum);
+    p += sizeof wdl_checksum;
+  } else if (type == DTZ) {
+    memcpy(p, &dtz_checksum, sizeof dtz_checksum);
+    p += sizeof dtz_checksum;
+  }
+
   *p++ = 1; // version number
   *p++ = g_pos.num;
   for (int i = 2; i < g_pos.num; i++)

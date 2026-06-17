@@ -22,6 +22,7 @@
 #include "permute.h"
 #include "probe.h"
 #include "rans.h"
+#include "stats.h"
 #include "threads.h"
 #include "types.h"
 #include "util.h"
@@ -1098,6 +1099,19 @@ void write_final(struct tb_handle *F, FILE *G)
   } else {
     // Files incompatible with old probing code get a new magic number.
     write_u32(G, magic2[F->type]);
+
+    // Write checksum of WDL or DTZ counts.
+    if (F->type == WDL) {
+      write_u64(G, wdl_checksum.low64);
+      write_u64(G, wdl_checksum.high64);
+    } else if (F->type == DTZ) {
+      write_u64(G, dtz_checksum[0].low64);
+      write_u64(G, dtz_checksum[0].high64);
+      write_u64(G, dtz_checksum[1].low64);
+      write_u64(G, dtz_checksum[1].high64);
+    } else if (F->type == DTM) {
+      // FIXME
+    }
 
     // Version 0 means the same table layout as the old format.
     write_u8(G, 0);

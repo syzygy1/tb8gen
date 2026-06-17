@@ -1252,23 +1252,27 @@ NOINLINE struct Tbase *init_tbase(struct TbEntry *entry, const char *str,
   }
 
   if (read_le_u32(data) == magic2[type]) {
-    if (data[4] == 0) {
+    const uint8_t *p = data + 4 + (type == WDL ? 16 : 32);
+    if (p[0] == 0) {
       int num = entry->has_pawns ? type == DTM ? 6 : 4 : 1;
-      if (!entry->symmetric && (type == WDL || (data[5] & TWO_SIDED)))
+      if (!entry->symmetric && (type == WDL || (p[1] & TWO_SIDED)))
         num *= 2;
       struct Tbase *tb = calloc(1, sizeof(struct Tbase) + num * sizeof(void *));
       tb->data = data;
       tb->mapping = mapping;
       tb->layout =  !entry->has_pawns ? LT_PIECE
                   : type == DTM ? LT_PAWN_RANK : LT_PAWN_FILE;
-      return init_old_layout(entry, tb, type, data + 4, true);
+      return init_old_layout(entry, tb, type, p, true);
     }
 
-    int version = data[4];
+    int version = p[0];
     if (version > 1)
       return nullptr;
 
-    const uint8_t *p = data + 4 + entry->num;
+    uint8_t tmp[MAX_PIECES];
+    for (int i = 2; i < entry->num; i++)
+      tmp[i] = p[i];
+    p += entry->num;
     int layout = *p++;
     int dist_format;
     if (type != WDL && layout <= LT_PIECE_KK)
@@ -1293,13 +1297,11 @@ NOINLINE struct Tbase *init_tbase(struct TbEntry *entry, const char *str,
     tbase->layout = layout;
     if (type != WDL && layout <= LT_PIECE_KK)
       tbase->dist_format = dist_format;
-    // Skip WDL/DTZ checksums.
-    p += type == WDL ? 16: 32;
     tbase->offset = (uint64_t *)p - (uint64_t *)data;
     tbase->pt[0] = 6;
     tbase->pt[1] = 14;
     for (int i = 2; i < entry->num; i++)
-      tbase->pt[i] = (data[4 + i] & 0x07) | ((data[4 + i] & 0x80) >> 4);
+      tbase->pt[i] = (tmp[i] & 0x07) | ((tmp[i] & 0x80) >> 4);
     uint64_t key = 0;
     for (int i = 0; i < entry->num; i++)
       key += MaterialPieceKey[tbase->pt[i]];
