@@ -120,7 +120,6 @@ static void calc_sub_worker(struct ThreadData *thread)
       cnt++;
     } else {
       int v = probe_wdl(&pos, -2, 2);
-//      v = v > 0 ? 2 : v < 0 ? -2 : 0;
       kslice_bit_set(p[v + 2], idx);
       // Add sub_win to sub_cwin.
       if (v == 2)
@@ -488,7 +487,6 @@ static void predecessors_worker(struct ThreadData *thread)
 
 static void predecessors_ref_worker(struct ThreadData *thread)
 {
-//  struct IdxState is;
   Position pos = g_pos;
   int stm = pos.stm;
   int s = work_slice;
@@ -499,15 +497,10 @@ static void predecessors_ref_worker(struct ThreadData *thread)
 
   p += thread->begin >> 6;
   uint64_t last = thread->begin;
-//  idx_state_init(&is, last, pos.sq, &ri);
-//  idx_state_to_sq(&is, pos.sq, &ri);
   for (uint64_t idx = last, end = thread->end; idx < end; idx += 64) {
     uint64_t w = *p++;
     while (w) {
       uint64_t cur = idx + pop_lsb(&w);
-//      idx_state_add(&is, cur - last, &ri);
-//      last = cur;
-//      Bitboard occ = idx_state_to_sq(&is, pos.sq, &ri);
       Bitboard occ = pos.occ = unrank_reflection(cur, pos.sq, kings, &ri);
       mark_king_unmoves(stm, occ, pos.sq);
       for (int i = 0; pos.pcs[stm][i] >= 0; i++) {
@@ -687,7 +680,6 @@ clear_bit:
 
 static void check_successors_ref_worker(struct ThreadData *thread)
 {
-//  struct IdxState is;
   Position pos = g_pos;
   int stm = pos.stm;
   int s = work_slice;
@@ -699,8 +691,6 @@ static void check_successors_ref_worker(struct ThreadData *thread)
 
   p += thread->begin >> 6;
   uint64_t last = thread->begin;
-//  idx_state_init(&is, last, pos.sq, &ri);
-//  idx_state_to_sq(&is, pos.sq, &ri);
   for (uint64_t idx = last, end = thread->end; idx < end; idx += 64, p++) {
     uint64_t w = *p;
     if (!w) continue;
@@ -708,9 +698,6 @@ static void check_successors_ref_worker(struct ThreadData *thread)
     while (w) {
       unsigned bt = pop_lsb(&w);
       uint64_t cur = idx + bt;
-//      idx_state_add(&is, cur - last, &ri);
-//      last = cur;
-//      Bitboard occ = pos.occ = idx_state_to_sq(&is, pos.sq, &ri);
       Bitboard occ = pos.occ = unrank_reflection(cur, pos.sq, kings, &ri);
       // Legality check not necessary if we already removed illegal positions.
       // Currently, we need to test.
@@ -849,7 +836,6 @@ static void calc_mate_worker(struct ThreadData *thread)
 
 static void calc_mate_ref_worker(struct ThreadData *thread)
 {
-//  struct IdxState is;
   Position pos = g_pos;
   Bitboard kings = bit(pos.sq[0]) | bit(pos.sq[1]);
 
@@ -863,8 +849,6 @@ static void calc_mate_ref_worker(struct ThreadData *thread)
   p1 += last >> 6;
   q0 += last >> 6;
   q1 += last >> 6;
-//  idx_state_init(&is, last, pos.sq, &ri);
-//  idx_state_to_sq(&is, pos.sq, &ri);
   for (uint64_t idx = last, end = thread->end; idx < end;
       idx += 64, p0++, p1++, q0++, q1++)
   {
@@ -874,9 +858,6 @@ static void calc_mate_ref_worker(struct ThreadData *thread)
     while (w) {
       unsigned bt = pop_lsb(&w);
       uint64_t cur = idx + bt;
-//      idx_state_add(&is, cur - last, &ri);
-//      last = cur;
-//      pos.occ = idx_state_to_sq(&is, pos.sq, &ri);
       pos.occ = unrank_reflection(cur, pos.sq, kings, &ri);
       if (*p1 & bit(bt)) {
         pos.stm = WHITE;
