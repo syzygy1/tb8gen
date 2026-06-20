@@ -442,7 +442,7 @@ void init_ranking(void)
   }
 }
 
-uint64_t sq_to_idx(uint8_t *restrict sq)
+uint64_t sq_to_idx(const uint8_t *restrict sq)
 {
   Bitboard occ = bit(sq[0]) | bit(sq[1]);
   if (has_pawns)
@@ -451,7 +451,7 @@ uint64_t sq_to_idx(uint8_t *restrict sq)
   return sq_to_idx_helper(sq, 0, occ, &ri);
 }
 
-uint64_t capt_sq_to_idx(uint8_t *restrict sq, int k)
+uint64_t capt_sq_to_idx(const uint8_t *restrict sq, int k)
 {
   Bitboard occ = bit(sq[0]) | bit(sq[1]);
   if (has_pawns)
@@ -497,7 +497,7 @@ static uint64_t rank_combination(Bitboard subset, Bitboard universe)
   return r;
 }
 
-uint64_t rank_trivial_from(uint8_t *restrict sq, int k, Bitboard occ,
+uint64_t rank_trivial_from(const uint8_t *restrict sq, int k, Bitboard occ,
     const uint8_t *restrict first, const struct RankInfo *ri)
 {
   uint64_t idx = 0;
@@ -541,7 +541,7 @@ INLINE uint64_t count_broken_residual_before(int rem, int p, int s, int one)
   return total;
 }
 
-uint64_t rank_reflection(uint8_t *restrict sq, Bitboard occ,
+uint64_t rank_reflection(const uint8_t *restrict sq, Bitboard occ,
     const uint8_t *restrict first, const struct RankInfo *ri)
 {
   Bitboard pair_mask = LOWER_DIAG_MASK;
@@ -589,9 +589,12 @@ uint64_t rank_reflection(uint8_t *restrict sq, Bitboard occ,
       assert(canon < (1u << (one - 1)));
       rank += canon * c->broken_tail;
 
+      alignas(8) uint8_t sq2[8];
       if (comp < orient_mask) {
-        mirror_diagonal(sq);
+        memcpy(sq2, sq, sizeof sq2);
+        mirror_diagonal(sq2);
         occ = flip_main_diag(occ);
+        sq = sq2;
       }
       return rank + rank_trivial_from(sq, k + 1, occ, first, ri);
     }
@@ -603,7 +606,7 @@ uint64_t rank_reflection(uint8_t *restrict sq, Bitboard occ,
   return rank;
 }
 
-uint64_t sq_to_idx_ref(uint8_t *restrict sq)
+uint64_t sq_to_idx_ref(const uint8_t *restrict sq)
 {
   Bitboard occ = bit(sq[0]) | bit(sq[1]);
 

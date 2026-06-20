@@ -188,7 +188,7 @@ INLINE int rank_among_free(uint8_t sq, Bitboard occ)
 }
 
 // We expect a normalized position.
-INLINE uint64_t sq_to_idx_helper(uint8_t *restrict sq, uint64_t idx,
+INLINE uint64_t sq_to_idx_helper(const uint8_t *restrict sq, uint64_t idx,
     Bitboard occ, const struct RankInfo *ii)
 {
   for (int k = 0; k < ii->numsets; k++) {
@@ -317,15 +317,15 @@ void init_ranking(void);
 int rank_mult(uint8_t mult[MAX_SETS]);
 
 void calc_factors(struct RankInfo *ri, int n);
-uint64_t sq_to_idx(uint8_t *sq);
-uint64_t sq_to_idx_ref(uint8_t *sq);
-uint64_t capt_sq_to_idx(uint8_t *sq, int k);
+uint64_t sq_to_idx(const uint8_t *sq);
+uint64_t sq_to_idx_ref(const uint8_t *sq);
+uint64_t capt_sq_to_idx(const uint8_t *sq, int k);
 void idx_state_init(struct IdxState *is, uint64_t idx, uint8_t *restrict sq,
     const struct RankInfo *ri);
 
-uint64_t rank_trivial_from(uint8_t *restrict sq, int k, Bitboard occ,
+uint64_t rank_trivial_from(const uint8_t *restrict sq, int k, Bitboard occ,
     const uint8_t *restrict first, const struct RankInfo *ri);
-uint64_t rank_reflection(uint8_t *restrict sq, Bitboard occ,
+uint64_t rank_reflection(const uint8_t *restrict sq, Bitboard occ,
     const uint8_t *restrict first, const struct RankInfo *ri);
 Bitboard unrank_reflection(uint64_t idx, uint8_t *restrict sq, Bitboard occ,
     const struct RankInfo *ri);
