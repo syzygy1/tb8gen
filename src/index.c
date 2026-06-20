@@ -18,6 +18,7 @@ Bitboard Unrank2[62 * 61 / 2], Unrank3[62 * 61 * 60 / 6];
 uint32_t Binomial[8][64];
 uint64_t MirrorMask[64];
 bool FlipTest[64][64];
+uint8_t KK_transform[64][64];
 
 const int16_t KKIdx[10][64] = {
   {  -1,  -1,  -1,   0,   1,   2,   3,   4,
@@ -243,6 +244,33 @@ static uint64_t count_trivial_part(int part_id, int free)
 
 static uint8_t unfold_ps[12][2];
 
+enum {
+  ID, FLIP_V, FLIP_H, ROT180,
+  FLIP_MAIN, ROT270, ROT90, FLIP_ANTI
+};
+
+// a1d4 -> ID        FLIP_MAIN
+// h1e4 -> FLIP_H    ROT90
+// h8e5 -> ROT180    FLIP_ANTI
+// a8d5 -> FLIP_V    ROT270
+
+static int transform_sq(int s, int t)
+{
+  int f = s & 7, r = s >> 3;
+
+  switch (t) {
+  case ID:        return  r      * 8 + f;
+  case FLIP_V:    return (7 - r) * 8 + f;
+  case FLIP_H:    return  r      * 8 + (7 - f);
+  case ROT180:    return (7 - r) * 8 + (7 - f);
+  case FLIP_MAIN: return  f      * 8 + r;
+  case ROT90:     return  f      * 8 + (7 - r);
+  case ROT270:    return (7 - f) * 8 + r;
+  case FLIP_ANTI: return (7 - f) * 8 + (7 - r);
+  }
+  __builtin_unreachable();
+}
+
 void init_ranking(void)
 {
   for (int i = 0; i < 10; i++)
@@ -260,17 +288,40 @@ void init_ranking(void)
     MirrorMask[s] =  ((s & 0x04) ? 0x0707070707070707ull : 0)
                    | ((s & 0x20) ? 0x3838383838383838ull : 0);
 
-  for (int i = 0; i < 64; i++)
-    for (int j = 0; j < 64; j++) {
-      int s1 = i ^ (MirrorMask[i] & 0xff);
-      int s2 = j ^ (MirrorMask[i] & 0xff);
+  for (int wk = 0; wk < 64; wk++)
+    for (int bk = 0; bk < 64; bk++) {
+      int s1 = wk ^ (MirrorMask[wk] & 0xff);
+      int s2 = bk ^ (MirrorMask[wk] & 0xff);
       if (!(bit(s1) & A1D1D4) || ((bit(s1) & A1D4) && !(bit(s2) & LOWER))) {
-        FlipTest[i][j] = true;
+        FlipTest[wk][bk] = true;
         s1 = ((s1 & 7) << 3) | (s1 >> 3);
         s2 = ((s2 & 7) << 3) | (s2 >> 3);
       }
-      KKMap[i][j] = KKIdx[Triangle[s1]][s2];
+      KKMap[wk][bk] = KKIdx[Triangle[s1]][s2];
     }
+
+  for (int wk = 0; wk < 64; wk++) {
+    int s, t;
+    for (t = 0; t < 8; t++) {
+      s = transform_sq(wk, t);
+      if (bit(s) & A1D1D4)
+        break;
+    }
+    assert(t < 8);
+    if (bit(s) & A1D4) {
+      assert(t < 4);
+      for (int bk = 0; bk < 64; bk++) {
+        int s1 = transform_sq(bk, t);
+        if (bit(s1) & LOWER)
+          KK_transform[wk][bk] = t;
+        else
+          KK_transform[wk][bk] = t + 4;
+      }
+    } else {
+      for (int bk = 0; bk < 64; bk++)
+        KK_transform[wk][bk] = t;
+    }
+  }
 
   // Binomial[k][n] = Bin(n, k)
   for (int j = 0; j < 64; j++)
@@ -442,6 +493,61 @@ void init_ranking(void)
   }
 }
 
+void transform_set_bb(int t, Bitboard *restrict set_bb,
+    Bitboard *restrict set_bb2)
+{
+  __m512i x = _mm512_load_si512((__m512i *)set_bb);
+  switch (t) {
+  case FLIP_V:
+    x = flip_vertical_8xbb(x);
+    break;
+  case FLIP_H:
+    x = flip_horizontal_8xbb(x);
+    break;
+  case ROT270:
+    x = rotate270_8xbb(x);
+    break;
+  case FLIP_MAIN:
+    x = flip_main_8xbb(x);
+    break;
+  case FLIP_ANTI:
+    x = flip_anti_8xbb(x);
+    break;
+  case ROT180:
+    x = rotate180_8xbb(x);
+    break;
+  case ROT90:
+    x = rotate90_8xbb(x);
+    break;
+  default:
+    unreachable();
+  }
+  _mm512_store_si512((__m512i *)set_bb2, x);
+}
+
+INLINE uint64_t rank_bb_from(Bitboard *restrict set_bb, int k, Bitboard occ,
+    const struct RankInfo *ri)
+{
+  uint64_t idx = 0;
+  for (; k < ri->numsets; k++) {
+    Bitboard b = _pext_u64(set_bb[k + 1], ~occ);
+    occ |= set_bb[k + 1];
+    size_t s = 0;
+    for (int j = 1; b; j++)
+      s += Binomial[j][pop_lsb(&b)];
+    idx = idx * ri->factor[k] + s;
+  }
+  return idx;
+}
+
+// Directly operating on struct IdxState2 might be even better:
+// Bitboard b = _pext_u64(is->set_bb[k + 1], ~is->set_bb[k]);
+// No need to keep track of occ.
+uint64_t rank_bb(Bitboard *restrict set_bb, const struct RankInfo *ri)
+{
+  return rank_bb_from(set_bb, 0, set_bb[0], ri);
+}
+
 uint64_t sq_to_idx(uint8_t *restrict sq)
 {
   Bitboard occ = bit(sq[0]) | bit(sq[1]);
@@ -465,11 +571,26 @@ void calc_factors(struct RankInfo *ri, int n)
   uint64_t f = 1;
   for (int i = 0; i < ri->numsets; i++) {
     ri->factor[i] = Binomial[ri->mult[i]][n];
-    ri->recip[i] = recip(ri->factor[i]);
+    if (ri->factor[i] != 1)
+      ri->recip[i] = recip(ri->factor[i]);
     f *= ri->factor[i];
     n -= ri->mult[i];
   }
   ri->sizes[0] = f;
+}
+
+void idx_state_init2(struct IdxState2 *is, uint64_t idx, uint8_t *restrict sq,
+    const struct RankInfo *ri)
+{
+  for (int k = ri->numsets - 1; k >= 0; k--)
+    idx = divmod_recip(idx, ri->factor[k], ri->recip[k], &is->sub[k]);
+  is->n = 0;
+  is->sq[0] = sq[0];
+  is->sq[1] = sq[1];
+  if (has_pawns)
+    is->sq[2] = sq[2];
+  is->occ[0] = has_pawns ? bit(sq[0]) | bit(sq[1]) | bit(sq[2])
+                         : bit(sq[0]) | bit(sq[1]);
 }
 
 void idx_state_init(struct IdxState *is, uint64_t idx, uint8_t *restrict sq,
@@ -594,6 +715,75 @@ uint64_t rank_reflection(uint8_t *restrict sq, Bitboard occ,
         occ = flip_main_diag(occ);
       }
       return rank + rank_trivial_from(sq, k + 1, occ, first, ri);
+    }
+
+    rank += rank_combination(bb, diag_mask) * c->diag_tail;
+    diag_mask &= ~bb;
+    s = popcnt(diag_mask);
+  }
+  return rank;
+}
+
+// Again directly operating on IdxState2 seems possible and even
+// advantageous. pair_mask and diag_mask will mask out previously
+// set bits.
+uint64_t rank_bb_ref(Bitboard *set_bb, const struct RankInfo *ri)
+{
+  Bitboard occ = set_bb[0];
+  Bitboard pair_mask = LOWER_DIAG_MASK;
+  Bitboard diag_mask = MAIN_DIAG_MASK & ~occ;
+  int p = 28, s = 6;
+
+  uint64_t rank = 0;
+  for (int k = 0; k < ri->numsets; k++) {
+    Bitboard bb = set_bb[k + 1];
+    occ |= bb;
+    int tid = ri->transition_id[k];
+
+    // Perhaps execute flip_main_8xbb() at the start, so no need to
+    // repeat?
+    Bitboard mirror = flip_main_diag(bb);
+    Bitboard full_mask = bb & mirror  & pair_mask;
+    Bitboard one_mask = (bb ^ mirror) & pair_mask;
+    int d = popcnt(full_mask);    // Number of 2-orbits fully filled.
+
+    const struct TransitionCase *c = &transition_cases[tid][fold_ps(p, s)][d];
+
+    rank += c->prefix;
+    rank += rank_combination(full_mask, pair_mask) * c->per_full_block;
+    pair_mask &= ~full_mask;
+    p -= d;
+
+    if (one_mask) {
+      // The current set breaks symmetry.
+      int one = popcnt(one_mask);     // Number of 2-orbits half filled.
+      int f = popcnt(bb & diag_mask); // Number of 1-orbits filled.
+      rank += c->diag_block;
+      uint64_t r = count_broken_residual_before(c->rem, p, s, one);
+
+      uint64_t rone = rank_combination(one_mask, pair_mask);
+      r += (rone * binom(s, f) + rank_combination(bb, diag_mask)) << (one - 1);
+      rank += r * c->broken_tail;
+
+      // Canonical orientation: orient_mask <= bitwise complement within oo bits.
+      uint32_t orient_mask = _pext_u64(bb, one_mask);
+      uint32_t comp = (~orient_mask) & ((1u << one) - 1u);
+      uint32_t canon = orient_mask < comp ? orient_mask : comp;
+      // Among 2^oo orientations paired with complements, canonical ones are
+      // exactly 0 .. 2^(oo-1)-1 after min(x,~x) for this ordering.
+      assert(canon < (1u << (one - 1)));
+      rank += canon * c->broken_tail;
+
+      if (comp < orient_mask) {
+        alignas(64) Bitboard mirror_bb[8];
+        set_bb[7] = occ;
+        __m512i x = _mm512_load_si512((__m512i *)set_bb);
+        x = flip_main_8xbb(x);
+        _mm512_load_si512((__m512i *)mirror_bb);
+        occ = mirror_bb[7];
+        return rank + rank_bb_from(mirror_bb, k + 1, occ, ri);
+      }
+      return rank + rank_bb_from(set_bb, k + 1, occ, ri);
     }
 
     rank += rank_combination(bb, diag_mask) * c->diag_tail;

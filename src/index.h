@@ -49,6 +49,13 @@ struct IdxState {
   int n;
 };
 
+struct IdxState2 {
+  uint32_t sub[MAX_SETS + 1];
+  Bitboard occ[MAX_SETS + 1];
+  uint8_t sq[3];
+  int n;
+};
+
 extern struct RankInfo ri, capt_ri[MAX_SETS];
 extern int pc_to_set[MAX_PIECES];
 extern Bitboard Unrank2[62 * 61 / 2], Unrank3[62 * 61 * 60 / 6];
@@ -58,63 +65,93 @@ extern bool FlipTest[64][64];
 extern const int16_t KKIdx[10][64];
 extern uint8_t KKSquare[462][2];
 extern int16_t KKMap[64][64];
+extern uint8_t KK_transform[64][64];
 
-#define SORT2(a, b) do { \
-  if ((b) < (a))         \
-    Swap(a, b);          \
-} while (0)
-
-INLINE void sort3(uint8_t *x)
+INLINE __m512i flip_vertical_8xbb(__m512i x)
 {
-  SORT2(x[0], x[1]);
-  SORT2(x[1], x[2]);
-  SORT2(x[0], x[1]);
+  const __m128i mask128 =
+    _mm_setr_epi8( 7, 6, 5, 4, 3, 2, 1, 0, 15,14,13,12,11,10, 9, 8);
+  return _mm512_shuffle_epi8(x, _mm512_broadcast_i64x2(mask128));
 }
 
-INLINE void sort4(uint8_t *x)
+INLINE __m512i flip_horizontal_8xbb(__m512i x)
 {
-  SORT2(x[0], x[1]);
-  SORT2(x[2], x[3]);
-  SORT2(x[0], x[2]);
-  SORT2(x[1], x[3]);
-  SORT2(x[1], x[2]);
+  const __m512i v = _mm512_set1_epi64(0x8040201008040201ULL);
+  return _mm512_gf2p8affine_epi64_epi8(x, v, 0);
 }
 
-INLINE void sort_squares(int n, uint8_t *restrict x)
+INLINE __m512i rotate270_8xbb(__m512i x)
 {
-  assume(n <= MAX_PIECES - 2);
-  switch (n) {
-  case 0:
-  case 1:
-    break;
+  const __m512i v = _mm512_set1_epi64(0x8040201008040201ULL);
+  return _mm512_gf2p8affine_epi64_epi8(v, x, 0);
+}
 
-  case 2:
-    SORT2(x[0], x[1]);
-    break;
+INLINE __m512i flip_main_8xbb(__m512i x)
+{
+  x = flip_vertical_8xbb(x);
+  x = rotate270_8xbb(x);
+  return x;
+}
 
-  case 3:
-    sort3(x);
-    break;
+INLINE __m512i flip_anti_8xbb(__m512i x)
+{
+  x = rotate270_8xbb(x);
+  x = flip_vertical_8xbb(x);
+  return x;
+}
 
-  case 4:
-    sort4(x);
-    break;
+INLINE __m512i rotate90_8xbb(__m512i x)
+{
+  x = flip_vertical_8xbb(x);
+  x = rotate270_8xbb(x);
+  x = flip_vertical_8xbb(x);
+  return x;
+}
 
-  default:
-    // insertion sort
-    for (int i = 1; i < n; i++) {
-      int v = x[i];
-      int j = i;
-      while (j > 0 && v < x[j - 1]) {
-        x[j] = x[j - 1];
-        j--;
-      }
-      x[j] = v;
-    }
+INLINE __m512i rotate180_8xbb(__m512i x)
+{
+  x = flip_vertical_8xbb(x);
+  x = flip_horizontal_8xbb(x);
+  return x;
+}
+
+INLINE Bitboard unrank_binomial2(uint64_t idx, int n, Bitboard occ)
+{
+  if (n == 0)
+    return occ;
+
+  assume(n > 0 && n <= MAX_MULT);
+
+  Bitboard b = ~occ;
+
+  if (n == 1) {
+    Bitboard b1 = _pdep_u64(bit(idx), b);
+    occ |= b1;
   }
-}
+  else if (n == 2) {
+    Bitboard b1 = _pdep_u64(Unrank2[idx], b);
+    occ |= b1;
+  }
+  else if (n == 3) {
+    Bitboard b1 = _pdep_u64(Unrank3[idx], b);
+    occ |= b1;
+  }
+  else {
+    Bitboard b1 = 0;
+    int r = popcnt(b) - 1;
+    for (int i = n - 1; i > 0; i--) {
+      while (idx < Binomial[i + 1][r])
+        r--;
+      idx -= Binomial[i + 1][r];
+      b1 |= bit(r);
+      r--;
+    }
+    b1 = _pdep_u64(b1 | bit(idx), b);
+    occ |= b1;
+  }
 
-#undef SORT2
+  return occ;
+}
 
 INLINE Bitboard unrank_binomial(uint64_t idx, int n, uint8_t *restrict sq,
     Bitboard occ)
@@ -169,6 +206,12 @@ INLINE Bitboard unrank_binomial(uint64_t idx, int n, uint8_t *restrict sq,
 INLINE uint64_t divmod_recip(uint64_t x, uint32_t d, uint64_t recip,
     uint32_t *rem)
 {
+  // FIXME: look into avoiding this special case (caller-side).
+  if (d == 1) {
+    *rem = 0;
+    return x;
+  }
+
   uint64_t q = ((__uint128_t)x * recip) >> 64;
   uint64_t r = x - q * d;
 
@@ -189,12 +232,12 @@ INLINE int rank_among_free(uint8_t sq, Bitboard occ)
 
 // We expect a normalized position.
 INLINE uint64_t sq_to_idx_helper(uint8_t *restrict sq, uint64_t idx,
-    Bitboard occ, const struct RankInfo *ii)
+    Bitboard occ, const struct RankInfo *ri)
 {
-  for (int k = 0; k < ii->numsets; k++) {
+  for (int k = 0; k < ri->numsets; k++) {
     size_t s;
-    int i = ii->first[k];
-    int m = ii->mult[k];
+    int i = ri->first[k];
+    int m = ri->mult[k];
     assume(m > 0 && m <= MAX_MULT);
     if (m == 1) {
       s = rank_among_free(sq[i], occ);
@@ -216,7 +259,7 @@ INLINE uint64_t sq_to_idx_helper(uint8_t *restrict sq, uint64_t idx,
       for (int j = 1; b1; j++)
         s += Binomial[j][pop_lsb(&b1)];
     }
-    idx = idx * ii->factor[k] + s;
+    idx = idx * ri->factor[k] + s;
   }
 
   return idx;
@@ -272,24 +315,33 @@ INLINE void normalize2(const uint8_t *restrict sq, uint8_t *restrict sq2)
   memcpy(sq2, &v, 8);
 }
 
-INLINE void idx_state_inc(struct IdxState *is, const struct RankInfo *ii)
+INLINE void idx_state_inc2(struct IdxState2 *is, const struct RankInfo *ri)
 {
   uint32_t *restrict sub = is->sub;
-  int i = ii->numsets - 1;
-  for (; ++sub[i] >= ii->factor[i] && i > 0; i--)
+  int i = ri->numsets - 1;
+  for (; ++sub[i] >= ri->factor[i] && i > 0; i--)
     sub[i] = 0;
   is->n = i;
 }
 
-INLINE void idx_state_add(struct IdxState *is, uint64_t v,
-    const struct RankInfo *restrict ii)
+INLINE void idx_state_inc(struct IdxState *is, const struct RankInfo *ri)
 {
   uint32_t *restrict sub = is->sub;
-  int i = ii->numsets;
+  int i = ri->numsets - 1;
+  for (; ++sub[i] >= ri->factor[i] && i > 0; i--)
+    sub[i] = 0;
+  is->n = i;
+}
+
+INLINE void idx_state_add2(struct IdxState2 *is, uint64_t v,
+    const struct RankInfo *restrict ri)
+{
+  uint32_t *restrict sub = is->sub;
+  int i = ri->numsets;
 
   while (i > 0) {
     uint64_t s = (uint64_t)sub[--i] + v;
-    uint32_t f = ii->factor[i];
+    uint32_t f = ri->factor[i];
 
     if (s < f) {
       sub[i] = s;
@@ -297,18 +349,58 @@ INLINE void idx_state_add(struct IdxState *is, uint64_t v,
       return;
     }
 
-    v = divmod_recip(s, f, ii->recip[i], &sub[i]);
+    v = divmod_recip(s, f, ri->recip[i], &sub[i]);
+  }
+}
+
+INLINE Bitboard idx_state_to_sq2(struct IdxState2 *is,
+    const struct RankInfo *ri)
+{
+  int i = is->n;
+  Bitboard occ = is->occ[i];
+  for (; i < ri->numsets; i++)
+    is->occ[i + 1] = occ = unrank_binomial2(is->sub[i], ri->mult[i], occ);
+  return occ;
+}
+
+INLINE void is_to_sq(const struct IdxState2 *is, uint8_t *restrict sq)
+{
+  int j = 2;
+  for (int i = 0; i < ri.numsets; i++) {
+    Bitboard b = is->occ[i + 1] & ~is->occ[i];
+    while (b)
+      sq[j++] = pop_lsb(&b);
+  }
+}
+
+INLINE void idx_state_add(struct IdxState *is, uint64_t v,
+    const struct RankInfo *restrict ri)
+{
+  uint32_t *restrict sub = is->sub;
+  int i = ri->numsets;
+
+  while (i > 0) {
+    uint64_t s = (uint64_t)sub[--i] + v;
+    uint32_t f = ri->factor[i];
+
+    if (s < f) {
+      sub[i] = s;
+      is->n = i;
+      return;
+    }
+
+    v = divmod_recip(s, f, ri->recip[i], &sub[i]);
   }
 }
 
 INLINE Bitboard idx_state_to_sq(struct IdxState *is, uint8_t *restrict sq,
-    const struct RankInfo *ii)
+    const struct RankInfo *ri)
 {
   int i = is->n;
   Bitboard occ = is->occ[i];
-  for (; i < ii->numsets; i++) {
+  for (; i < ri->numsets; i++) {
     is->occ[i] = occ;
-    occ = unrank_binomial(is->sub[i], ii->mult[i], sq + ii->first[i], occ);
+    occ = unrank_binomial(is->sub[i], ri->mult[i], sq + ri->first[i], occ);
   }
   return occ;
 }
@@ -316,10 +408,16 @@ INLINE Bitboard idx_state_to_sq(struct IdxState *is, uint8_t *restrict sq,
 void init_ranking(void);
 int rank_mult(uint8_t mult[MAX_SETS]);
 
+void transform_set_bb(int t, Bitboard *set_bb, Bitboard *set_bb2);
+uint64_t rank_bb(Bitboard *set_bb, const struct RankInfo *ri);
+uint64_t rank_bb_ref(Bitboard *set_bb, const struct RankInfo *ri);
+
 void calc_factors(struct RankInfo *ri, int n);
 uint64_t sq_to_idx(uint8_t *sq);
 uint64_t sq_to_idx_ref(uint8_t *sq);
 uint64_t capt_sq_to_idx(uint8_t *sq, int k);
+void idx_state_init2(struct IdxState2 *is, uint64_t idx, uint8_t *restrict sq,
+    const struct RankInfo *ri);
 void idx_state_init(struct IdxState *is, uint64_t idx, uint8_t *restrict sq,
     const struct RankInfo *ri);
 

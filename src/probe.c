@@ -298,9 +298,65 @@ void init_tablebases(const char *path_list)
         }
       }
 
-//  printf("Found %d WDL and %d DTM tablebase files.\n", num_tbs, num_dtz);
-  printf("Found %d WDL %d DTZ tablebase files.\n", num_tbs, num_dtz);
+  printf("Found %d WDL and %d DTZ tablebase files.\n", num_tbs, num_dtz);
 }
+
+#define SORT2(a, b) do { \
+  if ((b) < (a))         \
+    Swap(a, b);          \
+} while (0)
+
+INLINE void sort3(uint8_t *x)
+{
+  SORT2(x[0], x[1]);
+  SORT2(x[1], x[2]);
+  SORT2(x[0], x[1]);
+}
+
+INLINE void sort4(uint8_t *x)
+{
+  SORT2(x[0], x[1]);
+  SORT2(x[2], x[3]);
+  SORT2(x[0], x[2]);
+  SORT2(x[1], x[3]);
+  SORT2(x[1], x[2]);
+}
+
+INLINE void sort_squares(int n, uint8_t *restrict x)
+{
+  assume(n <= MAX_PIECES - 2);
+  switch (n) {
+  case 0:
+  case 1:
+    break;
+
+  case 2:
+    SORT2(x[0], x[1]);
+    break;
+
+  case 3:
+    sort3(x);
+    break;
+
+  case 4:
+    sort4(x);
+    break;
+
+  default:
+    // insertion sort
+    for (int i = 1; i < n; i++) {
+      int v = x[i];
+      int j = i;
+      while (j > 0 && v < x[j - 1]) {
+        x[j] = x[j - 1];
+        j--;
+      }
+      x[j] = v;
+    }
+  }
+}
+
+#undef SORT2
 
 const int8_t OffDiag[64] = {
   0, -1, -1, -1, -1, -1, -1, -1,
