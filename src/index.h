@@ -57,16 +57,6 @@ struct IdxState2 {
   int n;
 };
 
-// case 1: loop through _all_ positions
-// - init
-// - inc
-// - use
-//
-// case 2: loop through selected positions
-// - init
-// - add
-// - use
-
 extern struct RankInfo ri, capt_ri[MAX_SETS];
 extern int pc_to_set[MAX_PIECES];
 extern Bitboard Unrank2[62 * 61 / 2], Unrank3[62 * 61 * 60 / 6];
@@ -199,7 +189,7 @@ INLINE Bitboard unrank_binomial(uint64_t idx, int n, uint8_t *restrict sq,
   return occ;
 }
 
-// Valid if x <= 2^N, d-1 <= 2^l and N + l <= 64.
+// Valid if x <= 2^N, d-1 <= 2^L and N + L <= 64.
 // This should not be a problem even for 9-piece tables.
 // See https://gmplib.org/~tege/divcnst-pldi94.pdf
 INLINE uint64_t divmod_recip(uint64_t x, uint32_t d, uint64_t recip,

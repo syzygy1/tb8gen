@@ -212,8 +212,10 @@ INLINE bool test_moves(int k, uint8_t *restrict const p, Bitboard occ,
       Bitboard to_bb = b & -b;
       is->bb[k + 1] ^= to_bb;
       uint64_t idx = rank_bb(is->bb, &ri);
-      if (kslice_bit_test(p, idx))
+      if (kslice_bit_test(p, idx)) {
+        is->bb[k + 1] ^= from_bb ^ to_bb;
         return true;
+      }
       is->bb[k + 1] ^= to_bb;
       b ^= to_bb;
     }
@@ -230,13 +232,16 @@ INLINE bool test_moves_ref(int k, uint8_t *restrict const p, Bitboard occ,
   while (bb) {
     Bitboard from_bb = bb & -bb;
     is->bb[k + 1] ^= from_bb;
+    bb ^= from_bb;
     Bitboard b = non_king_piece_moves(g_set_pt[k], lsb(from_bb), occ);
     while (b) {
       Bitboard to_bb = b & -b;
       is->bb[k + 1] ^= to_bb;
       uint64_t idx = rank_bb_ref(is->bb, &ri);
-      if (kslice_bit_test(p, idx))
+      if (kslice_bit_test(p, idx)) {
+        is->bb[k + 1] ^= from_bb ^ to_bb;
         return true;
+      }
       is->bb[k + 1] ^= to_bb;
       b ^= to_bb;
     }
@@ -690,6 +695,7 @@ INLINE void check_zero_worker_tmpl(struct ThreadData *thread, const int T)
         break;
       case CZ_CWIN:
         if (v) {
+          pos.occ = occ;
           idx_state2_to_sq(&is, pos.sq, &ri);
           if (!check_dtz_W101(&pos))
             report_fail(s, cur, &pos, &is);
@@ -721,7 +727,7 @@ INLINE void check_zero_ref_worker_tmpl(struct ThreadData *thread, const int T)
     while (w) {
       uint64_t cur = idx + pop_lsb(&w);
       bool v = false;
-      Bitboard occ = pos.occ = unrank_bb_ref(cur, is.bb, &ri);
+      Bitboard occ = unrank_bb_ref(cur, is.bb, &ri);
       for (int i = 0; g_sets[stm][i] >= 0; i++) {
         int j = g_sets[stm][i];
         v = test_moves_ref(j, q, occ, &is);
@@ -734,8 +740,12 @@ INLINE void check_zero_ref_worker_tmpl(struct ThreadData *thread, const int T)
         if (v) report_fail(s, cur, &pos, &is);
         break;
       case CZ_CWIN:
-        if (v && !check_dtz_W101(&pos))
-          report_fail(s, cur, &pos, &is);
+        if (v) {
+          pos.occ = occ;
+          idx_state2_to_sq(&is, pos.sq, &ri);
+          if (v && !check_dtz_W101(&pos))
+            report_fail(s, cur, &pos, &is);
+        }
         break;
       }
     }
