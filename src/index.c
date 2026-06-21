@@ -525,10 +525,9 @@ void transform_set_bb(int t, Bitboard *restrict set_bb,
   _mm512_store_si512((__m512i *)set_bb2, x);
 }
 
-INLINE uint64_t rank_bb_from(Bitboard *restrict set_bb, int k,
-    Bitboard occ, const struct RankInfo *ri)
+INLINE uint64_t rank_bb_from_helper(Bitboard *restrict set_bb, uint64_t idx, 
+    int k, Bitboard occ, const struct RankInfo *ri)
 {
-  uint64_t idx = 0;
   for (; k < ri->numsets; k++) {
     Bitboard b = _pext_u64(set_bb[k + 1], ~occ);
     occ |= set_bb[k + 1];
@@ -540,12 +539,18 @@ INLINE uint64_t rank_bb_from(Bitboard *restrict set_bb, int k,
   return idx;
 }
 
+uint64_t rank_bb_from(Bitboard *restrict set_bb, uint64_t idx, int k,
+    Bitboard occ, const struct RankInfo *ri)
+{
+  return rank_bb_from_helper(set_bb, idx, k, occ, ri);
+}
+
 // Directly operating on struct IdxState2 might be even better:
 // Bitboard b = _pext_u64(is->set_bb[k + 1], ~is->set_bb[k]);
 // No need to keep track of occ.
 uint64_t rank_bb(Bitboard *restrict set_bb, const struct RankInfo *ri)
 {
-  return rank_bb_from(set_bb, 0, set_bb[0], ri);
+  return rank_bb_from_helper(set_bb, 0, 0, set_bb[0], ri);
 }
 
 uint64_t sq_to_idx(const uint8_t *restrict sq)
@@ -783,16 +788,16 @@ uint64_t rank_bb_ref(Bitboard *set_bb, const struct RankInfo *ri)
       assert(canon < (1u << (one - 1)));
       rank += canon * c->broken_tail;
 
+      alignas(64) Bitboard mirror_bb[8];
       if (comp < orient_mask) {
-        alignas(64) Bitboard mirror_bb[8];
         set_bb[7] = occ;
         __m512i x = _mm512_load_si512((__m512i *)set_bb);
         x = flip_main_8xbb(x);
         _mm512_store_si512((__m512i *)mirror_bb, x);
         occ = mirror_bb[7];
-        return rank + rank_bb_from(mirror_bb, k + 1, occ, ri);
+        set_bb = mirror_bb;
       }
-      return rank + rank_bb_from(set_bb, k + 1, occ, ri);
+      return rank + rank_bb_from_helper(set_bb, 0, k + 1, occ, ri);
     }
 
     rank += rank_combination(bb, diag_mask) * c->diag_tail;
