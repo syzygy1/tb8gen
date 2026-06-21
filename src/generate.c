@@ -96,14 +96,10 @@ INLINE void mark_king_unmoves(int stm, Bitboard occ, struct IdxState2 *is)
     int t = KK_transform[ksq[0]][ksq[1]];
     uint64_t idx;
     if (!t) {
-      idx =  s < 441
-           ? rank_bb(is->bb, &ri)
-           : rank_bb_ref(is->bb, &ri);
+      idx =  s < 441 ? rank_bb(is->bb, &ri) : rank_bb_ref(is->bb, &ri);
     } else {
       transform_set_bb(t, is->bb, bb);
-      idx =  s < 441
-           ? rank_bb(bb, &ri)
-           : rank_bb_ref(bb, &ri);
+      idx =  s < 441 ? rank_bb(bb, &ri) : rank_bb_ref(bb, &ri);
     }
     uint8_t *p = kslice_get_address(s);
     kslice_bit_set_atomic(p, idx);
@@ -140,18 +136,25 @@ INLINE void mark_unmoves(int k, uint8_t *restrict const p, Bitboard occ,
   }
 }
 
-// Uncapture stm king by a piece being added to set j.
-INLINE void mark_uncapture_king(int j, int stm, uint8_t *restrict const p,
+// Uncapture stm king by a piece being added to set k.
+INLINE void mark_uncapture_king(int k, int stm, uint8_t *restrict const p,
     Bitboard occ, struct IdxState2 *is, const bool ref)
 {
+  uint64_t idx0 = 0;
+  if (!ref) {
+    for (int i = 0; i < k; i++)
+      idx0 = idx0 * ri.factor[i] + is->sub[i];
+  }
+
   int to = is->sq[stm];
-  Bitboard b = non_king_piece_moves(g_set_pt[j], to, occ);
+  Bitboard b = non_king_piece_moves(g_set_pt[k], to, occ);
   while (b) {
     Bitboard from_bb = b & -b;
-    is->bb[j + 1] ^= from_bb;
-    uint64_t idx = ref ? rank_bb_ref(is->bb, &ri) : rank_bb(is->bb, &ri);
+    is->bb[k + 1] ^= from_bb;
+    uint64_t idx = ref ? rank_bb_ref(is->bb, &ri)
+      : rank_bb_from(is->bb, idx0, k, is->occ[k], &ri);
     kslice_bit_set_atomic(p, idx);
-    is->bb[j + 1] ^= from_bb;
+    is->bb[k + 1] ^= from_bb;
     b ^= from_bb;
   }
 }
