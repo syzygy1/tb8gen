@@ -44,29 +44,29 @@ INLINE void mark_king_unmoves(int stm, Bitboard occ, uint8_t *restrict sq)
 }
 
 INLINE void mark_unmoves(int k, uint8_t *restrict const p, Bitboard occ,
-    const uint8_t *restrict sq)
+    uint8_t *restrict sq)
 {
-  uint8_t sq2[MAX_PIECES];
-  Bitboard b = non_king_piece_moves(g_pos.pt[k], sq[k], occ);
+  int tmp = sq[k];
+  Bitboard b = non_king_piece_moves(g_pos.pt[k], tmp, occ);
   while (b) {
-    memcpy(sq2, sq, sizeof sq2);
-    sq2[k] = pop_lsb(&b);
-    uint64_t idx = sq_to_idx(sq2);
+    sq[k] = pop_lsb(&b);
+    uint64_t idx = sq_to_idx(sq);
     kslice_bit_set_atomic(p, idx);
   }
+  sq[k] = tmp;
 }
 
 INLINE void mark_unmoves_ref(int k, uint8_t *restrict const p, Bitboard occ,
-    const uint8_t *restrict sq)
+    uint8_t *restrict sq)
 {
-  uint8_t sq2[MAX_PIECES];
-  Bitboard b = non_king_piece_moves(g_pos.pt[k], sq[k], occ);
+  int tmp = sq[k];
+  Bitboard b = non_king_piece_moves(g_pos.pt[k], tmp, occ);
   while (b) {
-    memcpy(sq2, sq, sizeof sq2);
-    sq2[k] = pop_lsb(&b);
-    uint64_t idx = sq_to_idx_ref(sq2);
+    sq[k] = pop_lsb(&b);
+    uint64_t idx = sq_to_idx_ref(sq);
     kslice_bit_set_atomic(p, idx);
   }
+  sq[k] = tmp;
 }
 
 static int work_slice, work_set;
@@ -563,10 +563,8 @@ INLINE bool check_king_moves(int stm, Bitboard occ, uint8_t *restrict sq)
 }
 
 INLINE bool check_moves(int k, int s, uint8_t *restrict const p, Bitboard occ,
-    const uint8_t *restrict sq)
+    uint8_t *restrict sq)
 {
-  uint8_t sq2[MAX_PIECES];
-
   Bitboard b = non_king_piece_attacks(g_pos.pt[k], sq[k], occ);
 
 #if 1
@@ -575,21 +573,21 @@ INLINE bool check_moves(int k, int s, uint8_t *restrict const p, Bitboard occ,
     uint8_t to = pop_lsb(&attacks);
     int j = get_idx(sq, to);
     if (!((g_pos.pt[k] ^ g_pos.pt[j]) & 8)) continue;
-    memcpy(sq2, sq, sizeof sq2);
     int l = pc_to_set[j];
-    sq2[k] = to;
-    sq2[j] = sq2[ri.last[l]];
+    sq[k] = to;
+    sq[j] = sq[ri.last[l]];
+    uint64_t idx = capt_sq_to_idx(sq, l);
+    sq[j] = to;
     uint8_t *restrict q = kslice_sub_get_address(s, l);
-    if (!kslice_bit_test(q, capt_sq_to_idx(sq2, l)))
+    if (!kslice_bit_test(q, idx))
       return false;
   }
 #endif
 
   b &= ~occ;
   while (b) {
-    memcpy(sq2, sq, sizeof sq2);
-    sq2[k] = pop_lsb(&b);
-    if (!kslice_bit_test(p, sq_to_idx(sq2)))
+    sq[k] = pop_lsb(&b);
+    if (!kslice_bit_test(p, sq_to_idx(sq)))
       return false;
   }
 
@@ -597,10 +595,8 @@ INLINE bool check_moves(int k, int s, uint8_t *restrict const p, Bitboard occ,
 }
 
 INLINE bool check_moves_ref(int k, int s, uint8_t *restrict const p,
-    Bitboard occ, const uint8_t *restrict sq)
+    Bitboard occ, uint8_t *restrict sq)
 {
-  uint8_t sq2[MAX_PIECES];
-
   Bitboard b = non_king_piece_attacks(g_pos.pt[k], sq[k], occ);
 
 #if 1
@@ -609,21 +605,21 @@ INLINE bool check_moves_ref(int k, int s, uint8_t *restrict const p,
     uint8_t to = pop_lsb(&attacks);
     int j = get_idx(sq, to);
     if (!((g_pos.pt[k] ^ g_pos.pt[j]) & 8)) continue;
-    memcpy(sq2, sq, sizeof sq2);
     int l = pc_to_set[j];
-    sq2[k] = to;
-    sq2[j] = sq2[ri.last[l]];
+    sq[k] = to;
+    sq[j] = sq[ri.last[l]];
+    uint64_t idx = capt_sq_to_idx(sq, l);
+    sq[j] = to;
     uint8_t *restrict q = kslice_sub_get_address(s, l);
-    if (!kslice_bit_test(q, capt_sq_to_idx(sq2, l)))
+    if (!kslice_bit_test(q, idx))
       return false;
   }
 #endif
 
   b &= ~occ;
   while (b) {
-    memcpy(sq2, sq, sizeof sq2);
-    sq2[k] = pop_lsb(&b);
-    if (!kslice_bit_test(p, sq_to_idx_ref(sq2)))
+    sq[k] = pop_lsb(&b);
+    if (!kslice_bit_test(p, sq_to_idx_ref(sq)))
       return false;
   }
 
@@ -661,7 +657,9 @@ static void check_successors_worker(struct ThreadData *thread)
         goto clear_bit;
       for (int i = 0; pos.pcs[stm][i] >= 0; i++) {
         int j = pos.pcs[stm][i];
+        uint8_t tmp = pos.sq[j];
         bool v = check_moves(j, s, q, occ, pos.sq);
+        pos.sq[j] = tmp;
         if (!v) goto clear_bit;
       }
       uint8_t tmp = pos.sq[stm];
@@ -705,7 +703,9 @@ static void check_successors_ref_worker(struct ThreadData *thread)
         goto clear_bit;
       for (int i = 0; pos.pcs[stm][i] >= 0; i++) {
         int j = pos.pcs[stm][i];
+        uint8_t tmp = pos.sq[j];
         bool v = check_moves_ref(j, s, q, occ, pos.sq);
+        pos.sq[j] = tmp;
         if (!v) goto clear_bit;
       }
       uint8_t tmp = pos.sq[stm];

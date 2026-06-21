@@ -50,11 +50,22 @@ struct IdxState {
 };
 
 struct IdxState2 {
+  alignas(64) Bitboard occ[8];
+  Bitboard bb[8];
   uint32_t sub[MAX_SETS + 1];
-  Bitboard occ[MAX_SETS + 1];
   uint8_t sq[3];
   int n;
 };
+
+// case 1: loop through _all_ positions
+// - init
+// - inc
+// - use
+//
+// case 2: loop through selected positions
+// - init
+// - add
+// - use
 
 extern struct RankInfo ri, capt_ri[MAX_SETS];
 extern int pc_to_set[MAX_PIECES];
@@ -118,39 +129,27 @@ INLINE __m512i rotate180_8xbb(__m512i x)
 INLINE Bitboard unrank_binomial2(uint64_t idx, int n, Bitboard occ)
 {
   if (n == 0)
-    return occ;
-
-  assume(n > 0 && n <= MAX_MULT);
+    return 0;
 
   Bitboard b = ~occ;
 
-  if (n == 1) {
-    Bitboard b1 = _pdep_u64(bit(idx), b);
-    occ |= b1;
-  }
-  else if (n == 2) {
-    Bitboard b1 = _pdep_u64(Unrank2[idx], b);
-    occ |= b1;
-  }
-  else if (n == 3) {
-    Bitboard b1 = _pdep_u64(Unrank3[idx], b);
-    occ |= b1;
-  }
-  else {
-    Bitboard b1 = 0;
-    int r = popcnt(b) - 1;
-    for (int i = n - 1; i > 0; i--) {
-      while (idx < Binomial[i + 1][r])
-        r--;
-      idx -= Binomial[i + 1][r];
-      b1 |= bit(r);
-      r--;
-    }
-    b1 = _pdep_u64(b1 | bit(idx), b);
-    occ |= b1;
-  }
+  if (n == 1)
+    return _pdep_u64(bit(idx), b);
+  else if (n == 2)
+    return _pdep_u64(Unrank2[idx], b);
+  else if (n == 3)
+    return _pdep_u64(Unrank3[idx], b);
 
-  return occ;
+  Bitboard b1 = 0;
+  int r = popcnt(b) - 1;
+  for (int i = n - 1; i > 0; i--) {
+    while (idx < Binomial[i + 1][r])
+      r--;
+    idx -= Binomial[i + 1][r];
+    b1 |= bit(r);
+    r--;
+  }
+  return _pdep_u64(b1 | bit(idx), b);
 }
 
 INLINE Bitboard unrank_binomial(uint64_t idx, int n, uint8_t *restrict sq,
@@ -231,7 +230,7 @@ INLINE int rank_among_free(uint8_t sq, Bitboard occ)
 }
 
 // We expect a normalized position.
-INLINE uint64_t sq_to_idx_helper(uint8_t *restrict sq, uint64_t idx,
+INLINE uint64_t sq_to_idx_helper(const uint8_t *restrict sq, uint64_t idx,
     Bitboard occ, const struct RankInfo *ri)
 {
   for (int k = 0; k < ri->numsets; k++) {
@@ -315,13 +314,76 @@ INLINE void normalize2(const uint8_t *restrict sq, uint8_t *restrict sq2)
   memcpy(sq2, &v, 8);
 }
 
-INLINE void idx_state_inc2(struct IdxState2 *is, const struct RankInfo *ri)
+INLINE Bitboard idx_state2_inc(struct IdxState2 *is, const struct RankInfo *ri)
 {
-  uint32_t *restrict sub = is->sub;
-  int i = ri->numsets - 1;
-  for (; ++sub[i] >= ri->factor[i] && i > 0; i--)
+  uint32_t *const restrict sub = is->sub;
+  int i = ri->numsets;
+
+  for (;;) {
+    i--;
+    if (++sub[i] < ri->factor[i]) break;
+    if (i == 0)
+      return 0;
     sub[i] = 0;
-  is->n = i;
+  }
+
+  Bitboard occ = is->occ[i];
+  for (; i < ri->numsets; i++) {
+    occ |= is->bb[i + 1] = unrank_binomial2(is->sub[i], ri->mult[i], occ);
+    is->occ[i + 1] = occ;
+  }
+  return occ;
+}
+
+INLINE Bitboard idx_state2_add(struct IdxState2 *is, uint64_t v,
+    const struct RankInfo *restrict ri)
+{
+  uint32_t *const restrict sub = is->sub;
+  int i = ri->numsets;
+
+  for (;;) {
+    uint64_t s = (uint64_t)sub[--i] + v;
+    uint32_t f = ri->factor[i];
+
+    if (s < f) {
+      sub[i] = s;
+      break;
+    }
+    if (i == 0)
+      return 0;
+
+    v = divmod_recip(s, f, ri->recip[i], &sub[i]);
+  }
+
+  Bitboard occ = is->occ[i];
+  for (; i < ri->numsets; i++) {
+    occ |= is->bb[i + 1] = unrank_binomial2(is->sub[i], ri->mult[i], occ);
+    is->occ[i + 1] = occ;
+  }
+  return occ;
+}
+
+INLINE bool idx_state2_legal(const struct IdxState2 *is, int stm, Bitboard occ)
+{
+  int ksq = is->sq[stm ^ 1];
+  for (int i = 0; g_sets[stm][i] >= 0; i++) {
+    int k = g_sets[stm][i];
+    Bitboard b = non_king_piece_attacks(g_set_pt[k], ksq, occ);
+    if (b & is->bb[k + 1])
+      return false;
+  }
+  return true;
+}
+
+INLINE void idx_state2_to_sq(const struct IdxState2 *is, uint8_t *restrict sq,
+    const struct RankInfo *ri)
+{
+  for (int k = 0; k < ri->numsets; k++) {
+    Bitboard b = is->bb[k + 1];
+    int i = ri->first[k];
+    while (b)
+      sq[i++] = pop_lsb(&b);
+  }
 }
 
 INLINE void idx_state_inc(struct IdxState *is, const struct RankInfo *ri)
@@ -331,46 +393,6 @@ INLINE void idx_state_inc(struct IdxState *is, const struct RankInfo *ri)
   for (; ++sub[i] >= ri->factor[i] && i > 0; i--)
     sub[i] = 0;
   is->n = i;
-}
-
-INLINE void idx_state_add2(struct IdxState2 *is, uint64_t v,
-    const struct RankInfo *restrict ri)
-{
-  uint32_t *restrict sub = is->sub;
-  int i = ri->numsets;
-
-  while (i > 0) {
-    uint64_t s = (uint64_t)sub[--i] + v;
-    uint32_t f = ri->factor[i];
-
-    if (s < f) {
-      sub[i] = s;
-      is->n = i;
-      return;
-    }
-
-    v = divmod_recip(s, f, ri->recip[i], &sub[i]);
-  }
-}
-
-INLINE Bitboard idx_state_to_sq2(struct IdxState2 *is,
-    const struct RankInfo *ri)
-{
-  int i = is->n;
-  Bitboard occ = is->occ[i];
-  for (; i < ri->numsets; i++)
-    is->occ[i + 1] = occ = unrank_binomial2(is->sub[i], ri->mult[i], occ);
-  return occ;
-}
-
-INLINE void is_to_sq(const struct IdxState2 *is, uint8_t *restrict sq)
-{
-  int j = 2;
-  for (int i = 0; i < ri.numsets; i++) {
-    Bitboard b = is->occ[i + 1] & ~is->occ[i];
-    while (b)
-      sq[j++] = pop_lsb(&b);
-  }
 }
 
 INLINE void idx_state_add(struct IdxState *is, uint64_t v,
@@ -411,19 +433,21 @@ int rank_mult(uint8_t mult[MAX_SETS]);
 void transform_set_bb(int t, Bitboard *set_bb, Bitboard *set_bb2);
 uint64_t rank_bb(Bitboard *set_bb, const struct RankInfo *ri);
 uint64_t rank_bb_ref(Bitboard *set_bb, const struct RankInfo *ri);
+uint64_t unrank_bb_ref(uint64_t idx, Bitboard *set_bb,
+    const struct RankInfo *ri);
+Bitboard idx_state2_init(struct IdxState2 *is, uint64_t idx,
+    const  uint8_t *restrict sq, const struct RankInfo *ri);
 
 void calc_factors(struct RankInfo *ri, int n);
-uint64_t sq_to_idx(uint8_t *sq);
-uint64_t sq_to_idx_ref(uint8_t *sq);
-uint64_t capt_sq_to_idx(uint8_t *sq, int k);
-void idx_state_init2(struct IdxState2 *is, uint64_t idx, uint8_t *restrict sq,
-    const struct RankInfo *ri);
+uint64_t sq_to_idx(const uint8_t *sq);
+uint64_t sq_to_idx_ref(const uint8_t *sq);
+uint64_t capt_sq_to_idx(const uint8_t *sq, int k);
 void idx_state_init(struct IdxState *is, uint64_t idx, uint8_t *restrict sq,
     const struct RankInfo *ri);
 
-uint64_t rank_trivial_from(uint8_t *restrict sq, int k, Bitboard occ,
+uint64_t rank_trivial_from(const uint8_t *restrict sq, int k, Bitboard occ,
     const uint8_t *restrict first, const struct RankInfo *ri);
-uint64_t rank_reflection(uint8_t *restrict sq, Bitboard occ,
+uint64_t rank_reflection(const uint8_t *restrict sq, Bitboard occ,
     const uint8_t *restrict first, const struct RankInfo *ri);
 Bitboard unrank_reflection(uint64_t idx, uint8_t *restrict sq, Bitboard occ,
     const struct RankInfo *ri);

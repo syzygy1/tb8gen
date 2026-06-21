@@ -9,6 +9,7 @@
 
 #include <stdbit.h>
 #include <stddef.h>
+#include <stdio.h>
 
 #include "defs.h"
 #include "types.h"
@@ -79,6 +80,8 @@ INLINE Bitboard knight_attacks(int sq)
 
 INLINE Bitboard king_attacks(int sq)
 {
+  if (sq==64)
+    printf("hey\n");
   return KingAttacks[sq];
 }
 

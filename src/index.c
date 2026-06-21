@@ -264,8 +264,8 @@ static int transform_sq(int s, int t)
   case FLIP_H:    return  r      * 8 + (7 - f);
   case ROT180:    return (7 - r) * 8 + (7 - f);
   case FLIP_MAIN: return  f      * 8 + r;
-  case ROT90:     return  f      * 8 + (7 - r);
-  case ROT270:    return (7 - f) * 8 + r;
+  case ROT270:    return  f      * 8 + (7 - r);
+  case ROT90:     return (7 - f) * 8 + r;
   case FLIP_ANTI: return (7 - f) * 8 + (7 - r);
   }
   __builtin_unreachable();
@@ -525,8 +525,8 @@ void transform_set_bb(int t, Bitboard *restrict set_bb,
   _mm512_store_si512((__m512i *)set_bb2, x);
 }
 
-INLINE uint64_t rank_bb_from(Bitboard *restrict set_bb, int k, Bitboard occ,
-    const struct RankInfo *ri)
+INLINE uint64_t rank_bb_from(Bitboard *restrict set_bb, int k,
+    Bitboard occ, const struct RankInfo *ri)
 {
   uint64_t idx = 0;
   for (; k < ri->numsets; k++) {
@@ -548,7 +548,7 @@ uint64_t rank_bb(Bitboard *restrict set_bb, const struct RankInfo *ri)
   return rank_bb_from(set_bb, 0, set_bb[0], ri);
 }
 
-uint64_t sq_to_idx(uint8_t *restrict sq)
+uint64_t sq_to_idx(const uint8_t *restrict sq)
 {
   Bitboard occ = bit(sq[0]) | bit(sq[1]);
   if (has_pawns)
@@ -557,7 +557,7 @@ uint64_t sq_to_idx(uint8_t *restrict sq)
   return sq_to_idx_helper(sq, 0, occ, &ri);
 }
 
-uint64_t capt_sq_to_idx(uint8_t *restrict sq, int k)
+uint64_t capt_sq_to_idx(const uint8_t *restrict sq, int k)
 {
   Bitboard occ = bit(sq[0]) | bit(sq[1]);
   if (has_pawns)
@@ -579,8 +579,8 @@ void calc_factors(struct RankInfo *ri, int n)
   ri->sizes[0] = f;
 }
 
-void idx_state_init2(struct IdxState2 *is, uint64_t idx, uint8_t *restrict sq,
-    const struct RankInfo *ri)
+Bitboard idx_state2_init(struct IdxState2 *is, uint64_t idx,
+    const uint8_t *restrict sq, const struct RankInfo *ri)
 {
   for (int k = ri->numsets - 1; k >= 0; k--)
     idx = divmod_recip(idx, ri->factor[k], ri->recip[k], &is->sub[k]);
@@ -591,6 +591,12 @@ void idx_state_init2(struct IdxState2 *is, uint64_t idx, uint8_t *restrict sq,
     is->sq[2] = sq[2];
   is->occ[0] = has_pawns ? bit(sq[0]) | bit(sq[1]) | bit(sq[2])
                          : bit(sq[0]) | bit(sq[1]);
+  is->bb[0] = is->occ[0];
+  for (int i = 0; i < ri->numsets; i++) {
+    is->bb[i + 1] = unrank_binomial2(is->sub[i], ri->mult[i], is->occ[i]);
+    is->occ[i + 1] = is->occ[i] | is->bb[i + 1];
+  }
+  return is->occ[ri->numsets];
 }
 
 void idx_state_init(struct IdxState *is, uint64_t idx, uint8_t *restrict sq,
@@ -618,7 +624,7 @@ static uint64_t rank_combination(Bitboard subset, Bitboard universe)
   return r;
 }
 
-uint64_t rank_trivial_from(uint8_t *restrict sq, int k, Bitboard occ,
+uint64_t rank_trivial_from(const uint8_t *restrict sq, int k, Bitboard occ,
     const uint8_t *restrict first, const struct RankInfo *ri)
 {
   uint64_t idx = 0;
@@ -662,7 +668,7 @@ INLINE uint64_t count_broken_residual_before(int rem, int p, int s, int one)
   return total;
 }
 
-uint64_t rank_reflection(uint8_t *restrict sq, Bitboard occ,
+uint64_t rank_reflection(const uint8_t *restrict sq, Bitboard occ,
     const uint8_t *restrict first, const struct RankInfo *ri)
 {
   Bitboard pair_mask = LOWER_DIAG_MASK;
@@ -710,9 +716,12 @@ uint64_t rank_reflection(uint8_t *restrict sq, Bitboard occ,
       assert(canon < (1u << (one - 1)));
       rank += canon * c->broken_tail;
 
+      alignas(8) uint8_t sq2[8];
       if (comp < orient_mask) {
-        mirror_diagonal(sq);
+        memcpy(sq2, sq, sizeof sq2);
+        mirror_diagonal(sq2);
         occ = flip_main_diag(occ);
+        sq = sq2;
       }
       return rank + rank_trivial_from(sq, k + 1, occ, first, ri);
     }
@@ -779,7 +788,7 @@ uint64_t rank_bb_ref(Bitboard *set_bb, const struct RankInfo *ri)
         set_bb[7] = occ;
         __m512i x = _mm512_load_si512((__m512i *)set_bb);
         x = flip_main_8xbb(x);
-        _mm512_load_si512((__m512i *)mirror_bb);
+        _mm512_store_si512((__m512i *)mirror_bb, x);
         occ = mirror_bb[7];
         return rank + rank_bb_from(mirror_bb, k + 1, occ, ri);
       }
@@ -793,7 +802,7 @@ uint64_t rank_bb_ref(Bitboard *set_bb, const struct RankInfo *ri)
   return rank;
 }
 
-uint64_t sq_to_idx_ref(uint8_t *restrict sq)
+uint64_t sq_to_idx_ref(const uint8_t *restrict sq)
 {
   Bitboard occ = bit(sq[0]) | bit(sq[1]);
 
@@ -908,6 +917,84 @@ Bitboard unrank_reflection(uint64_t idx, uint8_t *restrict sq, Bitboard occ,
     for (int i = ri->first[k]; bb; i++)
       sq[i] = pop_lsb(&bb);
     return unrank_trivial(sq, idx, k + 1, occ, ri);
+  }
+  return occ;
+}
+
+Bitboard unrank_bb_ref(uint64_t idx, Bitboard *set_bb,
+    const struct RankInfo *ri)
+{
+  Bitboard occ = set_bb[0];
+  Bitboard pair_mask = LOWER_DIAG_MASK;
+  Bitboard diag_mask = MAIN_DIAG_MASK & ~occ;
+  int p = 28, s = 6;
+
+  for (int k = 0; k < ri->numsets; k++) {
+    int tid = ri->transition_id[k];
+
+    Bitboard bb = 0;
+    const struct TransitionCase *c = &transition_cases[tid][fold_ps(p, s)][0];
+    if (idx >= c->block) {
+      idx -= c->block;
+      for (;;) {
+        c++;
+        p--;
+        if (idx < c->block) break;
+        idx -= c->block;
+      }
+
+      uint64_t rfull = idx / c->per_full_block;
+      idx %= c->per_full_block;
+      Bitboard full_lower = unrank_combination(rfull, pair_mask, c->d);
+      bb = full_lower | flip_main_diag(full_lower);
+      pair_mask &= ~full_lower;
+    }
+
+    // Unbroken symmetry case.
+    if (idx < c->diag_block) {
+      uint64_t rsing = idx / c->diag_tail;
+      idx %= c->diag_tail;
+      bb |= unrank_combination(rsing, diag_mask, c->rem);
+      s -= c->rem;
+      diag_mask &= ~bb;
+      occ |= bb;
+      set_bb[k + 1] = bb;
+      continue;
+    }
+
+    idx -= c->diag_block;
+    uint64_t q = idx / c->broken_tail;
+    idx %= c->broken_tail;
+
+    int one = max(1, c->rem - s);
+    for (;; one++) {
+      int f = c->rem - one;
+      uint64_t one_cases = (binom(p, one) * binom(s, f)) << (one - 1);
+      if (q < one_cases)
+        break;
+      q -= one_cases;
+    }
+    int f = c->rem - one;
+    uint64_t orient = q & ((1ull << (one - 1)) - 1);
+    q >>= one - 1;
+    uint64_t rsing = q % binom(s, f);
+    q /= binom(s, f);
+
+    bb |= unrank_combination(rsing, diag_mask, f);
+
+    Bitboard one_mask = unrank_combination(q, pair_mask, one);
+    Bitboard orient_sparse = _pdep_u64(orient, one_mask);
+    Bitboard lower_one = one_mask & orient_sparse;
+    Bitboard upper_one = flip_main_diag(one_mask & ~orient_sparse);
+    bb |= lower_one | upper_one;
+    occ |= bb;
+    set_bb[k + 1] = bb;
+    uint32_t sub[MAX_SETS];
+    for (int i = ri->numsets - 1; i > k; i--)
+      idx = divmod_recip(idx, ri->factor[i], ri->recip[i], &sub[i]);
+    for (k++; k < ri->numsets; k++)
+      occ |= set_bb[k + 1] = unrank_binomial2(sub[k], ri->mult[k], occ);
+    return occ;
   }
   return occ;
 }

@@ -32,7 +32,7 @@
 
 Position g_pos;
 int8_t g_sets[2][8];
-uint8_t g_set_type[8];
+uint8_t g_set_pt[8];
 bool symmetric;
 bool g_cleanup;
 //bool one_sided, wins_only;
@@ -215,7 +215,7 @@ int main(int argc, char **argv)
   g_sets[1][k] = -1;
 
   for (int i = 0; i < ri.numsets; i++)
-    g_set_type[i] = g_pos.pt[ri.first[i]];
+    g_set_pt[i] = g_pos.pt[ri.first[i]];
 
   kslice_setup();
 
