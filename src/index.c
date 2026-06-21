@@ -525,8 +525,8 @@ void transform_set_bb(int t, Bitboard *restrict set_bb,
   _mm512_store_si512((__m512i *)set_bb2, x);
 }
 
-INLINE uint64_t rank_bb_from_helper(Bitboard *restrict set_bb, uint64_t idx, 
-    int k, Bitboard occ, const struct RankInfo *ri)
+INLINE uint64_t rank_bb_from_helper(const Bitboard *restrict set_bb,
+    uint64_t idx, int k, Bitboard occ, const struct RankInfo *ri)
 {
   for (; k < ri->numsets; k++) {
     Bitboard b = _pext_u64(set_bb[k + 1], ~occ);
@@ -539,7 +539,7 @@ INLINE uint64_t rank_bb_from_helper(Bitboard *restrict set_bb, uint64_t idx,
   return idx;
 }
 
-uint64_t rank_bb_from(Bitboard *restrict set_bb, uint64_t idx, int k,
+uint64_t rank_bb_from(const Bitboard *restrict set_bb, uint64_t idx, int k,
     Bitboard occ, const struct RankInfo *ri)
 {
   return rank_bb_from_helper(set_bb, idx, k, occ, ri);
@@ -548,7 +548,7 @@ uint64_t rank_bb_from(Bitboard *restrict set_bb, uint64_t idx, int k,
 // Directly operating on struct IdxState2 might be even better:
 // Bitboard b = _pext_u64(is->set_bb[k + 1], ~is->set_bb[k]);
 // No need to keep track of occ.
-uint64_t rank_bb(Bitboard *restrict set_bb, const struct RankInfo *ri)
+uint64_t rank_bb(const Bitboard *restrict set_bb, const struct RankInfo *ri)
 {
   return rank_bb_from_helper(set_bb, 0, 0, set_bb[0], ri);
 }
@@ -837,34 +837,26 @@ uint64_t rank_reflection(const uint8_t *restrict sq, Bitboard occ,
   return rank;
 }
 
-// Again directly operating on IdxState2 seems possible and even
-// advantageous. pair_mask and diag_mask will mask out previously
-// set bits.
-uint64_t rank_bb_ref(Bitboard *set_bb, const struct RankInfo *ri)
+uint64_t rank_bb_ref(const Bitboard *set_bb, const struct RankInfo *ri)
 {
-#if 0
   alignas(64) Bitboard mirror_bb[8];
   __m512i x = _mm512_load_si512((__m512i *)set_bb);
   x = flip_main_8xbb(x);
   _mm512_store_si512((__m512i *)mirror_bb, x);
-#endif
 
-  Bitboard occ = set_bb[0];
+  Bitboard occ = set_bb[0], mirror_occ = mirror_bb[0];
   Bitboard pair_mask = LOWER_DIAG_MASK;
   Bitboard diag_mask = MAIN_DIAG_MASK & ~occ;
   int p = 28, s = 6;
 
   uint64_t rank = 0;
   for (int k = 0; k < ri->numsets; k++) {
-    Bitboard bb = set_bb[k + 1];
-    occ |= bb;
+    occ |= set_bb[k + 1];
+    mirror_occ |= mirror_bb[k + 1];
     int tid = ri->transition_id[k];
 
-    // Perhaps execute flip_main_8xbb() at the start, so no need to
-    // repeat?
-    Bitboard mirror = flip_main_diag(bb);
-    Bitboard full_mask = bb & mirror  & pair_mask;
-    Bitboard one_mask = (bb ^ mirror) & pair_mask;
+    Bitboard full_mask = occ & mirror_occ  & pair_mask;
+    Bitboard one_mask = (occ ^ mirror_occ) & pair_mask;
     int d = popcnt(full_mask);    // Number of 2-orbits fully filled.
 
     const struct TransitionCase *c = &transition_cases[tid][fold_ps(p, s)][d];
@@ -877,16 +869,16 @@ uint64_t rank_bb_ref(Bitboard *set_bb, const struct RankInfo *ri)
     if (one_mask) {
       // The current set breaks symmetry.
       int one = popcnt(one_mask);     // Number of 2-orbits half filled.
-      int f = popcnt(bb & diag_mask); // Number of 1-orbits filled.
+      int f = popcnt(occ & diag_mask); // Number of 1-orbits filled.
       rank += c->diag_block;
       uint64_t r = count_broken_residual_before(c->rem, p, s, one);
 
       uint64_t rone = rank_combination(one_mask, pair_mask);
-      r += (rone * binom(s, f) + rank_combination(bb, diag_mask)) << (one - 1);
+      r += (rone * binom(s, f) + rank_combination(occ, diag_mask)) << (one - 1);
       rank += r * c->broken_tail;
 
       // Canonical orientation: orient_mask <= bitwise complement within oo bits.
-      uint32_t orient_mask = _pext_u64(bb, one_mask);
+      uint32_t orient_mask = _pext_u64(occ, one_mask);
       uint32_t comp = (~orient_mask) & ((1u << one) - 1u);
       uint32_t canon = orient_mask < comp ? orient_mask : comp;
       // Among 2^oo orientations paired with complements, canonical ones are
@@ -894,20 +886,15 @@ uint64_t rank_bb_ref(Bitboard *set_bb, const struct RankInfo *ri)
       assert(canon < (1u << (one - 1)));
       rank += canon * c->broken_tail;
 
-      alignas(64) Bitboard mirror_bb[8];
       if (comp < orient_mask) {
-        set_bb[7] = occ;
-        __m512i x = _mm512_load_si512((__m512i *)set_bb);
-        x = flip_main_8xbb(x);
-        _mm512_store_si512((__m512i *)mirror_bb, x);
-        occ = mirror_bb[7];
+        occ = mirror_occ;
         set_bb = mirror_bb;
       }
       return rank + rank_bb_from_helper(set_bb, 0, k + 1, occ, ri);
     }
 
-    rank += rank_combination(bb, diag_mask) * c->diag_tail;
-    diag_mask &= ~bb;
+    rank += rank_combination(occ, diag_mask) * c->diag_tail;
+    diag_mask &= ~occ;
     s = popcnt(diag_mask);
   }
   return rank;

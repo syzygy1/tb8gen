@@ -421,10 +421,10 @@ void init_ranking(void);
 int rank_mult(uint8_t mult[MAX_SETS]);
 
 void transform_set_bb(int t, Bitboard *set_bb, Bitboard *set_bb2);
-uint64_t rank_bb(Bitboard *set_bb, const struct RankInfo *ri);
-uint64_t rank_bb_from(Bitboard *set_bb, uint64_t idx, int k, Bitboard occ,
+uint64_t rank_bb(const Bitboard *set_bb, const struct RankInfo *ri);
+uint64_t rank_bb_from(const Bitboard *set_bb, uint64_t idx, int k, Bitboard occ,
     const struct RankInfo *ri);
-uint64_t rank_bb_ref(Bitboard *set_bb, const struct RankInfo *ri);
+uint64_t rank_bb_ref(const Bitboard *set_bb, const struct RankInfo *ri);
 uint64_t unrank_bb_ref(uint64_t idx, Bitboard *set_bb,
     const struct RankInfo *ri);
 Bitboard idx_state2_init(struct IdxState2 *is, uint64_t idx,
