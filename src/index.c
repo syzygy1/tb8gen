@@ -604,6 +604,105 @@ Bitboard idx_state2_init(struct IdxState2 *is, uint64_t idx,
   return is->occ[ri->numsets];
 }
 
+static bool sq_attacked_by(struct IdxState2 *is, int sq, int stm, Bitboard occ)
+{
+  assert(!has_pawns);
+  for (int i = 0; g_sets[stm][i] >= 0; i++) {
+    int k = g_sets[stm][i];
+    Bitboard b = non_king_piece_attacks(g_set_pt[k], sq, occ);
+    if (b & is->bb[k + 1])
+      return true;
+  }
+  return false;
+}
+
+static bool is_pinned(struct IdxState2 *is, Bitboard bb, int ksq, int stm,
+    Bitboard occ)
+{
+  // Check if piece might by pinned by a horizontal or vertical slider.
+  Bitboard b = rook_attacks(ksq, occ);
+  if (b & bb) {
+    // Look for a piece behind it.
+    b = (rook_attacks(ksq, occ ^ bb) ^ b) & occ;
+    if (!b)
+      return false;
+
+    // Check if that piece is an enemy rook or queen.
+    for (int i = 0; g_sets[stm ^ 1][i] >= 0; i++) {
+      int k = g_sets[stm ^ 1][i];
+      if (b & is->bb[k + 1])
+        return (g_set_pt[k] & 7) >= ROOK;
+    }
+    return false;
+  }
+
+  // Check if piece might be pinned by a diagonal slider.
+  b = bishop_attacks(ksq, occ);
+  if (!(b & bb))
+    return false;
+
+  // Look for a piece behind it.
+  b = (bishop_attacks(ksq, occ ^ bb) ^ b) & occ;
+  if (!b)
+    return false;
+
+  // Check if that piece is an enemy bishop or queen.
+  for (int i = 0; g_sets[stm ^ 1][i] >= 0; i++) {
+    int k = g_sets[stm ^ 1][i];
+    if (b & is->bb[k + 1])
+      return (g_set_pt[k] & 7) == BISHOP || (g_set_pt[k] & 7) == QUEEN;
+  }
+  return false;
+}
+
+bool idx_state2_mate(struct IdxState2 *is, int stm, Bitboard occ)
+{
+  int ksq = is->sq[stm];
+
+  // First look for a legal king move.
+  Bitboard b = king_attacks(ksq) & ~king_attacks(is->sq[stm ^ 1]);
+  Bitboard new_occ = occ ^ bit(ksq);
+  while (b) {
+    int to = pop_lsb(&b);
+    if (sq_attacked_by(is, to, stm ^ 1, new_occ | bit(to)))
+      continue;
+    if (!(occ & bit(to)))
+      return false;
+    for (int i = 0; g_sets[stm ^ 1][i] >= 0; i++) {
+      int k = g_sets[stm ^ 1][i];
+      if (is->bb[k + 1] & bit(to))
+        return false;
+    }
+  }
+
+  // Find the checkers.
+  Bitboard checkers = 0;
+  for (int i = 0; g_sets[stm ^ 1][i] >= 0; i++) {
+    int k = g_sets[stm ^ 1][i];
+    checkers |= non_king_piece_attacks(g_set_pt[k], ksq, occ) & is->bb[k + 1];
+  }
+
+  assert(checkers);
+
+  // If more than one, then mate.
+  if (popcnt(checkers) > 1)
+    return true;
+
+  Bitboard between_bb = BetweenBB[ksq][lsb(checkers)];
+  for (int i = 0; g_sets[stm][i] >= 0; i++) {
+    int k = g_sets[stm][i];
+    Bitboard bb = is->bb[k + 1];
+    while (bb) {
+      int from = pop_lsb(&bb);
+      if (!(non_king_piece_attacks(g_set_pt[k], from, occ) & between_bb))
+        continue;
+      if (!is_pinned(is, bit(from), ksq, stm, occ))
+        return false;
+    }
+  }
+  return true;
+}
+
 void idx_state_init(struct IdxState *is, uint64_t idx, uint8_t *restrict sq,
     const struct RankInfo *ri)
 {
@@ -743,6 +842,13 @@ uint64_t rank_reflection(const uint8_t *restrict sq, Bitboard occ,
 // set bits.
 uint64_t rank_bb_ref(Bitboard *set_bb, const struct RankInfo *ri)
 {
+#if 0
+  alignas(64) Bitboard mirror_bb[8];
+  __m512i x = _mm512_load_si512((__m512i *)set_bb);
+  x = flip_main_8xbb(x);
+  _mm512_store_si512((__m512i *)mirror_bb, x);
+#endif
+
   Bitboard occ = set_bb[0];
   Bitboard pair_mask = LOWER_DIAG_MASK;
   Bitboard diag_mask = MAIN_DIAG_MASK & ~occ;

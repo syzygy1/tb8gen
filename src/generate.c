@@ -910,16 +910,13 @@ static void calc_mate_worker(struct ThreadData *thread)
     while (w) {
       unsigned bt = pop_lsb(&w);
       uint64_t cur = idx + bt;
-      pos.occ = idx_state2_add(&is, cur - last, &ri);
+      Bitboard occ = idx_state2_add(&is, cur - last, &ri);
       last = cur;
-      idx_state2_to_sq(&is, pos.sq, &ri);
       if (*p1 & bit(bt)) {
-        pos.stm = WHITE;
-        if (!has_legal_moves(&pos) && !has_legal_caps(&pos))
+        if (idx_state2_mate(&is, WHITE, occ))
           white |= bit(bt);
       } else {
-        pos.stm = BLACK;
-        if (!has_legal_moves(&pos) && !has_legal_caps(&pos))
+        if (idx_state2_mate(&is, BLACK, occ))
           black |= bit(bt);
       }
     }
@@ -956,15 +953,12 @@ static void calc_mate_ref_worker(struct ThreadData *thread)
     while (w) {
       unsigned bt = pop_lsb(&w);
       uint64_t cur = idx + bt;
-      pos.occ = unrank_bb_ref(cur, is.bb, &ri);
-      idx_state2_to_sq(&is, pos.sq, &ri);
+      Bitboard occ = unrank_bb_ref(cur, is.bb, &ri);
       if (*p1 & bit(bt)) {
-        pos.stm = WHITE;
-        if (!has_legal_moves(&pos) && !has_legal_caps(&pos))
+        if (idx_state2_mate(&is, WHITE, occ))
           white |= bit(bt);
       } else {
-        pos.stm = BLACK;
-        if (!has_legal_moves(&pos) && !has_legal_caps(&pos))
+        if (idx_state2_mate(&is, BLACK, occ))
           black |= bit(bt);
       }
     }

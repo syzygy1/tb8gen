@@ -153,14 +153,10 @@ INLINE bool test_king_moves(int stm, Bitboard occ, struct IdxState2 *is)
     int t = KK_transform[ksq[0]][ksq[1]];
     uint64_t idx;
     if (!t) {
-      idx =  s < 441
-           ? rank_bb(is->bb, &ri)
-           : rank_bb_ref(is->bb, &ri);
+      idx =  s < 441 ? rank_bb(is->bb, &ri) : rank_bb_ref(is->bb, &ri);
     } else {
       transform_set_bb(t, is->bb, bb);
-      idx =  s < 441
-           ? rank_bb(bb, &ri)
-           : rank_bb_ref(bb, &ri);
+      idx =  s < 441 ? rank_bb(bb, &ri) : rank_bb_ref(bb, &ri);
     }
     uint8_t *p = kslice_get_address(s);
     if (kslice_bit_test(p, idx)) {

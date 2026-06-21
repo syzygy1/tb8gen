@@ -429,6 +429,7 @@ uint64_t unrank_bb_ref(uint64_t idx, Bitboard *set_bb,
     const struct RankInfo *ri);
 Bitboard idx_state2_init(struct IdxState2 *is, uint64_t idx,
     const  uint8_t *restrict sq, const struct RankInfo *ri);
+bool idx_state2_mate(struct IdxState2 *is, int stm, Bitboard occ);
 
 void calc_factors(struct RankInfo *ri, int n);
 uint64_t sq_to_idx(const uint8_t *sq);

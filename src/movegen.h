@@ -32,10 +32,19 @@ struct Position {
 
 typedef struct Position Position;
 
+struct Position2 {
+  int stm;
+  uint8_t mult[MAX_SETS];
+  uint8_t pt[MAX_SETS];
+};
+
+typedef struct Position2 Position2;
+
 extern const char PieceChar[];
-extern Bitboard Bit[64], KnightAttacks[64], KingAttacks[64];
+extern Bitboard KnightAttacks[64], KingAttacks[64];
 extern Bitboard PawnAttacks[2][64], SidesMask[64];
 extern Bitboard KingMask[64];
+extern Bitboard BetweenBB[64][64];
 
 INLINE Bitboard bit(int sq)
 {
