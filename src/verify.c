@@ -30,31 +30,6 @@ static uint64_t sub_cnt[2][5];
 bool one_sided, wins_only;
 int one_sided_stm;
 
-#if 0
-INLINE void mark_king_uncaptures(int stm, int k, Bitboard occ,
-    struct IdxState2 *is)
-{
-  uint8_t sq[MAX_PIECES], sq2[MAX_PIECES];
-  idx_state2_to_sq(is, sq, &capt_ri[k]);
-  sq[0] = is->sq[0];
-  sq[1] = is->sq[1];
-  if (has_pawns)
-    sq[2] = is->sq[2];
-
-  // The stm king uncaptures, so add the captured piece where the king was.
-  sq[ri.last[k]] = sq[stm];
-
-  Bitboard b = king_attacks(sq[stm]) & ~king_attacks(sq[stm ^ 1]) & ~occ;
-  while (b) {
-    sq[stm] = pop_lsb(&b);
-    normalize2(sq, sq2);
-    int s = KKMap[sq2[0]][sq2[1]];
-    uint64_t idx = s < 441 ? sq_to_idx(sq2) : sq_to_idx_ref(sq2);
-    uint8_t *p = kslice_get_address(s);
-    kslice_bit_set_atomic(p, idx);
-  }
-}
-#else
 INLINE void mark_king_uncaptures(int stm, int k, Bitboard occ,
     struct IdxState2 *is)
 {
@@ -85,7 +60,6 @@ INLINE void mark_king_uncaptures(int stm, int k, Bitboard occ,
   is->bb[0] = is->occ[0];
   is->bb[k + 1] ^= bit(is->sq[stm]);
 }
-#endif
 
 // Uncapture a piece in set k by a piece in set j.
 INLINE void mark_uncaptures(int j, int k, uint8_t *restrict const p,

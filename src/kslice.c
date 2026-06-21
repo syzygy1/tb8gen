@@ -441,7 +441,7 @@ void kslice_read_or(int s, int slice, int stm, const char *name, int n)
     kslice_read_cost += st.st_size;
     read_data_or(F, kslice_get_address(s),
         kslice_cache_lines[slice >= 441] << 6);
-    kslice_clear_tail(s);
+    kslice_clear_tail(s, slice);
   }
   fclose(F);
 }
@@ -575,9 +575,9 @@ void kslice_clear_tail_addr(void *p, int s)
   clear_tail(q, kslice_sizes[s >= 441], kslice_cache_lines[s >= 441] << 3);
 }
 
-void kslice_clear_tail(int s)
+void kslice_clear_tail(int s, int slice)
 {
-  kslice_clear_tail_addr(kslice_get_address(s), s);
+  kslice_clear_tail_addr(kslice_get_address(s), slice);
 }
 
 uint64_t kslice_count_addr(void *p, int s)

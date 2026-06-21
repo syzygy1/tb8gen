@@ -125,7 +125,7 @@ void kslice_sub_write_addr(void *p, int slice, int stm, const char *name,
     uint64_t cnt);
 void kslice_sub_read(int s, int slice, int stm, const char *name);
 void kslice_sub_andnot(int s1, int s2, int stm);
-void kslice_clear_tail(int s);
+void kslice_clear_tail(int s, int slice);
 void kslice_clear_tail_addr(void *p, int s);
 uint64_t kslice_count(int s);
 uint64_t kslice_count_addr(void *p, int s);
