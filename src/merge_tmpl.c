@@ -114,71 +114,60 @@ static void NAME(merge_capt_bloss_worker)(struct ThreadData *thread)
     atomic_store_explicit(&found_capt_bloss, true, memory_order_relaxed);
 }
 
-INLINE void NAME(merge_mark_unmoves)(int k, T *restrict const p, Bitboard occ,
-    const uint8_t *restrict sq)
+INLINE void NAME(merge_mark_uncapture)(int k, int ksq, T *restrict const p,
+    Bitboard occ, struct IdxState2 *is, const bool ref)
 {
-  uint8_t sq2[MAX_PIECES];
-  Bitboard b = non_king_piece_moves(g_pos.pt[k], sq[k], occ);
-  while (b) {
-    memcpy(sq2, sq, sizeof sq2);
-    sq2[k] = pop_lsb(&b);
-    p[sq_to_idx(sq2)] = 0;
+  uint64_t idx0 = 0;
+  if (!ref) {
+    for (int i = 0; i < k; i++)
+      idx0 = idx0 * ri.factor[i] + is->sub[i];
   }
-}
 
-INLINE void NAME(merge_mark_ref_unmoves)(int k, T *restrict const p,
-    Bitboard occ, const uint8_t *restrict sq)
-{
-  uint8_t sq2[MAX_PIECES];
-  Bitboard b = non_king_piece_moves(g_pos.pt[k], sq[k], occ);
+  Bitboard b = non_king_piece_moves(g_set_pt[k], ksq, occ);
   while (b) {
-    memcpy(sq2, sq, sizeof sq2);
-    sq2[k] = pop_lsb(&b);
-    p[sq_to_idx_ref(sq2)] = 0;
+    Bitboard from_bb = b & -b;
+    is->bb[k + 1] ^= from_bb;
+    uint64_t idx = ref ? rank_bb_ref(is->bb, &ri)
+      : rank_bb_from(is->bb, idx0, k, is->occ[k], &ri);
+    p[idx] = 0;
+    is->bb[k + 1] ^= from_bb;
+    b ^= from_bb;
   }
 }
 
 static void NAME(merge_illegal_worker)(struct ThreadData *thread)
 {
-  struct IdxState is;
+  struct IdxState2 is;
   Position pos = g_pos;
   int k = work_set;
-  int m = ri.last[k];
-  int stm = pos.stm;
-  int king_sq = pos.sq[stm ^ 1];
+  int ksq = pos.sq[pos.stm ^ 1];
 
   T *restrict const p = merge_table;
 
-  idx_state_init(&is, thread->begin, pos.sq, &capt_ri[k]);
+  Bitboard occ = idx_state2_init(&is, thread->begin, pos.sq, &capt_ri[k]);
 
   for (uint64_t idx = thread->begin, end = thread->end; idx < end;
-      idx++, idx_state_inc(&is, &capt_ri[k]))
+      idx++, occ = idx_state2_inc(&is, &capt_ri[k]))
   {
-    Bitboard occ = idx_state_to_sq(&is, pos.sq, &capt_ri[k]);
-    pos.sq[m] = king_sq;
-    NAME(merge_mark_unmoves)(m, p, occ, pos.sq);
+    NAME(merge_mark_uncapture)(k, ksq, p, occ, &is, false);
   }
 }
 
 static void NAME(merge_illegal_ref_worker)(struct ThreadData *thread)
 {
-  struct IdxState is;
+  struct IdxState2 is;
   Position pos = g_pos;
   int k = work_set;
-  int m = ri.last[k];
-  int stm = pos.stm;
-  int king_sq = pos.sq[stm ^ 1];
+  int ksq = pos.sq[pos.stm ^ 1];
 
   T *restrict const p = merge_table;
 
-  idx_state_init(&is, thread->begin, pos.sq, &capt_ri[k]);
+  Bitboard occ = idx_state2_init(&is, thread->begin, pos.sq, &capt_ri[k]);
 
   for (uint64_t idx = thread->begin, end = thread->end; idx < end;
-      idx++, idx_state_inc(&is, &capt_ri[k]))
+      idx++, occ = idx_state2_inc(&is, &capt_ri[k]))
   {
-    Bitboard occ = idx_state_to_sq(&is, pos.sq, &capt_ri[k]);
-    pos.sq[m] = king_sq;
-    NAME(merge_mark_ref_unmoves)(m, p, occ, pos.sq);
+    NAME(merge_mark_uncapture)(k, ksq, p, occ, &is, true);
   }
 }
 

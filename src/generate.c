@@ -137,7 +137,7 @@ INLINE void mark_unmoves(int k, uint8_t *restrict const p, Bitboard occ,
 }
 
 // Uncapture stm king by a piece being added to set k.
-INLINE void mark_uncapture_king(int k, int stm, uint8_t *restrict const p,
+INLINE void mark_uncapture_king(int k, int ksq, uint8_t *restrict const p,
     Bitboard occ, struct IdxState2 *is, const bool ref)
 {
   uint64_t idx0 = 0;
@@ -146,8 +146,7 @@ INLINE void mark_uncapture_king(int k, int stm, uint8_t *restrict const p,
       idx0 = idx0 * ri.factor[i] + is->sub[i];
   }
 
-  int to = is->sq[stm];
-  Bitboard b = non_king_piece_moves(g_set_pt[k], to, occ);
+  Bitboard b = non_king_piece_moves(g_set_pt[k], ksq, occ);
   while (b) {
     Bitboard from_bb = b & -b;
     is->bb[k + 1] ^= from_bb;
@@ -856,14 +855,14 @@ static void calc_illegal_worker(struct ThreadData *thread)
   int stm = g_set_pt[k] >> 3;
 
   uint8_t *restrict const p = kslice_buf[stm];
-  stm ^= 1;
+  int ksq = pos.sq[stm ^ 1];
 
   Bitboard occ = idx_state2_init(&is, thread->begin, pos.sq, &capt_ri[k]);
 
   for (uint64_t idx = thread->begin, end = thread->end; idx < end;
       idx++, occ = idx_state2_inc(&is, &capt_ri[k]))
   {
-    mark_uncapture_king(k, stm, p, occ, &is, false);
+    mark_uncapture_king(k, ksq, p, occ, &is, false);
   }
 }
 
@@ -875,14 +874,14 @@ static void calc_illegal_ref_worker(struct ThreadData *thread)
   int stm = g_set_pt[k] >> 3;
 
   uint8_t *restrict const p = kslice_buf[stm];
-  stm ^= 1;
+  int ksq = pos.sq[stm ^ 1];
 
   Bitboard occ = idx_state2_init(&is, thread->begin, pos.sq, &capt_ri[k]);
 
   for (uint64_t idx = thread->begin, end = thread->end; idx < end;
       idx++, occ = idx_state2_inc(&is, &capt_ri[k]))
   {
-    mark_uncapture_king(k, stm, p, occ, &is, true);
+    mark_uncapture_king(k, ksq, p, occ, &is, true);
   }
 }
 
