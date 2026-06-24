@@ -35,6 +35,7 @@
 
 Position g_pos;
 int8_t g_sets[2][8];
+int8_t g_piece_set[2][8];
 uint8_t g_set_pt[8];
 bool g_only_generate, g_use_rans, symmetric, used_rans = false;
 bool g_cleanup;
@@ -252,20 +253,20 @@ int main(int argc, char **argv)
     kslice_sub_size[k] = capt_ri[k].sizes[0];
   }
 
-  k = 0;
-  for (int i = 0; i < ri.numsets; i++)
-    if (!(pt[ri.first[i]] & 0x08))
-      g_sets[0][k++] = i;
-  g_sets[0][k] = -1;
-
-  k = 0;
-  for (int i = 0; i < ri.numsets; i++)
-    if (pt[ri.first[i]] & 0x08)
-      g_sets[1][k++] = i;
-  g_sets[1][k] = -1;
-
   for (int i = 0; i < ri.numsets; i++)
     g_set_pt[i] = g_pos.pt[ri.first[i]];
+
+  memset(g_piece_set, -1, sizeof g_piece_set);
+  for (int i = 0; i < ri.numsets; i++)
+    g_piece_set[g_set_pt[i] >> 3][g_set_pt[i] & 7] = i;
+
+  for (int stm = 0; stm < 2; stm++) {
+    int k = 0;
+    for (int i = 0; i < ri.numsets; i++)
+      if ((g_set_pt[i] >> 3) == stm)
+        g_sets[stm][k++] = i;
+    g_sets[stm][k] = -1;
+  }
 
   kslice_setup();
 

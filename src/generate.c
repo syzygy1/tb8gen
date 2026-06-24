@@ -7,6 +7,7 @@
 #include <inttypes.h>
 #include <stdint.h>
 #include <stdlib.h>
+#include <immintrin.h>
 
 #include "defs.h"
 #include "generate.h"
@@ -59,20 +60,33 @@ INLINE void mark_king_uncaptures(int stm, int k, Bitboard occ,
 }
 
 // Uncapture a piece in set k by a piece in set j.
-INLINE void mark_uncaptures(int j, int k, uint8_t *restrict const p,
-    Bitboard occ, struct IdxState2 *is, const bool ref)
+INLINE void mark_uncaptures(int stm, const int pc, int k,
+    uint8_t *restrict const p, Bitboard occ, struct IdxState2 *is,
+    const bool ref)
 {
+  int j = g_piece_set[stm][pc];
+  if (j < 0) return;
+
+  uint64_t idx0 = 0;
+  int l;
+  if (!ref) {
+    l = min(j, k);
+    for (int i = 0; i < l; i++)
+      idx0 = idx0 * ri.factor[i] + is->sub[i];
+  }
+
   Bitboard bb = is->bb[j + 1];
   while (bb) {
     Bitboard to_bb = bb & -bb;
     is->bb[j + 1] ^= to_bb;
     is->bb[k + 1] ^= to_bb;
     bb ^= to_bb;
-    Bitboard b = non_king_piece_moves(g_set_pt[j], lsb(to_bb), occ);
+    Bitboard b = piece_moves(pc, lsb(to_bb), occ);
     while (b) {
       Bitboard from_bb = b & -b;
       is->bb[j + 1] ^= from_bb;
-      uint64_t idx = ref ? rank_bb_ref(is->bb, &ri) : rank_bb(is->bb, &ri);
+      uint64_t idx = ref ? rank_bb_ref(is->bb, &ri)
+        : rank_bb_from(is->bb, idx0, l, is->occ[l], &ri);
       kslice_bit_set_atomic(p, idx);
       is->bb[j + 1] ^= from_bb;
       b ^= from_bb;
@@ -82,7 +96,6 @@ INLINE void mark_uncaptures(int j, int k, uint8_t *restrict const p,
   }
 }
 
-// Return true if one move hits a set bit.
 INLINE void mark_king_unmoves(int stm, Bitboard occ, struct IdxState2 *is)
 {
   alignas(64) Bitboard bb[8];
@@ -108,9 +121,12 @@ INLINE void mark_king_unmoves(int stm, Bitboard occ, struct IdxState2 *is)
   is->bb[0] = is->occ[0];
 }
 
-INLINE void mark_unmoves(int k, uint8_t *restrict const p, Bitboard occ,
-    struct IdxState2 *is, const bool ref)
+INLINE void mark_unmoves(int stm, const int pc, uint8_t *restrict const p,
+    Bitboard occ, struct IdxState2 *is, const bool ref)
 {
+  int k = g_piece_set[stm][pc];
+  if (k < 0) return;
+
   uint64_t idx0 = 0;
   if (!ref) {
     for (int i = 0; i < k; i++)
@@ -122,7 +138,7 @@ INLINE void mark_unmoves(int k, uint8_t *restrict const p, Bitboard occ,
     Bitboard from_bb = bb & -bb;
     is->bb[k + 1] ^= from_bb;
     bb ^= from_bb;
-    Bitboard b = non_king_piece_moves(g_set_pt[k], lsb(from_bb), occ);
+    Bitboard b = piece_moves(pc, lsb(from_bb), occ);
     while (b) {
       Bitboard to_bb = b & -b;
       is->bb[k + 1] ^= to_bb;
@@ -137,16 +153,20 @@ INLINE void mark_unmoves(int k, uint8_t *restrict const p, Bitboard occ,
 }
 
 // Uncapture stm king by a piece being added to set k.
-INLINE void mark_uncapture_king(int k, int ksq, uint8_t *restrict const p,
-    Bitboard occ, struct IdxState2 *is, const bool ref)
+INLINE void mark_uncapture_king(int stm, const int pc, int ksq,
+    uint8_t *restrict const p, Bitboard occ, struct IdxState2 *is,
+    const bool ref)
 {
+  int k = g_piece_set[stm][pc];
+  if (k < 0) return;
+
   uint64_t idx0 = 0;
   if (!ref) {
     for (int i = 0; i < k; i++)
       idx0 = idx0 * ri.factor[i] + is->sub[i];
   }
 
-  Bitboard b = non_king_piece_moves(g_set_pt[k], ksq, occ);
+  Bitboard b = piece_moves(pc, ksq, occ);
   while (b) {
     Bitboard from_bb = b & -b;
     is->bb[k + 1] ^= from_bb;
@@ -219,9 +239,13 @@ INLINE bool check_king_moves(int stm, Bitboard occ, struct IdxState2 *is)
   return true;
 }
 
-INLINE bool check_moves(int k, int s, uint8_t *restrict const p, Bitboard occ,
-    struct IdxState2 *is, const bool ref)
+INLINE bool check_moves(int stm, const int pc, int s,
+    uint8_t *restrict const p, Bitboard occ, struct IdxState2 *is,
+    const bool ref)
 {
+  int k = g_piece_set[stm][pc];
+  if (k < 0) return true;
+
   uint64_t idx0 = 0;
   if (!ref) {
     for (int i = 0; i < k; i++)
@@ -234,7 +258,7 @@ INLINE bool check_moves(int k, int s, uint8_t *restrict const p, Bitboard occ,
     is->bb[k + 1] ^= from_bb;
     bb ^= from_bb;
 
-    Bitboard b = non_king_piece_attacks(g_set_pt[k], lsb(from_bb), occ);
+    Bitboard b = piece_attacks(pc, lsb(from_bb), occ);
 
 #if 1
     Bitboard attacks = b & occ & ~is->bb[0];
@@ -423,13 +447,9 @@ static void predecessors_sub_worker(struct ThreadData *thread)
   Position pos = g_pos;
   int stm = pos.stm;
   pos.stm ^= 1;
-  int n = --pos.num;
   int k = work_set;
   int s = work_slice;
   bool legality = work_legality;
-
-  int m = ri.last[k];
-  pos.pt[m] = pos.pt[n];
 
   uint64_t *restrict p =
     (uint64_t *)kslice_sub_get_address(s, k) + (thread->begin >> 6);
@@ -438,23 +458,40 @@ static void predecessors_sub_worker(struct ThreadData *thread)
   uint64_t last = thread->begin;
   idx_state2_init(&is, last, pos.sq, &capt_ri[k]);
 
-  for (uint64_t idx = last, end = thread->end; idx < end; idx += 64) {
-    uint64_t w = *p++;
-    while (w) {
-      uint64_t cur = idx + pop_lsb(&w);
-      Bitboard occ = idx_state2_add(&is, cur - last, &capt_ri[k]);
-      last = cur;
-      if (legality && !idx_state2_legal(&is, pos.stm, occ))
-        continue;
-      // Uncapture by king.
-      mark_king_uncaptures(stm, k, occ, &is);
-      // Uncapture by non-king pieces.
-      for (int i = 0; g_sets[stm][i] >= 0; i++) {
-        int j = g_sets[stm][i];
-        if (s < 441)
-          mark_uncaptures(j, k, q, occ, &is, false);
-        else
-          mark_uncaptures(j, k, q, occ, &is, true);
+  if (s < 441) {
+    for (uint64_t idx = last, end = thread->end; idx < end; idx += 64) {
+      uint64_t w = *p++;
+      while (w) {
+        uint64_t cur = idx + pop_lsb(&w);
+        Bitboard occ = idx_state2_add(&is, cur - last, &capt_ri[k]);
+        last = cur;
+        if (legality && !idx_state2_legal(&is, pos.stm, occ))
+          continue;
+        // Uncapture by king.
+        mark_king_uncaptures(stm, k, occ, &is);
+        // Uncapture by non-king pieces.
+        mark_uncaptures(stm, KNIGHT, k, q, occ, &is, false);
+        mark_uncaptures(stm, BISHOP, k, q, occ, &is, false);
+        mark_uncaptures(stm, ROOK  , k, q, occ, &is, false);
+        mark_uncaptures(stm, QUEEN , k, q, occ, &is, false);
+      }
+    }
+  } else {
+    for (uint64_t idx = last, end = thread->end; idx < end; idx += 64) {
+      uint64_t w = *p++;
+      while (w) {
+        uint64_t cur = idx + pop_lsb(&w);
+        Bitboard occ = idx_state2_add(&is, cur - last, &capt_ri[k]);
+        last = cur;
+        if (legality && !idx_state2_legal(&is, pos.stm, occ))
+          continue;
+        // Uncapture by king.
+        mark_king_uncaptures(stm, k, occ, &is);
+        // Uncapture by non-king pieces.
+        mark_uncaptures(stm, KNIGHT, k, q, occ, &is, true);
+        mark_uncaptures(stm, BISHOP, k, q, occ, &is, true);
+        mark_uncaptures(stm, ROOK  , k, q, occ, &is, true);
+        mark_uncaptures(stm, QUEEN , k, q, occ, &is, true);
       }
     }
   }
@@ -675,10 +712,10 @@ static void predecessors_worker(struct ThreadData *thread)
       Bitboard occ = idx_state2_add(&is, cur - last, &ri);
       last = cur;
       mark_king_unmoves(stm, occ, &is);
-      for (int i = 0; g_sets[stm][i] >= 0; i++) {
-        int j = g_sets[stm][i];
-        mark_unmoves(j, q, occ, &is, false);
-      }
+      mark_unmoves(stm, KNIGHT, q, occ, &is, false);
+      mark_unmoves(stm, BISHOP, q, occ, &is, false);
+      mark_unmoves(stm, ROOK  , q, occ, &is, false);
+      mark_unmoves(stm, QUEEN , q, occ, &is, false);
     }
   }
 }
@@ -705,10 +742,10 @@ static void predecessors_ref_worker(struct ThreadData *thread)
       uint64_t cur = idx + pop_lsb(&w);
       Bitboard occ = unrank_bb_ref(cur, is.bb, &ri);
       mark_king_unmoves(stm, occ, &is);
-      for (int i = 0; g_sets[stm][i] >= 0; i++) {
-        int j = g_sets[stm][i];
-        mark_unmoves(j, q, occ, &is, true);
-      }
+      mark_unmoves(stm, KNIGHT, q, occ, &is, true);
+      mark_unmoves(stm, BISHOP, q, occ, &is, true);
+      mark_unmoves(stm, ROOK  , q, occ, &is, true);
+      mark_unmoves(stm, QUEEN , q, occ, &is, true);
     }
   }
 }
@@ -752,20 +789,13 @@ static void check_successors_worker(struct ThreadData *thread)
       last = cur;
       // Legality check not necessary if we already removed illegal positions.
       // Currently, we need to test.
-      if (idx_state2_legal(&is, stm, occ)) {
-        bool v = true;
-        for (int i = 0; g_sets[stm][i] >= 0; i++) {
-          int j = g_sets[stm][i];
-          v = check_moves(j, s, q, occ, &is, false);
-          if (!v)
-            break;
-        }
-        if (v)
-          v = check_king_moves(stm, occ, &is);
-        if (v)
-          continue;
-      }
-      w2 ^= bit(bt);
+      if (   !idx_state2_legal(&is, stm, occ)
+          || !check_moves(stm, QUEEN , s, q, occ, &is, false)
+          || !check_moves(stm, ROOK  , s, q, occ, &is, false)
+          || !check_moves(stm, BISHOP, s, q, occ, &is, false)
+          || !check_moves(stm, KNIGHT, s, q, occ, &is, false)
+          || !check_king_moves(stm, occ, &is))
+        w2 ^= bit(bt);
     }
     *p = w2;
     cnt += popcnt(w2);
@@ -801,20 +831,13 @@ static void check_successors_ref_worker(struct ThreadData *thread)
       Bitboard occ = unrank_bb_ref(cur, is.bb, &ri);
       // Legality check not necessary if we already removed illegal positions.
       // Currently, we need to test.
-      if (idx_state2_legal(&is, stm, occ)) {
-        bool v = true;
-        for (int i = 0; g_sets[stm][i] >= 0; i++) {
-          int j = g_sets[stm][i];
-          v = check_moves(j, s, q, occ, &is, true);
-          if (!v)
-            break;
-        }
-        if (v)
-          v = check_king_moves(stm, occ, &is);
-        if (v)
-          continue;
-      }
-      w2 ^= bit(bt);
+      if (   !idx_state2_legal(&is, stm, occ)
+          || !check_moves(stm, QUEEN , s, q, occ, &is, true)
+          || !check_moves(stm, ROOK  , s, q, occ, &is, true)
+          || !check_moves(stm, BISHOP, s, q, occ, &is, true)
+          || !check_moves(stm, KNIGHT, s, q, occ, &is, true)
+          || !check_king_moves(stm, occ, &is))
+        w2 ^= bit(bt);
     }
     *p = w2;
     cnt += popcnt(w2);
@@ -847,42 +870,63 @@ static uint64_t check_successors(int stm, int s)
   return cnt;
 }
 
-static void calc_illegal_worker(struct ThreadData *thread)
+static void calc_illegal_worker_tmpl(struct ThreadData *thread, const int pc,
+    const bool ref)
 {
   struct IdxState2 is;
-  Position pos = g_pos;
-  int k = work_set;
-  int stm = g_set_pt[k] >> 3;
+  int stm = g_pos.stm;
+  int k = g_piece_set[stm][pc];
+  int ksq = g_pos.sq[stm ^ 1];
 
   uint8_t *restrict const p = kslice_buf[stm];
-  int ksq = pos.sq[stm ^ 1];
 
-  Bitboard occ = idx_state2_init(&is, thread->begin, pos.sq, &capt_ri[k]);
+  Bitboard occ = idx_state2_init(&is, thread->begin, g_pos.sq, &capt_ri[k]);
 
   for (uint64_t idx = thread->begin, end = thread->end; idx < end;
       idx++, occ = idx_state2_inc(&is, &capt_ri[k]))
   {
-    mark_uncapture_king(k, ksq, p, occ, &is, false);
+    mark_uncapture_king(stm, pc, ksq, p, occ, &is, ref);
   }
 }
 
-static void calc_illegal_ref_worker(struct ThreadData *thread)
+static void calc_illegal_knight_worker(struct ThreadData *thread)
 {
-  struct IdxState2 is;
-  Position pos = g_pos;
-  int k = work_set;
-  int stm = g_set_pt[k] >> 3;
+  calc_illegal_worker_tmpl(thread, KNIGHT, false);
+}
 
-  uint8_t *restrict const p = kslice_buf[stm];
-  int ksq = pos.sq[stm ^ 1];
+static void calc_illegal_bishop_worker(struct ThreadData *thread)
+{
+  calc_illegal_worker_tmpl(thread, BISHOP, false);
+}
 
-  Bitboard occ = idx_state2_init(&is, thread->begin, pos.sq, &capt_ri[k]);
+static void calc_illegal_rook_worker(struct ThreadData *thread)
+{
+  calc_illegal_worker_tmpl(thread, ROOK, false);
+}
 
-  for (uint64_t idx = thread->begin, end = thread->end; idx < end;
-      idx++, occ = idx_state2_inc(&is, &capt_ri[k]))
-  {
-    mark_uncapture_king(k, ksq, p, occ, &is, true);
-  }
+static void calc_illegal_queen_worker(struct ThreadData *thread)
+{
+  calc_illegal_worker_tmpl(thread, QUEEN, false);
+}
+
+static void calc_illegal_knight_ref_worker(struct ThreadData *thread)
+{
+  calc_illegal_worker_tmpl(thread, KNIGHT, true);
+}
+
+static void calc_illegal_bishop_ref_worker(struct ThreadData *thread)
+{
+  calc_illegal_worker_tmpl(thread, BISHOP, true);
+}
+
+static void calc_illegal_rook_ref_worker(struct ThreadData *thread)
+{
+  calc_illegal_worker_tmpl(thread, ROOK, true);
+}
+
+static void calc_illegal_queen_ref_worker(struct ThreadData *thread)
+{
+  calc_illegal_worker_tmpl(thread, QUEEN, true);
 }
 
 static void calc_mate_worker(struct ThreadData *thread)
@@ -1012,12 +1056,28 @@ static void calc_illegal_and_mate(void)
     kslice_clear_addr(kslice_buf[0], s); // wtm illegal
     kslice_clear_addr(kslice_buf[1], s); // btm illegal
 
-    for (int k = 0; k < ri.numsets; k++) {
-      work_set = k;
-      if (s < 441)
-        run_threaded(calc_illegal_worker, &work_capt_dynamic[k]);
-      else
-        run_threaded(calc_illegal_ref_worker, &work_capt_dynamic[k]);
+    for (int stm = 0; stm < 2; stm++) {
+      int k;
+      g_pos.stm = stm;
+      if (s < 441) {
+        if ((k = g_piece_set[stm][KNIGHT]) >= 0)
+          run_threaded(calc_illegal_knight_worker, &work_capt_dynamic[k]);
+        if ((k = g_piece_set[stm][BISHOP]) >= 0)
+          run_threaded(calc_illegal_bishop_worker, &work_capt_dynamic[k]);
+        if ((k = g_piece_set[stm][ROOK]) >= 0)
+          run_threaded(calc_illegal_rook_worker, &work_capt_dynamic[k]);
+        if ((k = g_piece_set[stm][QUEEN]) >= 0)
+          run_threaded(calc_illegal_queen_worker, &work_capt_dynamic[k]);
+      } else {
+        if ((k = g_piece_set[stm][KNIGHT]) >= 0)
+          run_threaded(calc_illegal_knight_ref_worker, &work_capt_dynamic[k]);
+        if ((k = g_piece_set[stm][BISHOP]) >= 0)
+          run_threaded(calc_illegal_bishop_ref_worker, &work_capt_dynamic[k]);
+        if ((k = g_piece_set[stm][ROOK]) >= 0)
+          run_threaded(calc_illegal_rook_ref_worker, &work_capt_dynamic[k]);
+        if ((k = g_piece_set[stm][QUEEN]) >= 0)
+          run_threaded(calc_illegal_queen_ref_worker, &work_capt_dynamic[k]);
+      }
     }
 
     for (int stm = 0; stm < 2; stm++) {

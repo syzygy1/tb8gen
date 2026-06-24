@@ -63,7 +63,7 @@ INLINE void mark_king_uncaptures(int stm, int k, Bitboard occ,
 
 // Uncapture a piece in set k by a piece in set j.
 INLINE void mark_uncaptures(int j, int k, uint8_t *restrict const p,
-    Bitboard occ, struct IdxState2 *is)
+    Bitboard occ, struct IdxState2 *is, const bool ref)
 {
   Bitboard bb = is->bb[j + 1];
   while (bb) {
@@ -75,30 +75,7 @@ INLINE void mark_uncaptures(int j, int k, uint8_t *restrict const p,
     while (b) {
       Bitboard from_bb = b & -b;
       is->bb[j + 1] ^= from_bb;
-      uint64_t idx = rank_bb(is->bb, &ri);
-      kslice_bit_set_atomic(p, idx);
-      is->bb[j + 1] ^= from_bb;
-      b ^= from_bb;
-    }
-    is->bb[j + 1] ^= to_bb;
-    is->bb[k + 1] ^= to_bb;
-  }
-}
-
-INLINE void mark_uncaptures_ref(int j, int k, uint8_t *restrict const p,
-    Bitboard occ, struct IdxState2 *is)
-{
-  Bitboard bb = is->bb[j + 1];
-  while (bb) {
-    Bitboard to_bb = bb & -bb;
-    is->bb[j + 1] ^= to_bb;
-    is->bb[k + 1] ^= to_bb;
-    bb ^= to_bb;
-    Bitboard b = non_king_piece_moves(g_set_pt[j], lsb(to_bb), occ);
-    while (b) {
-      Bitboard from_bb = b & -b;
-      is->bb[j + 1] ^= from_bb;
-      uint64_t idx = rank_bb_ref(is->bb, &ri);
+      uint64_t idx = ref ? rank_bb_ref(is->bb, &ri) : rank_bb(is->bb, &ri);
       kslice_bit_set_atomic(p, idx);
       is->bb[j + 1] ^= from_bb;
       b ^= from_bb;
@@ -109,32 +86,23 @@ INLINE void mark_uncaptures_ref(int j, int k, uint8_t *restrict const p,
 }
 
 // Uncapture stm king by a piece being added to set j.
-INLINE void mark_uncapture_king(int j, int stm, uint8_t *restrict const p,
-    Bitboard occ, struct IdxState2 *is)
+INLINE void mark_uncapture_king(int k, int ksq, uint8_t *restrict const p,
+    Bitboard occ, struct IdxState2 *is, const bool ref)
 {
-  int to = is->sq[stm];
-  Bitboard b = non_king_piece_moves(g_set_pt[j], to, occ);
-  while (b) {
-    Bitboard from_bb = b & -b;
-    is->bb[j + 1] ^= from_bb;
-    uint64_t idx = rank_bb(is->bb, &ri);
-    kslice_bit_set_atomic(p, idx);
-    is->bb[j + 1] ^= from_bb;
-    b ^= from_bb;
+  uint64_t idx0 = 0;
+  if (!ref) {
+    for (int i = 0; i < k; i++)
+      idx0 = idx 0 * ri.factor[i] + is->sub[i];
   }
-}
 
-INLINE void mark_uncapture_king_ref(int j, int stm, uint8_t *restrict const p,
-    Bitboard occ, struct IdxState2 *is)
-{
-  int to = is->sq[stm];
-  Bitboard b = non_king_piece_moves(g_set_pt[j], to, occ);
+  Bitboard b = non_king_piece_moves(g_set_pt[k], to, occ);
   while (b) {
     Bitboard from_bb = b & -b;
-    is->bb[j + 1] ^= from_bb;
-    uint64_t idx = rank_bb_ref(is->bb, &ri);
+    is->bb[k + 1] ^= from_bb;
+    uint64_t idx = ref ? rank_bb_ref(is->bb, &ri)
+      : rank_bb_from(is->bb, idx0, k, is->occ[k], &ri);
     kslice_bit_set_atomic(p, idx);
-    is->bb[j + 1] ^= from_bb;
+    is->bb[k + 1] ^= from_bb;
     b ^= from_bb;
   }
 }
@@ -170,34 +138,14 @@ INLINE bool test_king_moves(int stm, Bitboard occ, struct IdxState2 *is)
 }
 
 INLINE bool test_moves(int k, uint8_t *restrict const p, Bitboard occ,
-    struct IdxState2 *is)
+    struct IdxState2 *is, const bool ref)
 {
-  Bitboard bb = is->bb[k + 1];
-  while (bb) {
-    Bitboard from_bb = bb & -bb;
-    is->bb[k + 1] ^= from_bb;
-    bb ^= from_bb;
-    Bitboard b = non_king_piece_moves(g_set_pt[k], lsb(from_bb), occ);
-    while (b) {
-      Bitboard to_bb = b & -b;
-      is->bb[k + 1] ^= to_bb;
-      uint64_t idx = rank_bb(is->bb, &ri);
-      if (kslice_bit_test(p, idx)) {
-        is->bb[k + 1] ^= from_bb ^ to_bb;
-        return true;
-      }
-      is->bb[k + 1] ^= to_bb;
-      b ^= to_bb;
-    }
-    is->bb[k + 1] ^= from_bb;
+  uint64_t idx0 = 0;
+  if (!ref) {
+    for (int i = 0; i < k; i++)
+      idx0 = idx0 * ri.factor[i] + is->sub[i];
   }
-  return false;
-}
 
-// Return true if any move from set k hits a set bit.
-INLINE bool test_moves_ref(int k, uint8_t *restrict const p, Bitboard occ,
-    struct IdxState2 *is)
-{
   Bitboard bb = is->bb[k + 1];
   while (bb) {
     Bitboard from_bb = bb & -bb;
@@ -207,16 +155,18 @@ INLINE bool test_moves_ref(int k, uint8_t *restrict const p, Bitboard occ,
     while (b) {
       Bitboard to_bb = b & -b;
       is->bb[k + 1] ^= to_bb;
-      uint64_t idx = rank_bb_ref(is->bb, &ri);
+      uint64_t idx = ref ? rank_bb_ref(is->bb, &ri)
+        : rank_bb_from(is->bb, idx0, k, is->occ[k], &ri);
+      is->bb[k + 1] ^= to_bb;
       if (kslice_bit_test(p, idx)) {
-        is->bb[k + 1] ^= from_bb ^ to_bb;
+        is->bb[k + 1] ^= from_bbb;
         return true;
       }
-      is->bb[k + 1] ^= to_bb;
       b ^= to_bb;
     }
     is->bb[k + 1] ^= from_bb;
   }
+
   return false;
 }
 
@@ -371,9 +321,9 @@ static void predecessors_sub_worker(struct ThreadData *thread)
       for (int i = 0; g_sets[stm][i] >= 0; i++) {
         int j = g_sets[stm][i];
         if (s < 441)
-          mark_uncaptures(j, k, q, occ, &is);
+          mark_uncaptures(j, k, q, occ, &is, false);
         else
-          mark_uncaptures_ref(j, k, q, occ, &is);
+          mark_uncaptures(j, k, q, occ, &is, true);
       }
     }
   }
@@ -474,7 +424,7 @@ static void calc_illegal_worker(struct ThreadData *thread)
   struct IdxState2 is;
   Position pos = g_pos;
   int k = work_set;
-  int stm = pos.stm ^ 1;
+  int ksq = pos.sq[pos.stm ^ 1];
 
   uint8_t *restrict const p = kslice_buf[0];
 
@@ -482,7 +432,7 @@ static void calc_illegal_worker(struct ThreadData *thread)
   for (uint64_t idx = thread->begin, end = thread->end; idx < end;
       idx++, occ = idx_state2_inc(&is, &capt_ri[k]))
   {
-    mark_uncapture_king(k, stm, p, occ, &is);
+    mark_uncapture_king(k, ksq, p, occ, &is, false);
   }
 }
 
@@ -491,7 +441,7 @@ static void calc_illegal_ref_worker(struct ThreadData *thread)
   struct IdxState2 is;
   Position pos = g_pos;
   int k = work_set;
-  int stm = pos.stm ^ 1;
+  int ksq = pos.sq[pos.stm ^ 1];
 
   uint8_t *restrict const p = kslice_buf[0];
 
@@ -499,7 +449,7 @@ static void calc_illegal_ref_worker(struct ThreadData *thread)
   for (uint64_t idx = thread->begin, end = thread->end; idx < end;
       idx++, occ = idx_state2_inc(&is, &capt_ri[k]))
   {
-    mark_uncapture_king_ref(k, stm, p, occ, &is);
+    mark_uncapture_king(k, ksq, p, occ, &is, true);
   }
 }
 
@@ -654,7 +604,7 @@ INLINE void check_zero_worker_tmpl(struct ThreadData *thread, const int T)
       bool v = false;
       for (int i = 0; g_sets[stm][i] >= 0; i++) {
         int j = g_sets[stm][i];
-        v = test_moves(j, q, occ, &is);
+        v = test_moves(j, q, occ, &is, false);
         if (v) break;
       }
       if (!v)
@@ -700,7 +650,7 @@ INLINE void check_zero_ref_worker_tmpl(struct ThreadData *thread, const int T)
       Bitboard occ = unrank_bb_ref(cur, is.bb, &ri);
       for (int i = 0; g_sets[stm][i] >= 0; i++) {
         int j = g_sets[stm][i];
-        v = test_moves_ref(j, q, occ, &is);
+        v = test_moves(j, q, occ, &is, true);
         if (v) break;
       }
       if (!v)
@@ -789,7 +739,7 @@ INLINE void check_one_worker_tmpl(struct ThreadData *thread, const int T)
       bool v = false;
       for (int i = 0; g_sets[stm][i] >= 0; i++) {
         int j = g_sets[stm][i];
-        v = test_moves(j, q, occ, &is);
+        v = test_moves(j, q, occ, &is, false);
         if (v) break;
       }
       if (!v)
@@ -845,7 +795,7 @@ INLINE void check_one_ref_worker_tmpl(struct ThreadData *thread, const int T)
       Bitboard occ = unrank_bb_ref(cur, is.bb, &ri);
       for (int i = 0; g_sets[stm][i] >= 0; i++) {
         int j = g_sets[stm][i];
-        v = test_moves_ref(j, q, occ, &is);
+        v = test_moves_ref(j, q, occ, &is, true);
         if (v) break;
       }
       if (!v)
