@@ -139,6 +139,8 @@ void k16slice_set_addr(void *p);
 void kslice_set_addr(void *p);
 void k16slice_clear(int s);
 void k16slice_clear_addr(void *p);
+void k16slice_not(int s);
+void k16slice_not_addr(void *p);
 void k16slice_or(int s1, int s2);
 void k16slice_or_addr(void *p, void *q);
 void k16slice_ornot(int s1, int s2);

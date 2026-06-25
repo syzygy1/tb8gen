@@ -295,6 +295,18 @@ void k16slice_clear(int s)
   run_threaded(clear_worker, work_cl16);
 }
 
+void k16slice_not_addr(void *p)
+{
+  work_p = p;
+  run_threaded(not_worker, work_cl16);
+}
+
+void k16slice_not(int s)
+{
+  work_p = k16slice_get_address(s);
+  run_threaded(not_worker, work_cl16);
+}
+
 void k16slice_or_addr(void *p, void *q)
 {
   work_p = p;

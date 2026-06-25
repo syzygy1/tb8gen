@@ -152,7 +152,7 @@ INLINE void mark_unmoves(int stm, const int pc, uint8_t *restrict const p,
   }
 }
 
-// Uncapture stm king by a piece being added to set k.
+// Uncapture stm^1 king by an stm piece being added to set k.
 INLINE void mark_uncapture_king(int stm, const int pc, int ksq,
     uint8_t *restrict const p, Bitboard occ, struct IdxState2 *is,
     const bool ref)

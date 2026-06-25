@@ -655,6 +655,7 @@ static bool is_pinned(struct IdxState2 *is, Bitboard bb, int ksq, int stm,
   return false;
 }
 
+// Test for mate given. This function assumes that the stm is in check.
 bool idx_state2_mate(struct IdxState2 *is, int stm, Bitboard occ)
 {
   int ksq = is->sq[stm];
@@ -668,6 +669,10 @@ bool idx_state2_mate(struct IdxState2 *is, int stm, Bitboard occ)
       continue;
     if (!(occ & bit(to)))
       return false;
+    if (has_pawns && to == is->sq[2]) {
+      if (stm == WHITE) return false;
+      continue;
+    }
     for (int i = 0; g_sets[stm ^ 1][i] >= 0; i++) {
       int k = g_sets[stm ^ 1][i];
       if (is->bb[k + 1] & bit(to))
@@ -681,6 +686,8 @@ bool idx_state2_mate(struct IdxState2 *is, int stm, Bitboard occ)
     int k = g_sets[stm ^ 1][i];
     checkers |= non_king_piece_attacks(g_set_pt[k], ksq, occ) & is->bb[k + 1];
   }
+  if (has_pawns && stm == WHITE)
+    checkers |= bit(is->sq[2]) & pawn_attacks(WHITE, ksq);
 
   assert(checkers);
 
@@ -688,6 +695,7 @@ bool idx_state2_mate(struct IdxState2 *is, int stm, Bitboard occ)
   if (popcnt(checkers) > 1)
     return true;
 
+  // Note: between_bb includes the square of the checker.
   Bitboard between_bb = BetweenBB[ksq][lsb(checkers)];
   for (int i = 0; g_sets[stm][i] >= 0; i++) {
     int k = g_sets[stm][i];
@@ -699,6 +707,12 @@ bool idx_state2_mate(struct IdxState2 *is, int stm, Bitboard occ)
       if (!is_pinned(is, bit(from), ksq, stm, occ))
         return false;
     }
+  }
+  if (has_pawns && stm == BLACK) {
+    if (   (   (pawn_attacks(BLACK, is->sq[2]) & checkers)
+            || (piece_moves(PAWN, is->sq[2], occ) & between_bb & ~checkers))
+        && !is_pinned(is, bit(is->sq[2]), ksq, BLACK, occ))
+      return false;
   }
   return true;
 }

@@ -34,6 +34,9 @@
 #define WORKDIR "TB8DIR"
 
 Position g_pos;
+int8_t g_sets[2][8];
+int8_t g_piece_set[2][8];
+uint8_t g_set_pt[8];
 bool flipped = false;
 bool g_only_generate, g_use_rans, symmetric, used_rans = false;
 bool g_cleanup;
@@ -211,6 +214,7 @@ int main(int argc, char **argv)
   for (k = 0; k < ri.numsets; k++) {
     capt_ri[k] = ri;
     capt_ri[k].mult[k]--;
+#if 0
     if (capt_ri[k].mult[k] == 0) {
       for (int i = k + 1; i < ri.numsets; i++) {
         capt_ri[k].first[i - 1] = capt_ri[k].first[i];
@@ -219,8 +223,24 @@ int main(int argc, char **argv)
       }
       capt_ri[k].numsets--;
     }
+#endif
     calc_factors(&capt_ri[k], 61);
     kslice_sub_size[k] = capt_ri[k].sizes[0];
+  }
+
+  for (int i = 0; i < ri.numsets; i++)
+    g_set_pt[i] = g_pos.pt[ri.first[i]];
+
+  memset(g_piece_set, -1, sizeof g_piece_set);
+  for (int i = 0; i < ri.numsets; i++)
+    g_piece_set[g_set_pt[i] >> 3][g_set_pt[i] & 7] = i;
+
+  for (int stm = 0; stm < 2; stm++) {
+    int k = 0;
+    for (int i = 0; i < ri.numsets; i++)
+      if ((g_set_pt[i] >> 3) == stm)
+        g_sets[stm][k++] = i;
+    g_sets[stm][k] = -1;
   }
 
   kslice_setup();

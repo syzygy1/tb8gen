@@ -140,6 +140,28 @@ INLINE void mark_unmoves(int stm, const int pc, uint8_t *restrict const p,
   }
 }
 
+// Uncapture stm^1 king or pawn by an stm piece being added to set k.
+INLINE void mark_uncapture_king_or_pawn(int stm, const int pc, int capsq,
+    uint8_t *restrict const p, Bitboard occ, struct IdxState2 *is)
+{
+  int k = g_piece_set[stm][pc];
+  if (k < 0) return;
+
+  uint64_t idx0 = 0;
+  for (int i = 0; i < k; i++)
+    idx0 = idx0 * ri.factor[i] + is->sub[i];
+
+  Bitboard b = piece_moves(pc, capsq, occ);
+  while (b) {
+    Bitboard from_bb = b & -b;
+    is->bb[k + 1] ^= from_bb;
+    uint64_t idx = rank_bb_from(is->bb, idx0, k, is->occ[k], &ri);
+    kslice_bit_set_atomic(p, idx);
+    is->bb[k + 1] ^= from_bb;
+    b ^= from_bb;
+  }
+}
+
 INLINE bool check_king_moves(int stm, Bitboard occ, struct IdxState2 *is)
 {
   uint8_t ksq[2] = { is->sq[0], is->sq[1] };
@@ -485,11 +507,13 @@ static void predecessors_sub(int stm, int s)
   }
 }
 
-static void predecessors_psub_worker(struct ThreadData *thread, const int pc)
+static void predecessors_psub_worker_tmpl(struct ThreadData *thread,
+    const int pc)
 {
   struct IdxState2 is;
   Position pos = g_pos;
   int k = g_piece_set[WHITE][pc];
+  int psq = g_pos.sq[2];
 
   uint64_t *restrict p =
     (uint64_t *)kslice_psub_get_address(pos.sq, k) + (thread->begin >> 6);
@@ -504,10 +528,29 @@ static void predecessors_psub_worker(struct ThreadData *thread, const int pc)
       uint64_t cur = idx + pop_lsb(&w);
       Bitboard occ = idx_state2_add(&is, cur - last, &capt_ri[k]);
       last = cur;
-      // FIXME
-      mark_uncaptures(k, q, occ, pos.sq);
+      mark_uncapture_king_or_pawn(WHITE, pc, psq, q, occ, &is);
     }
   }
+}
+
+static void predecessors_psub_knight_worker(struct ThreadData *thread)
+{
+  predecessors_psub_worker_tmpl(thread, KNIGHT);
+}
+
+static void predecessors_psub_bishop_worker(struct ThreadData *thread)
+{
+  predecessors_psub_worker_tmpl(thread, BISHOP);
+}
+
+static void predecessors_psub_rook_worker(struct ThreadData *thread)
+{
+  predecessors_psub_worker_tmpl(thread, ROOK);
+}
+
+static void predecessors_psub_queen_worker(struct ThreadData *thread)
+{
+  predecessors_psub_worker_tmpl(thread, QUEEN);
 }
 
 // Uncapture the black pawn from the loaded subtable of btm positions
@@ -522,13 +565,15 @@ static void predecessors_psub(int s)
       continue;
 
     // Loop through the sets from which a piece uncaptures the pawn.
-    for (int k = 0; k < ri.numsets; k++) {
-      int m = ri.last[k];
-      if ((g_pos.pt[m] >> 3) != WHITE)
-        continue;
-      work_set = k;
-      run_threaded(predecessors_psub_worker, &work_capt_dynamic[k]);
-    }
+    int k;
+    if ((k = g_piece_set[WHITE][KNIGHT]) >= 0)
+      run_threaded(predecessors_psub_knight_worker, &work_capt_dynamic[k]);
+    if ((k = g_piece_set[WHITE][BISHOP]) >= 0)
+      run_threaded(predecessors_psub_bishop_worker, &work_capt_dynamic[k]);
+    if ((k = g_piece_set[WHITE][ROOK]) >= 0)
+      run_threaded(predecessors_psub_rook_worker, &work_capt_dynamic[k]);
+    if ((k = g_piece_set[WHITE][QUEEN]) >= 0)
+      run_threaded(predecessors_psub_queen_worker, &work_capt_dynamic[k]);
   }
 }
 
@@ -1141,7 +1186,7 @@ static void check_successors_worker(struct ThreadData *thread)
           || !check_moves(stm, ROOK  , q, occ, &is)
           || !check_moves(stm, BISHOP, q, occ, &is)
           || !check_moves(stm, KNIGHT, q, occ, &is)
-          || check_king_moves(stm, occ, &is))
+          || !check_king_moves(stm, occ, &is))
         kept ^= bit(bt);
     }
     *p = kept;
@@ -1195,7 +1240,7 @@ static void calc_illegal_worker_tmpl(struct ThreadData *thread, const int pc)
   for (uint64_t idx = thread->begin, end = thread->end; idx < end;
       idx++, occ = idx_state2_inc(&is, &capt_ri[k]))
   {
-    mark_uncapture_king(stm, pc, ksq, p, occ, &is);
+    mark_uncapture_king_or_pawn(stm, pc, ksq, p, occ, &is);
   }
 }
 
@@ -1319,6 +1364,7 @@ static void calc_illegal_and_mate_and_pawn_push(void)
         continue;
 
       g_pos.stm = WHITE;
+      int k;
       if ((k = g_piece_set[WHITE][KNIGHT]) >= 0)
         run_threaded(calc_illegal_knight_worker, &work_capt_dynamic[k]);
       if ((k = g_piece_set[WHITE][BISHOP]) >= 0)
