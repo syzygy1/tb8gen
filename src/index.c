@@ -606,7 +606,8 @@ Bitboard idx_state2_init(struct IdxState2 *is, uint64_t idx,
 
 static bool sq_attacked_by(struct IdxState2 *is, int sq, int stm, Bitboard occ)
 {
-  assert(!has_pawns);
+  if (has_pawns && stm == BLACK && (bit(sq) & pawn_attacks(BLACK, is->sq[2])))
+    return true;
   for (int i = 0; g_sets[stm][i] >= 0; i++) {
     int k = g_sets[stm][i];
     Bitboard b = non_king_piece_attacks(g_set_pt[k], sq, occ);
@@ -710,7 +711,7 @@ bool idx_state2_mate(struct IdxState2 *is, int stm, Bitboard occ)
   }
   if (has_pawns && stm == BLACK) {
     if (   (   (pawn_attacks(BLACK, is->sq[2]) & checkers)
-            || (piece_moves(PAWN, is->sq[2], occ) & between_bb & ~checkers))
+            || (piece_moves(BPAWN, is->sq[2], occ) & between_bb))
         && !is_pinned(is, bit(is->sq[2]), ksq, BLACK, occ))
       return false;
   }

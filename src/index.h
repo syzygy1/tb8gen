@@ -356,6 +356,8 @@ INLINE Bitboard idx_state2_add(struct IdxState2 *is, uint64_t v,
 INLINE bool idx_state2_legal(const struct IdxState2 *is, int stm, Bitboard occ)
 {
   int ksq = is->sq[stm ^ 1];
+  if (has_pawns && stm == BLACK && (pawn_attacks(BLACK, is->sq[2]) & bit(ksq)))
+    return false;
   for (int i = 0; g_sets[stm][i] >= 0; i++) {
     int k = g_sets[stm][i];
     Bitboard b = non_king_piece_attacks(g_set_pt[k], ksq, occ);

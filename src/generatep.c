@@ -255,6 +255,7 @@ static void calc_sub_worker(struct ThreadData *thread)
   {
     if (!idx_state2_legal(&is, pos.stm, occ))
       continue;
+    pos.occ = occ;
     idx_state2_to_sq(&is, pos.sq, &capt_ri[k]);
     pos.sq[m] = pos.sq[n];
     int v = probe_wdl(&pos, -2, 2);
@@ -345,6 +346,20 @@ static void calc_sub_kslices(int stm)
   show_progress(phase, 240, 240, true);
 }
 
+// Legality check for psub positions: the black pawn has been captured, and
+// the old pawn square is occupied by the capturing white piece.
+INLINE bool idx_state2_legal_psub(const struct IdxState2 *is, Bitboard occ)
+{
+  int ksq = is->sq[WHITE];
+  for (int i = 0; g_sets[BLACK][i] >= 0; i++) {
+    int k = g_sets[BLACK][i];
+    Bitboard b = non_king_piece_attacks(g_set_pt[k], ksq, occ);
+    if (b & is->bb[k + 1])
+      return false;
+  }
+  return true;
+}
+
 static void calc_psub_worker(struct ThreadData *thread)
 {
   struct IdxState2 is;
@@ -364,8 +379,9 @@ static void calc_psub_worker(struct ThreadData *thread)
   for (uint64_t idx = thread->begin, end = thread->end; idx < end;
       idx++, occ = idx_state2_inc(&is, &capt_ri[k]))
   {
-    if (!idx_state2_legal(&is, pos.stm, occ))
+    if (!idx_state2_legal_psub(&is, occ))
       continue;
+    pos.occ = occ;
     idx_state2_to_sq(&is, pos.sq, &capt_ri[k]);
     pos.sq[m] = pos.sq[n];
     int v = probe_wdl(&pos, -2, 2);
@@ -415,9 +431,8 @@ static void calc_psub_kslices(void)
         if (is_broken(&g_pos))
           continue;
 
-        for (int k = 0; k < ri.numsets; k++) {
-          if ((g_pos.pt[ri.first[k]] >> 3) != WHITE)
-            continue;
+        for (int i = 0; g_sets[WHITE][i] >= 0; i++) {
+          int k = g_sets[WHITE][i];
           work_set = k;
           run_threaded(calc_psub_worker, &work_capt_dynamic[k]);
         }
