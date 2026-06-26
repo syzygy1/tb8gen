@@ -110,13 +110,13 @@ static void find_position(int s, int stm, bool loss, bool cursed)
 
   Position pos = g_pos;
   pos.stm = stm ^ loss;
+  struct IdxState2 is;
   if (s < 441) {
-    struct IdxState2 is;
     idx_state2_init(&is, idx, pos.sq, &ri);
     idx_state2_to_sq(&is, pos.sq, &ri);
   } else {
-    Bitboard occ = bit(pos.sq[0]) | bit(pos.sq[1]);
-    unrank_reflection(idx, pos.sq, occ, &ri);
+    is.bb[0] = bit(pos.sq[0]) | bit(pos.sq[1]);
+    unrank_bb_ref(idx, is.bb, &ri);
   }
   pos_to_fen(&pos, mf.fen[stm][cursed], false);
   mf.found[stm][cursed] = true;

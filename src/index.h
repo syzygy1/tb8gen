@@ -44,12 +44,6 @@ extern struct RankInfo rank_info_61[32];
 extern struct RankInfo rank_info_62[64];
 extern struct RankInfo rank_info_63[64];
 
-struct IdxState {
-  uint32_t sub[MAX_SETS];
-  Bitboard occ[MAX_SETS];
-  int n;
-};
-
 struct IdxState2 {
   alignas(64) Bitboard occ[8];
   Bitboard bb[8];
@@ -142,53 +136,6 @@ INLINE Bitboard unrank_binomial2(uint64_t idx, int n, Bitboard occ)
   return _pdep_u64(b1 | bit(idx), b);
 }
 
-INLINE Bitboard unrank_binomial(uint64_t idx, int n, uint8_t *restrict sq,
-    Bitboard occ)
-{
-  if (n == 0)
-    return occ;
-
-  assume(n > 0 && n <= MAX_MULT);
-
-  Bitboard b = ~occ;
-
-  if (n == 1) {
-    Bitboard b1 = _pdep_u64(bit(idx), b);
-    occ |= b1;
-    sq[0] = lsb(b1);
-  }
-  else if (n == 2) {
-    Bitboard b1 = _pdep_u64(Unrank2[idx], b);
-    occ |= b1;
-    sq[0] = pop_lsb(&b1);
-    sq[1] = lsb(b1);
-  }
-  else if (n == 3) {
-    Bitboard b1 = _pdep_u64(Unrank3[idx], b);
-    occ |= b1;
-    sq[0] = pop_lsb(&b1);
-    sq[1] = pop_lsb(&b1);
-    sq[2] = lsb(b1);
-  }
-  else {
-    Bitboard b1 = 0;
-    int r = popcnt(b) - 1;
-    for (int i = n - 1; i > 0; i--) {
-      while (idx < Binomial[i + 1][r])
-        r--;
-      idx -= Binomial[i + 1][r];
-      b1 |= bit(r);
-      r--;
-    }
-    b1 = _pdep_u64(b1 | bit(idx), b);
-    occ |= b1;
-    while (b1)
-      *sq++ = pop_lsb(&b1);
-  }
-
-  return occ;
-}
-
 // Valid if x <= 2^N, d-1 <= 2^L and N + L <= 64.
 // This should not be a problem even for 9-piece tables.
 // See https://gmplib.org/~tege/divcnst-pldi94.pdf
@@ -219,41 +166,7 @@ INLINE int rank_among_free(uint8_t sq, Bitboard occ)
   return sq - popcnt(occ & ((1ULL << sq) - 1));
 }
 
-// We expect a normalized position.
-INLINE uint64_t sq_to_idx_helper(const uint8_t *restrict sq, uint64_t idx,
-    Bitboard occ, const struct RankInfo *ri)
-{
-  for (int k = 0; k < ri->numsets; k++) {
-    size_t s;
-    int i = ri->first[k];
-    int m = ri->mult[k];
-    assume(m > 0 && m <= MAX_MULT);
-    if (m == 1) {
-      s = rank_among_free(sq[i], occ);
-      occ |= bit(sq[i]);
-    } else if (m == 2) {
-      Bitboard b = ~occ;
-      Bitboard b1 = bit(sq[i]) | bit(sq[i + 1]);
-      occ |= b1;
-      b1 = _pext_u64(b1, b);
-      s = pop_lsb(&b1);
-      s += Binomial[2][lsb(b1)];
-    } else {
-      Bitboard b = ~occ, b1 = 0;
-      for (int j = 0; j < m; j++)
-        b1 |= bit(sq[i + j]);
-      occ |= b1;
-      b1 = _pext_u64(b1, b);
-      s = 0;
-      for (int j = 1; b1; j++)
-        s += Binomial[j][pop_lsb(&b1)];
-    }
-    idx = idx * ri->factor[k] + s;
-  }
-
-  return idx;
-}
-
+// Still used in rank_reflection() and in probe.c.
 INLINE uint64_t mirror_diagonal_u64(uint64_t v)
 {
   return  ((v & 0x0707070707070707ULL) << 3)
@@ -266,42 +179,6 @@ INLINE void mirror_diagonal(uint8_t *sq)
   memcpy(&v, sq, 8);
   v = mirror_diagonal_u64(v);
   memcpy(sq, &v, 8);
-}
-
-INLINE void normalize(uint8_t *sq)
-{
-  uint64_t v;
-  memcpy(&v, sq, 8);
-  v ^= MirrorMask[sq[0]];
-  if (FlipTest[sq[0]][sq[1]])
-    v = mirror_diagonal_u64(v);
-  memcpy(sq, &v, 8);
-}
-
-INLINE void normalize_quadrant(uint8_t *sq)
-{
-  uint64_t v;
-  memcpy(&v, sq, 8);
-  v ^= MirrorMask[sq[0]];
-  memcpy(sq, &v, 8);
-}
-
-INLINE void mirror_diagonal2(const uint8_t *restrict sq, uint8_t *restrict sq2)
-{
-  uint64_t v;
-  memcpy(&v, sq, 8);
-  v = mirror_diagonal_u64(v);
-  memcpy(sq2, &v, 8);
-}
-
-INLINE void normalize2(const uint8_t *restrict sq, uint8_t *restrict sq2)
-{
-  uint64_t v;
-  memcpy(&v, sq, 8);
-  v ^= MirrorMask[sq[0]];
-  if (FlipTest[sq[0]][sq[1]])
-    v = mirror_diagonal_u64(v);
-  memcpy(sq2, &v, 8);
 }
 
 INLINE Bitboard idx_state2_inc(struct IdxState2 *is, const struct RankInfo *ri)
@@ -378,47 +255,6 @@ INLINE void idx_state2_to_sq(const struct IdxState2 *is, uint8_t *restrict sq,
   }
 }
 
-INLINE void idx_state_inc(struct IdxState *is, const struct RankInfo *ri)
-{
-  uint32_t *restrict sub = is->sub;
-  int i = ri->numsets - 1;
-  for (; ++sub[i] >= ri->factor[i] && i > 0; i--)
-    sub[i] = 0;
-  is->n = i;
-}
-
-INLINE void idx_state_add(struct IdxState *is, uint64_t v,
-    const struct RankInfo *restrict ri)
-{
-  uint32_t *restrict sub = is->sub;
-  int i = ri->numsets;
-
-  while (i > 0) {
-    uint64_t s = (uint64_t)sub[--i] + v;
-    uint32_t f = ri->factor[i];
-
-    if (s < f) {
-      sub[i] = s;
-      is->n = i;
-      return;
-    }
-
-    v = divmod_recip(s, f, ri->recip[i], &sub[i]);
-  }
-}
-
-INLINE Bitboard idx_state_to_sq(struct IdxState *is, uint8_t *restrict sq,
-    const struct RankInfo *ri)
-{
-  int i = is->n;
-  Bitboard occ = is->occ[i];
-  for (; i < ri->numsets; i++) {
-    is->occ[i] = occ;
-    occ = unrank_binomial(is->sub[i], ri->mult[i], sq + ri->first[i], occ);
-  }
-  return occ;
-}
-
 void init_ranking(void);
 int rank_mult(uint8_t mult[MAX_SETS]);
 
@@ -439,17 +275,10 @@ bool idx_state2_mate(struct IdxState2 *is, int stm, Bitboard occ);
 bool idx_state2_has_legal_moves(struct IdxState2 *is, int stm, Bitboard occ);
 
 void calc_factors(struct RankInfo *ri, int n);
-uint64_t sq_to_idx(const uint8_t *sq);
-uint64_t sq_to_idx_ref(const uint8_t *sq);
-uint64_t capt_sq_to_idx(const uint8_t *sq, int k);
-void idx_state_init(struct IdxState *is, uint64_t idx, uint8_t *restrict sq,
-    const struct RankInfo *ri);
 
 uint64_t rank_trivial_from(const uint8_t *restrict sq, int k, Bitboard occ,
     const uint8_t *restrict first, const struct RankInfo *ri);
 uint64_t rank_reflection(const uint8_t *restrict sq, Bitboard occ,
     const uint8_t *restrict first, const struct RankInfo *ri);
-Bitboard unrank_reflection(uint64_t idx, uint8_t *restrict sq, Bitboard occ,
-    const struct RankInfo *ri);
 
 #endif

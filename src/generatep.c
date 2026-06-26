@@ -981,40 +981,39 @@ static int merged_to_wdl[9] = {
   4, 3, 2, 1, 0, 3, 2, 1, 0
 };
 
+INLINE uint64_t pawn_push_idx(struct IdxState2 *is, int from, int to)
+{
+  Bitboard bb0 = is->bb[0];
+  is->bb[0] = bb0 ^ bit(from) ^ bit(to);
+  uint64_t idx = rank_bb(is->bb, &ri);
+  is->bb[0] = bb0;
+  return idx;
+}
+
 static void calc_pawn_push_worker(struct ThreadData *thread)
 {
   struct IdxState2 is;
-  Position pos = g_pos;
-  pos.stm = WHITE;
   int s = g_pos.sq[2];
 
-  uint8_t *restrict ilg = k16slice_buf[1] + k16offset(pos.sq);
+  uint8_t *restrict ilg = k16slice_buf[1] + k16offset(g_pos.sq);
   uint8_t *restrict p[5];
   for (int i = 0; i < 5; i++)
-    p[i] = k16slice_buf[2 + i] + k16offset(pos.sq);
+    p[i] = k16slice_buf[2 + i] + k16offset(g_pos.sq);
 
   uint64_t last = thread->begin;
-  idx_state2_init(&is, last, pos.sq, &ri);
+  idx_state2_init(&is, last, g_pos.sq, &ri);
   for (uint64_t idx = last, end = thread->end; idx < end; idx++) {
     if (kslice_bit_test(ilg, idx))
       continue;
     Bitboard occ = idx_state2_add(&is, idx - last, &ri);
     last = idx;
     if (!(occ & bit(s - 8))) {
-      pos.sq[2] = s - 8;
-      occ ^= bit(s) ^ bit(s - 8);
-      idx_state2_to_sq(&is, pos.sq, &ri);
-      pos.occ = occ;
-      // FIXME
-      if (!opp_king_attacked(&pos)) {
-        uint8_t sq2[MAX_PIECES];
-        memcpy(sq2, pos.sq, sizeof sq2);
-        uint64_t idx2 = sq_to_idx(sq2);
-//        uint64_t idx2 = sq_to_idx(pos.sq);
+      Bitboard occ2 = occ ^ bit(s) ^ bit(s - 8);
+      if (idx_state2_legal(&is, WHITE, occ2)) {
+        uint64_t idx2 = pawn_push_idx(&is, s, s - 8);
         int v = merged_to_wdl[merged_table[idx2]];
         kslice_bit_set(p[v], idx);
       }
-      pos.sq[2] = s;
     }
   }
 }
@@ -1051,17 +1050,15 @@ static void calc_pawn_push(void)
 static void calc_pawn_double_push_worker(struct ThreadData *thread)
 {
   struct IdxState2 is;
-  Position pos = g_pos;
-  pos.stm = WHITE;
   int s = g_pos.sq[2];
 
-  uint8_t *restrict ilg = k16slice_buf[1] + k16offset(pos.sq);
+  uint8_t *restrict ilg = k16slice_buf[1] + k16offset(g_pos.sq);
   uint8_t *restrict p[5];
   for (int i = 0; i < 5; i++)
-    p[i] = k16slice_buf[2 + i] + k16offset(pos.sq);
+    p[i] = k16slice_buf[2 + i] + k16offset(g_pos.sq);
 
   uint64_t last = thread->begin;
-  idx_state2_init(&is, last, pos.sq, &ri);
+  idx_state2_init(&is, last, g_pos.sq, &ri);
   for (uint64_t idx = last, end = thread->end; idx < end; idx++) {
     if (kslice_bit_test(ilg, idx))
       continue;
@@ -1069,32 +1066,20 @@ static void calc_pawn_double_push_worker(struct ThreadData *thread)
     last = idx;
     if (!(occ & bit(s - 8))) {
       int v = -1;
-      pos.sq[2] = s - 8;
-      occ ^= bit(s) ^ bit(s - 8);
-      idx_state2_to_sq(&is, pos.sq, &ri);
-      pos.occ = occ;
-      // FIXME
-      if (!opp_king_attacked(&pos)) {
-        uint8_t sq2[MAX_PIECES];
-        memcpy(sq2, pos.sq, sizeof sq2);
-        uint64_t idx2 = sq_to_idx(sq2);
-//        uint64_t idx2 = sq_to_idx(pos.sq);
+      Bitboard occ8 = occ ^ bit(s) ^ bit(s - 8);
+      if (idx_state2_legal(&is, WHITE, occ8)) {
+        uint64_t idx2 = pawn_push_idx(&is, s, s - 8);
         v = merged_to_wdl[merged_table[idx2]];
       }
-      if (!(pos.occ & bit(s - 16))) {
-        pos.sq[2] = s - 16;
-        pos.occ ^= bit(s - 8) ^ bit(s - 16);
-        if (!opp_king_attacked(&pos)) {
-          uint8_t sq2[MAX_PIECES];
-          memcpy(sq2, pos.sq, sizeof sq2);
-          uint64_t idx2 = sq_to_idx(sq2);
-//          uint64_t idx2 = sq_to_idx(pos.sq);
+      if (!(occ8 & bit(s - 16))) {
+        Bitboard occ16 = occ ^ bit(s) ^ bit(s - 16);
+        if (idx_state2_legal(&is, WHITE, occ16)) {
+          uint64_t idx2 = pawn_push_idx(&is, s, s - 16);
           v = max(v, merged_to_wdl[merged_table2[idx2]]);
         }
       }
       if (v >= 0)
         kslice_bit_set(p[v], idx);
-      pos.sq[2] = s;
     }
   }
 }

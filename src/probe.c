@@ -555,6 +555,24 @@ INLINE void sort_squares_mapped(int n, uint8_t *p, const uint8_t *map)
         Swap(p[i], p[j]);
 }
 
+INLINE void normalize(uint8_t *sq)
+{
+  uint64_t v;
+  memcpy(&v, sq, 8);
+  v ^= MirrorMask[sq[0]];
+  if (FlipTest[sq[0]][sq[1]])
+    v = mirror_diagonal_u64(v);
+  memcpy(sq, &v, 8);
+}
+
+INLINE void normalize_quadrant(uint8_t *sq)
+{
+  uint64_t v;
+  memcpy(&v, sq, 8);
+  v ^= MirrorMask[sq[0]];
+  memcpy(sq, &v, 8);
+}
+
 INLINE size_t encode(uint8_t *p, struct EncInfo *ei, struct TbEntry *entry,
     const int lt)
 {
@@ -778,6 +796,53 @@ size_t set_dec_info(struct DecInfo *di, struct TbEntry *entry, uint8_t *pcs,
   di->fac_iter[di->ord_iter[k]] = f / di->factor[di->ord_iter[k]] + 1;
 
   return f;
+}
+
+INLINE Bitboard unrank_binomial(uint64_t idx, int n, uint8_t *restrict sq,
+    Bitboard occ)
+{
+  if (n == 0)
+    return occ;
+
+  assume(n > 0 && n <= MAX_MULT);
+
+  Bitboard b = ~occ;
+
+  if (n == 1) {
+    Bitboard b1 = _pdep_u64(bit(idx), b);
+    occ |= b1;
+    sq[0] = lsb(b1);
+  }
+  else if (n == 2) {
+    Bitboard b1 = _pdep_u64(Unrank2[idx], b);
+    occ |= b1;
+    sq[0] = pop_lsb(&b1);
+    sq[1] = lsb(b1);
+  }
+  else if (n == 3) {
+    Bitboard b1 = _pdep_u64(Unrank3[idx], b);
+    occ |= b1;
+    sq[0] = pop_lsb(&b1);
+    sq[1] = pop_lsb(&b1);
+    sq[2] = lsb(b1);
+  }
+  else {
+    Bitboard b1 = 0;
+    int r = popcnt(b) - 1;
+    for (int i = n - 1; i > 0; i--) {
+      while (idx < Binomial[i + 1][r])
+        r--;
+      idx -= Binomial[i + 1][r];
+      b1 |= bit(r);
+      r--;
+    }
+    b1 = _pdep_u64(b1 | bit(idx), b);
+    occ |= b1;
+    while (b1)
+      *sq++ = pop_lsb(&b1);
+  }
+
+  return occ;
 }
 
 static Bitboard unrank_binomial_mapped(uint64_t idx, int n, uint8_t *restrict sq,
