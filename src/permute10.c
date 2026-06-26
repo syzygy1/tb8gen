@@ -38,6 +38,8 @@ struct P10IdxInfo {
 struct P10IdxState {
   uint32_t sub[MAX_SETS + 1];
   Bitboard occ[MAX_SETS + 1];
+  alignas(64) Bitboard bb[8];
+  uint8_t sq[2];
   int n;
 };
 
@@ -69,16 +71,18 @@ static uint8_t InvSquare[64];
 static int32_t current_size = -1;
 
 void p10_idx_state_init(struct P10IdxState *is, uint64_t idx,
-    uint8_t *restrict sq, const struct P10IdxInfo *ii, int stm)
+    const struct P10IdxInfo *ii, int stm)
 {
   for (int k = ii->numsets - 1; k > 0; k--) {
     is->sub[k] = idx % ii->factor[k];
     idx /= ii->factor[k];
   }
   is->sub[0] = idx;
-  sq[stm ^ 1] = InvSquare[is->sub[ii->k2]];
+  is->sq[stm] = g_pos.sq[stm];
+  is->sq[stm ^ 1] = InvSquare[is->sub[ii->k2]];
   is->n = 0;
-  is->occ[0] = bit(sq[0]) | bit(sq[1]);
+  is->bb[0] = bit(is->sq[0]) | bit(is->sq[1]);
+  is->occ[0] = is->bb[0];
 }
 
 INLINE void p10_idx_state_inc(struct P10IdxState *is,
@@ -91,34 +95,62 @@ INLINE void p10_idx_state_inc(struct P10IdxState *is,
   is->n = i <= ii->k2 ? 0 : i;
 }
 
-void p10_idx_state_to_sq(struct P10IdxState *is, uint8_t *restrict sq,
-    const struct P10IdxInfo *ii, int stm)
+void p10_idx_state_to_bb(struct P10IdxState *is, const struct P10IdxInfo *ii,
+    int stm)
 {
   int i = is->n;
   Bitboard occ;
 
   if (i == 0) {
-    sq[stm ^ 1] = InvSquare[is->sub[ii->k2]];
-    occ = bit(sq[0]) | bit(sq[1]);
+    is->sq[stm ^ 1] = InvSquare[is->sub[ii->k2]];
+    occ = bit(is->sq[0]) | bit(is->sq[1]);
+    is->bb[0] = occ;
     is->occ[0] = occ;
   } else
     occ = is->occ[i];
 
   for (; i < ii->numsets; i++) {
     is->occ[i] = occ;
-    occ = unrank_binomial(is->sub[i], ii->mult[i], sq + ii->first[i], occ);
+    if (ii->mult[i] == 0) {
+      is->bb[i + 1] = 0;
+      continue;
+    }
+    is->bb[i + 1] = unrank_binomial2(is->sub[i], ii->mult[i], occ);
+    occ |= is->bb[i + 1];
   }
 }
 
-uint64_t p10_sq_to_idx(uint8_t *restrict sq, int k2sq)
+static void init_source_rank_ri_10(struct RankInfo *rank_ri,
+    const struct P10IdxInfo *perm_ii)
+{
+  *rank_ri = ri;
+  for (int k = 0; k < ri.numsets; k++) {
+    int j = 0;
+    for (; j < perm_ii->numsets; j++)
+      if (perm_ii->mult[j] && ri.first[k] == perm_ii->first[j])
+        break;
+    assert(j < perm_ii->numsets);
+    rank_ri->perm[k] = j + 1;
+  }
+}
+
+uint64_t p10_bb_to_idx(struct P10IdxState *is,
+    const struct RankInfo *rank_ri, int k2sq)
 {
   assert(P10Square[k2sq] != 0xff);
 
-  Bitboard occ = bit(sq[0]) | bit(sq[1]);
+  alignas(64) Bitboard bb[8];
+  const Bitboard *set_bb = is->bb;
+  int t = KK_transform[is->sq[0]][is->sq[1]];
+  if (t) {
+    transform_set_bb(t, is->bb, bb);
+    set_bb = bb;
+  }
+
   uint64_t idx = P10Square[k2sq];
   return  !P10Ref[k2sq]
-        ? sq_to_idx_helper(sq, idx, occ, &ri)
-        : idx * kslice_size + rank_reflection(sq, occ, ri.first, &ri);
+        ? perm_rank_bb_from(set_bb, idx, 0, set_bb[0], rank_ri)
+        : idx * kslice_size + perm_rank_bb_ref(set_bb, rank_ri);
 }
 
 static void generate_set_perms_helper(int n, int k)

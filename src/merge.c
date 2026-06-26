@@ -111,9 +111,9 @@ static void find_position(int s, int stm, bool loss, bool cursed)
   Position pos = g_pos;
   pos.stm = stm ^ loss;
   if (s < 441) {
-    struct IdxState is;
-    idx_state_init(&is, idx, pos.sq, &ri);
-    idx_state_to_sq(&is, pos.sq, &ri);
+    struct IdxState2 is;
+    idx_state2_init(&is, idx, pos.sq, &ri);
+    idx_state2_to_sq(&is, pos.sq, &ri);
   } else {
     Bitboard occ = bit(pos.sq[0]) | bit(pos.sq[1]);
     unrank_reflection(idx, pos.sq, occ, &ri);

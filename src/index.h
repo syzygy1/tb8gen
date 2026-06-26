@@ -23,6 +23,7 @@ struct RankInfo {
   uint8_t first[MAX_SETS];
   uint8_t mult[MAX_SETS];
   uint8_t last[MAX_SETS];
+  uint8_t perm[MAX_SETS];
   uint8_t transition_id[MAX_SETS];
   uint32_t factor[MAX_SETS];
   uint64_t recip[MAX_SETS];
@@ -54,7 +55,6 @@ struct IdxState2 {
   Bitboard bb[8];
   uint32_t sub[MAX_SETS + 1];
   uint8_t sq[3];
-  int n;
 };
 
 extern struct RankInfo ri, capt_ri[MAX_SETS];
@@ -426,12 +426,17 @@ void transform_set_bb(int t, Bitboard *set_bb, Bitboard *set_bb2);
 uint64_t rank_bb(const Bitboard *set_bb, const struct RankInfo *ri);
 uint64_t rank_bb_from(const Bitboard *set_bb, uint64_t idx, int k, Bitboard occ,
     const struct RankInfo *ri);
+uint64_t perm_rank_bb(const Bitboard *set_bb, const struct RankInfo *ri);
+uint64_t perm_rank_bb_from(const Bitboard *set_bb, uint64_t idx, int k,
+    Bitboard occ, const struct RankInfo *ri);
 uint64_t rank_bb_ref(const Bitboard *set_bb, const struct RankInfo *ri);
+uint64_t perm_rank_bb_ref(const Bitboard *set_bb, const struct RankInfo *ri);
 uint64_t unrank_bb_ref(uint64_t idx, Bitboard *set_bb,
     const struct RankInfo *ri);
 Bitboard idx_state2_init(struct IdxState2 *is, uint64_t idx,
     const  uint8_t *restrict sq, const struct RankInfo *ri);
 bool idx_state2_mate(struct IdxState2 *is, int stm, Bitboard occ);
+bool idx_state2_has_legal_moves(struct IdxState2 *is, int stm, Bitboard occ);
 
 void calc_factors(struct RankInfo *ri, int n);
 uint64_t sq_to_idx(const uint8_t *sq);

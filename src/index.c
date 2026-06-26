@@ -529,8 +529,9 @@ INLINE uint64_t rank_bb_from_helper(const Bitboard *restrict set_bb,
     uint64_t idx, int k, Bitboard occ, const struct RankInfo *ri)
 {
   for (; k < ri->numsets; k++) {
-    Bitboard b = _pext_u64(set_bb[k + 1], ~occ);
-    occ |= set_bb[k + 1];
+    Bitboard bb = set_bb[k + 1];
+    Bitboard b = _pext_u64(bb, ~occ);
+    occ |= bb;
     size_t s = 0;
     for (int j = 1; b; j++)
       s += Binomial[j][pop_lsb(&b)];
@@ -545,12 +546,36 @@ uint64_t rank_bb_from(const Bitboard *restrict set_bb, uint64_t idx, int k,
   return rank_bb_from_helper(set_bb, idx, k, occ, ri);
 }
 
-// Directly operating on struct IdxState2 might be even better:
-// Bitboard b = _pext_u64(is->set_bb[k + 1], ~is->set_bb[k]);
-// No need to keep track of occ.
 uint64_t rank_bb(const Bitboard *restrict set_bb, const struct RankInfo *ri)
 {
   return rank_bb_from_helper(set_bb, 0, 0, set_bb[0], ri);
+}
+
+INLINE uint64_t perm_rank_bb_from_helper(const Bitboard *restrict set_bb,
+    uint64_t idx, int k, Bitboard occ, const struct RankInfo *ri)
+{
+  for (; k < ri->numsets; k++) {
+    Bitboard bb = set_bb[ri->perm[k]];
+    Bitboard b = _pext_u64(bb, ~occ);
+    occ |= bb;
+    size_t s = 0;
+    for (int j = 1; b; j++)
+      s += Binomial[j][pop_lsb(&b)];
+    idx = idx * ri->factor[k] + s;
+  }
+  return idx;
+}
+
+// FIXME: necessary?
+uint64_t perm_rank_bb_from(const Bitboard *restrict set_bb, uint64_t idx, int k,
+    Bitboard occ, const struct RankInfo *ri)
+{
+  return perm_rank_bb_from_helper(set_bb, idx, k, occ, ri);
+}
+
+uint64_t perm_rank_bb(const Bitboard *restrict set_bb, const struct RankInfo *ri)
+{
+  return perm_rank_bb_from_helper(set_bb, 0, 0, set_bb[0], ri);
 }
 
 uint64_t sq_to_idx(const uint8_t *restrict sq)
@@ -589,13 +614,11 @@ Bitboard idx_state2_init(struct IdxState2 *is, uint64_t idx,
 {
   for (int k = ri->numsets - 1; k >= 0; k--)
     idx = divmod_recip(idx, ri->factor[k], ri->recip[k], &is->sub[k]);
-  is->n = 0;
   is->sq[0] = sq[0];
   is->sq[1] = sq[1];
   if (has_pawns)
     is->sq[2] = sq[2];
-  is->occ[0] = has_pawns ? bit(sq[0]) | bit(sq[1]) | bit(sq[2])
-                         : bit(sq[0]) | bit(sq[1]);
+  is->occ[0] = bit(sq[0]) | bit(sq[1]) | (has_pawns ? bit(sq[2]) : 0);
   is->bb[0] = is->occ[0];
   for (int i = 0; i < ri->numsets; i++) {
     is->bb[i + 1] = unrank_binomial2(is->sub[i], ri->mult[i], is->occ[i]);
@@ -666,7 +689,7 @@ bool idx_state2_mate(struct IdxState2 *is, int stm, Bitboard occ)
   Bitboard new_occ = occ ^ bit(ksq);
   while (b) {
     int to = pop_lsb(&b);
-    if (sq_attacked_by(is, to, stm ^ 1, new_occ | bit(to)))
+    if (sq_attacked_by(is, to, stm ^ 1, new_occ))
       continue;
     if (!(occ & bit(to)))
       return false;
@@ -716,6 +739,56 @@ bool idx_state2_mate(struct IdxState2 *is, int stm, Bitboard occ)
       return false;
   }
   return true;
+}
+
+// Test legality of both quiet moves and captures to squares in b.
+INLINE bool legal_move(struct IdxState2 *is, Bitboard b, int ksq, int stm,
+    Bitboard occ)
+{
+  while (b) {
+    Bitboard to_bb = b & -b;
+    if (!sq_attacked_by(is, ksq, stm ^ 1, occ | to_bb))
+      return true;
+    b ^= to_bb;
+  }
+  return false;
+}
+
+bool idx_state2_has_legal_moves(struct IdxState2 *is, int stm, Bitboard occ)
+{
+  // Allowed squares are the empty and enemy squares.
+  Bitboard allowed = ~occ;
+  if (has_pawns && stm == WHITE)
+     allowed |= bit(is->sq[2]);
+  for (int i = 0; g_sets[stm ^ 1][i] >= 0; i++)
+    allowed |= is->bb[g_sets[stm ^ 1][i] + 1];
+
+  int ksq = is->sq[stm];
+
+  if (has_pawns && stm == BLACK) {
+    Bitboard b =   piece_moves(BPAWN, is->sq[2], occ)
+                | (pawn_attacks(BLACK, is->sq[2]) & occ & allowed);
+    if (legal_move(is, b, ksq, stm, occ ^ bit(is->sq[2])))
+      return true;
+  }
+  for (int i = 0; g_sets[stm][i] >= 0; i++) {
+    int k = g_sets[stm][i];
+    Bitboard bb = is->bb[k + 1];
+    while (bb) {
+      int from = pop_lsb(&bb);
+      Bitboard b = non_king_piece_attacks(g_set_pt[k], from, occ) & allowed;
+      if (legal_move(is, b, ksq, stm, occ ^ bit(from)))
+        return true;
+    }
+  }
+  Bitboard b = king_attacks(ksq) & ~king_attacks(is->sq[stm ^ 1]) & allowed;
+  Bitboard new_occ = occ ^ bit(ksq);
+  while (b) {
+    int to = pop_lsb(&b);
+    if (!sq_attacked_by(is, to, stm ^ 1, new_occ))
+      return true;
+  }
+  return false;
 }
 
 void idx_state_init(struct IdxState *is, uint64_t idx, uint8_t *restrict sq,
@@ -852,7 +925,8 @@ uint64_t rank_reflection(const uint8_t *restrict sq, Bitboard occ,
   return rank;
 }
 
-uint64_t rank_bb_ref(const Bitboard *set_bb, const struct RankInfo *ri)
+INLINE uint64_t rank_bb_ref_tmpl(const Bitboard *set_bb,
+    const struct RankInfo *ri, const bool permute)
 {
   alignas(64) Bitboard mirror_bb[8];
   __m512i x = _mm512_load_si512((__m512i *)set_bb);
@@ -866,8 +940,8 @@ uint64_t rank_bb_ref(const Bitboard *set_bb, const struct RankInfo *ri)
 
   uint64_t rank = 0;
   for (int k = 0; k < ri->numsets; k++) {
-    occ |= set_bb[k + 1];
-    mirror_occ |= mirror_bb[k + 1];
+    occ |= permute ? set_bb[ri->perm[k]] : set_bb[k + 1];
+    mirror_occ |= permute ? mirror_bb[ri->perm[k]] : mirror_bb[k + 1];
     int tid = ri->transition_id[k];
 
     Bitboard full_mask = occ & mirror_occ  & pair_mask;
@@ -905,7 +979,9 @@ uint64_t rank_bb_ref(const Bitboard *set_bb, const struct RankInfo *ri)
         occ = mirror_occ;
         set_bb = mirror_bb;
       }
-      return rank + rank_bb_from_helper(set_bb, 0, k + 1, occ, ri);
+      return  permute
+            ? rank + perm_rank_bb_from_helper(set_bb, 0, k + 1, occ, ri)
+            : rank + rank_bb_from_helper(set_bb, 0, k + 1, occ, ri);
     }
 
     rank += rank_combination(occ, diag_mask) * c->diag_tail;
@@ -913,6 +989,16 @@ uint64_t rank_bb_ref(const Bitboard *set_bb, const struct RankInfo *ri)
     s = popcnt(diag_mask);
   }
   return rank;
+}
+
+uint64_t rank_bb_ref(const Bitboard *set_bb, const struct RankInfo *ri)
+{
+  return rank_bb_ref_tmpl(set_bb, ri, false);
+}
+
+uint64_t perm_rank_bb_ref(const Bitboard *set_bb, const struct RankInfo *ri)
+{
+  return rank_bb_ref_tmpl(set_bb, ri, true);
 }
 
 uint64_t sq_to_idx_ref(const uint8_t *restrict sq)
@@ -1034,7 +1120,7 @@ Bitboard unrank_reflection(uint64_t idx, uint8_t *restrict sq, Bitboard occ,
   return occ;
 }
 
-Bitboard unrank_bb_ref(uint64_t idx, Bitboard *set_bb,
+Bitboard unrank_bb_ref_tmpl(uint64_t idx, Bitboard *set_bb,
     const struct RankInfo *ri)
 {
   Bitboard occ = set_bb[0];
@@ -1110,4 +1196,10 @@ Bitboard unrank_bb_ref(uint64_t idx, Bitboard *set_bb,
     return occ;
   }
   return occ;
+}
+
+Bitboard unrank_bb_ref(uint64_t idx, Bitboard *set_bb,
+    const struct RankInfo *ri)
+{
+  return unrank_bb_ref_tmpl(idx, set_bb, ri);
 }
