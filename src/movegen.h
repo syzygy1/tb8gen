@@ -1,5 +1,5 @@
 /*
-  Copyright (c) 2011-2013, 2025 Ronald de Man
+  Copyright (c) 2011-2013, 2025, 2026 Ronald de Man
 
   This file is distributed under the terms of the GNU GPL, version 2.
 */
@@ -22,23 +22,14 @@ enum {
 };
 
 struct Position {
+  Bitboard bb[8];
   Bitboard occ;
-  uint8_t sq[12];
-  int num;
-  int pt[12];
+  int pt[8];
+  int numsets;
   int stm;
-  int8_t pcs[2][8];
 };
 
 typedef struct Position Position;
-
-struct Position2 {
-  int stm;
-  uint8_t mult[MAX_SETS];
-  uint8_t pt[MAX_SETS];
-};
-
-typedef struct Position2 Position2;
 
 extern const char PieceChar[];
 extern Bitboard KnightAttacks[64], KingAttacks[64];
@@ -149,12 +140,15 @@ INLINE Bitboard piece_moves(int pt, int sq, Bitboard occ)
 #ifndef HAS_PAWNS
     unreachable();
 #endif
-    Bitboard b = 0;
-    int fwd = (pt & 8) ? -8 : 8;
-    if (!(bit(sq + fwd) & occ)) {
-      b = bit(sq + fwd);
-      if (rank18(sq - fwd) && !(bit(sq + 2 * fwd) & occ))
-	b |= bit(sq + 2 * fwd);
+    Bitboard b = bit(sq);
+    if (pt & 8) {
+      b = (b >> 8) & ~occ;
+      if (sq >= 48)
+        b |= (b >> 8) & ~occ;
+    } else {
+      b = (b << 8) & ~occ;
+      if (sq < 16)
+        b |= (b << 8) & ~occ;
     }
     return b;
   case KNIGHT:

@@ -328,18 +328,22 @@ void init_generation_work(void)
 static void calc_sub_worker(struct ThreadData *thread)
 {
   struct IdxState2 is;
-  Position pos = g_pos;
   int k = work_set;
   int m = ri.last[k];
-  int n = --pos.num;
   uint64_t cnt = 0;
 
+  Position pos = g_pos;
+  pos.sq[0] = g_slice.sq[0];
+  pos.sq[1] = g_slice.sq[1];
+  pos.stm = g_slice.stm;
+  int n = --pos.num;
   pos.pt[m] = pos.pt[n];
   uint8_t *restrict p[5];
   for (int i = 0; i < 5; i++)
     p[i] = kslice_sub_buf[i] + sub_offset[k];
 
-  Bitboard occ = idx_state2_init(&is, thread->begin, pos.sq, &capt_ri[k]);
+  Bitboard occ = idx_state2_init(&is, thread->begin, g_slice.sq, &capt_ri[k],
+      false);
   for (uint64_t idx = thread->begin, end = thread->end; idx < end;
       idx++, occ = idx_state2_inc(&is, &capt_ri[k]))
   {
@@ -385,7 +389,7 @@ static void calc_sub_kslices(int stm)
     create_dir(-1, stm, name[i]);
   }
 
-  g_pos.stm = stm;
+  g_slice.stm = stm;
 
   for (int s = 0; s < 462; s++) {
     show_progress(phase, s, 462, false);
@@ -402,11 +406,11 @@ static void calc_sub_kslices(int stm)
       for (int t = 0; t < g_num_threads; t++)
         g_thread_data[t].cnt = 0;
 
-      g_pos.sq[0] = KKSquare[s][0];
-      g_pos.sq[1] = KKSquare[s][1];
+      g_slice.sq[0] = KKSquare[s][0];
+      g_slice.sq[1] = KKSquare[s][1];
 
       for (int k = 0; k < ri.numsets; k++) {
-        if ((g_pos.pt[ri.first[k]] >> 3) != stm)
+        if ((g_set_pt[k] >> 3) != stm)
           continue;
         work_set = k;
         run_threaded(calc_sub_worker, &work_capt_dynamic[k]);
@@ -444,9 +448,7 @@ static bool work_legality;
 static void predecessors_sub_worker(struct ThreadData *thread)
 {
   struct IdxState2 is;
-  Position pos = g_pos;
-  int stm = pos.stm;
-  pos.stm ^= 1;
+  int stm = g_slice.stm;
   int k = work_set;
   int s = work_slice;
   bool legality = work_legality;
@@ -456,7 +458,7 @@ static void predecessors_sub_worker(struct ThreadData *thread)
   uint8_t *restrict const q = kslice_get_address(s);
 
   uint64_t last = thread->begin;
-  idx_state2_init(&is, last, pos.sq, &capt_ri[k]);
+  idx_state2_init(&is, last, g_slice.sq, &capt_ri[k], false);
 
   if (s < 441) {
     for (uint64_t idx = last, end = thread->end; idx < end; idx += 64) {
@@ -465,7 +467,7 @@ static void predecessors_sub_worker(struct ThreadData *thread)
         uint64_t cur = idx + pop_lsb(&w);
         Bitboard occ = idx_state2_add(&is, cur - last, &capt_ri[k]);
         last = cur;
-        if (legality && !idx_state2_legal(&is, pos.stm, occ))
+        if (legality && !idx_state2_legal(&is, stm ^ 1, occ))
           continue;
         // Uncapture by king.
         mark_king_uncaptures(stm, k, occ, &is);
@@ -483,7 +485,7 @@ static void predecessors_sub_worker(struct ThreadData *thread)
         uint64_t cur = idx + pop_lsb(&w);
         Bitboard occ = idx_state2_add(&is, cur - last, &capt_ri[k]);
         last = cur;
-        if (legality && !idx_state2_legal(&is, pos.stm, occ))
+        if (legality && !idx_state2_legal(&is, stm ^ 1, occ))
           continue;
         // Uncapture by king.
         mark_king_uncaptures(stm, k, occ, &is);
@@ -503,9 +505,9 @@ static void predecessors_sub(int stm, int s, bool legality)
   work_slice = s;
   work_legality = legality;
 
-  g_pos.stm = stm;
-  g_pos.sq[0] = KKSquare[s][0];
-  g_pos.sq[1] = KKSquare[s][1];
+  g_slice.stm = stm;
+  g_slice.sq[0] = KKSquare[s][0];
+  g_slice.sq[1] = KKSquare[s][1];
 
   // Loop through the sets from which a piece is removed.
   for (int k = 0; k < ri.numsets; k++) {
@@ -692,11 +694,10 @@ static void calc_capt_bloss(int stm)
   show_progress(phase, 462, 462, true);
 }
 
-static void predecessors_worker(struct ThreadData *thread)
+INLINE void predecessors_worker_tmpl(struct ThreadData *thread, const bool ref)
 {
   struct IdxState2 is;
-  Position pos = g_pos;
-  int stm = pos.stm;
+  int stm = g_slice.stm;
   int s = work_slice;
 
   uint64_t *restrict p = (uint64_t *)kslice_get_address(-1);
@@ -704,59 +705,40 @@ static void predecessors_worker(struct ThreadData *thread)
 
   p += thread->begin >> 6;
   uint64_t last = thread->begin;
-  idx_state2_init(&is, last, pos.sq, &ri);
+  idx_state2_init(&is, last, g_slice.sq, &ri, ref);
   for (uint64_t idx = last, end = thread->end; idx < end; idx += 64) {
     uint64_t w = *p++;
     while (w) {
       uint64_t cur = idx + pop_lsb(&w);
-      Bitboard occ = idx_state2_add(&is, cur - last, &ri);
+      Bitboard occ = ref ? unrank_bb_ref(cur, is.bb, &ri)
+        : idx_state2_add(&is, cur - last, &ri);
       last = cur;
       mark_king_unmoves(stm, occ, &is);
-      mark_unmoves(stm, KNIGHT, q, occ, &is, false);
-      mark_unmoves(stm, BISHOP, q, occ, &is, false);
-      mark_unmoves(stm, ROOK  , q, occ, &is, false);
-      mark_unmoves(stm, QUEEN , q, occ, &is, false);
+      mark_unmoves(stm, KNIGHT, q, occ, &is, ref);
+      mark_unmoves(stm, BISHOP, q, occ, &is, ref);
+      mark_unmoves(stm, ROOK  , q, occ, &is, ref);
+      mark_unmoves(stm, QUEEN , q, occ, &is, ref);
     }
   }
 }
 
+static void predecessors_worker(struct ThreadData *thread)
+{
+  predecessors_worker_tmpl(thread, false);
+}
+
 static void predecessors_ref_worker(struct ThreadData *thread)
 {
-  struct IdxState2 is;
-  Position pos = g_pos;
-  int stm = pos.stm;
-  int s = work_slice;
-
-  is.sq[0] = pos.sq[0];
-  is.sq[1] = pos.sq[1];
-  is.occ[0] = is.bb[0] = bit(pos.sq[0]) | bit(pos.sq[1]);
-
-  uint64_t *restrict p = (uint64_t *)kslice_get_address(-1);
-  uint8_t *restrict const q = kslice_get_address(s);
-
-  p += thread->begin >> 6;
-  uint64_t last = thread->begin;
-  for (uint64_t idx = last, end = thread->end; idx < end; idx += 64) {
-    uint64_t w = *p++;
-    while (w) {
-      uint64_t cur = idx + pop_lsb(&w);
-      Bitboard occ = unrank_bb_ref(cur, is.bb, &ri);
-      mark_king_unmoves(stm, occ, &is);
-      mark_unmoves(stm, KNIGHT, q, occ, &is, true);
-      mark_unmoves(stm, BISHOP, q, occ, &is, true);
-      mark_unmoves(stm, ROOK  , q, occ, &is, true);
-      mark_unmoves(stm, QUEEN , q, occ, &is, true);
-    }
-  }
+  predecessors_worker_tmpl(thread, true);
 }
 
 // Calculate stm predecessors of stm^1 positions in scratch.
 static void predecessors(int stm, int s)
 {
   work_slice = s;
-  g_pos.stm = stm;
-  g_pos.sq[0] = KKSquare[s][0];
-  g_pos.sq[1] = KKSquare[s][1];
+  g_slice.stm = stm;
+  g_slice.sq[0] = KKSquare[s][0];
+  g_slice.sq[1] = KKSquare[s][1];
 
   if (s < 441)
     run_threaded(predecessors_worker, &work_g_dynamic[0]);
@@ -764,11 +746,11 @@ static void predecessors(int stm, int s)
     run_threaded(predecessors_ref_worker, &work_g_dynamic[1]);
 }
 
-static void check_successors_worker(struct ThreadData *thread)
+INLINE void check_successors_worker_tmpl(struct ThreadData *thread,
+    const bool ref)
 {
   struct IdxState2 is;
-  Position pos = g_pos;
-  int stm = pos.stm;
+  int stm = g_slice.stm;
   int s = work_slice;
   uint64_t cnt = 0;
 
@@ -777,7 +759,7 @@ static void check_successors_worker(struct ThreadData *thread)
 
   p += thread->begin >> 6;
   uint64_t last = thread->begin;
-  idx_state2_init(&is, last, pos.sq, &ri);
+  idx_state2_init(&is, last, g_slice.sq, &ri, ref);
   for (uint64_t idx = last, end = thread->end; idx < end; idx += 64, p++) {
     uint64_t w = *p;
     if (!w) continue;
@@ -785,15 +767,16 @@ static void check_successors_worker(struct ThreadData *thread)
     while (w) {
       unsigned bt = pop_lsb(&w);
       uint64_t cur = idx + bt;
-      Bitboard occ = idx_state2_add(&is, cur - last, &ri);
+      Bitboard occ = ref ? unrank_bb_ref(cur, is.bb, &ri)
+        : idx_state2_add(&is, cur - last, &ri);
       last = cur;
       // Legality check not necessary if we already removed illegal positions.
       // Currently, we need to test.
       if (   !idx_state2_legal(&is, stm, occ)
-          || !check_moves(stm, QUEEN , s, q, occ, &is, false)
-          || !check_moves(stm, ROOK  , s, q, occ, &is, false)
-          || !check_moves(stm, BISHOP, s, q, occ, &is, false)
-          || !check_moves(stm, KNIGHT, s, q, occ, &is, false)
+          || !check_moves(stm, QUEEN , s, q, occ, &is, ref)
+          || !check_moves(stm, ROOK  , s, q, occ, &is, ref)
+          || !check_moves(stm, BISHOP, s, q, occ, &is, ref)
+          || !check_moves(stm, KNIGHT, s, q, occ, &is, ref)
           || !check_king_moves(stm, occ, &is))
         w2 ^= bit(bt);
     }
@@ -804,46 +787,14 @@ static void check_successors_worker(struct ThreadData *thread)
   thread->cnt += cnt;
 }
 
+static void check_successors_worker(struct ThreadData *thread)
+{
+  check_successors_worker_tmpl(thread, false);
+}
+
 static void check_successors_ref_worker(struct ThreadData *thread)
 {
-  struct IdxState2 is;
-  Position pos = g_pos;
-  int stm = pos.stm;
-  int s = work_slice;
-  uint64_t cnt = 0;
-
-  is.sq[0] = pos.sq[0];
-  is.sq[1] = pos.sq[1];
-  is.occ[0] = is.bb[0] = bit(pos.sq[0]) | bit(pos.sq[1]);
-
-  uint64_t *restrict p = (uint64_t *)kslice_get_address(-1);
-  uint8_t *restrict const q = kslice_get_address(s);
-
-  p += thread->begin >> 6;
-  uint64_t last = thread->begin;
-  for (uint64_t idx = last, end = thread->end; idx < end; idx += 64, p++) {
-    uint64_t w = *p;
-    if (!w) continue;
-    uint64_t w2 = w;
-    while (w) {
-      unsigned bt = pop_lsb(&w);
-      uint64_t cur = idx + bt;
-      Bitboard occ = unrank_bb_ref(cur, is.bb, &ri);
-      // Legality check not necessary if we already removed illegal positions.
-      // Currently, we need to test.
-      if (   !idx_state2_legal(&is, stm, occ)
-          || !check_moves(stm, QUEEN , s, q, occ, &is, true)
-          || !check_moves(stm, ROOK  , s, q, occ, &is, true)
-          || !check_moves(stm, BISHOP, s, q, occ, &is, true)
-          || !check_moves(stm, KNIGHT, s, q, occ, &is, true)
-          || !check_king_moves(stm, occ, &is))
-        w2 ^= bit(bt);
-    }
-    *p = w2;
-    cnt += popcnt(w2);
-  }
-
-  thread->cnt += cnt;
+  check_successors_worker_tmpl(thread, true);
 }
 
 // Verify stm positions as loss against stm^1 positions and return the
@@ -851,9 +802,9 @@ static void check_successors_ref_worker(struct ThreadData *thread)
 static uint64_t check_successors(int stm, int s)
 {
   work_slice = s;
-  g_pos.stm = stm;
-  g_pos.sq[0] = KKSquare[s][0];
-  g_pos.sq[1] = KKSquare[s][1];
+  g_slice.stm = stm;
+  g_slice.sq[0] = KKSquare[s][0];
+  g_slice.sq[1] = KKSquare[s][1];
 
   for (int t = 0; t < g_num_threads; t++)
     g_thread_data[t].cnt = 0;
@@ -874,13 +825,14 @@ static void calc_illegal_worker_tmpl(struct ThreadData *thread, const int pc,
     const bool ref)
 {
   struct IdxState2 is;
-  int stm = g_pos.stm;
+  int stm = g_slice.stm;
   int k = g_piece_set[stm][pc];
-  int ksq = g_pos.sq[stm ^ 1];
+  int ksq = g_slice.sq[stm ^ 1];
 
   uint8_t *restrict const p = kslice_buf[stm];
 
-  Bitboard occ = idx_state2_init(&is, thread->begin, g_pos.sq, &capt_ri[k]);
+  Bitboard occ = idx_state2_init(&is, thread->begin, g_slice.sq, &capt_ri[k],
+      false);
 
   for (uint64_t idx = thread->begin, end = thread->end; idx < end;
       idx++, occ = idx_state2_inc(&is, &capt_ri[k]))
@@ -929,10 +881,9 @@ static void calc_illegal_queen_ref_worker(struct ThreadData *thread)
   calc_illegal_worker_tmpl(thread, QUEEN, true);
 }
 
-static void calc_mate_worker(struct ThreadData *thread)
+INLINE void calc_mate_worker_tmpl(struct ThreadData *thread, const bool ref)
 {
   struct IdxState2 is;
-  Position pos = g_pos;
 
   uint64_t *restrict p0 = (uint64_t *)kslice_buf[0];
   uint64_t *restrict p1 = (uint64_t *)kslice_buf[1];
@@ -944,7 +895,7 @@ static void calc_mate_worker(struct ThreadData *thread)
   p1 += last >> 6;
   q0 += last >> 6;
   q1 += last >> 6;
-  idx_state2_init(&is, last, pos.sq, &ri);
+  idx_state2_init(&is, last, g_slice.sq, &ri, ref);
   for (uint64_t idx = last, end = thread->end; idx < end;
       idx += 64, p0++, p1++, q0++, q1++)
   {
@@ -954,7 +905,8 @@ static void calc_mate_worker(struct ThreadData *thread)
     while (w) {
       unsigned bt = pop_lsb(&w);
       uint64_t cur = idx + bt;
-      Bitboard occ = idx_state2_add(&is, cur - last, &ri);
+      Bitboard occ = ref ? unrank_bb_ref(cur, is.bb, &ri)
+        : idx_state2_add(&is, cur - last, &ri);
       last = cur;
       if (*p1 & bit(bt)) {
         if (idx_state2_mate(&is, WHITE, occ))
@@ -969,46 +921,14 @@ static void calc_mate_worker(struct ThreadData *thread)
   }
 }
 
+static void calc_mate_worker(struct ThreadData *thread)
+{
+  calc_mate_worker_tmpl(thread, false);
+}
+
 static void calc_mate_ref_worker(struct ThreadData *thread)
 {
-  struct IdxState2 is;
-  Position pos = g_pos;
-
-  is.sq[0] = pos.sq[0];
-  is.sq[1] = pos.sq[1];
-  is.occ[0] = is.bb[0] = bit(pos.sq[0]) | bit(pos.sq[1]);
-
-  uint64_t *restrict p0 = (uint64_t *)kslice_buf[0];
-  uint64_t *restrict p1 = (uint64_t *)kslice_buf[1];
-  uint64_t *restrict q0 = (uint64_t *)kslice_buf[2];
-  uint64_t *restrict q1 = (uint64_t *)kslice_buf[3];
-
-  uint64_t last = thread->begin;
-  p0 += last >> 6;
-  p1 += last >> 6;
-  q0 += last >> 6;
-  q1 += last >> 6;
-  for (uint64_t idx = last, end = thread->end; idx < end;
-      idx += 64, p0++, p1++, q0++, q1++)
-  {
-    uint64_t w = *p0 ^ *p1;
-    if (!w) continue;
-    uint64_t white = 0, black = 0;
-    while (w) {
-      unsigned bt = pop_lsb(&w);
-      uint64_t cur = idx + bt;
-      Bitboard occ = unrank_bb_ref(cur, is.bb, &ri);
-      if (*p1 & bit(bt)) {
-        if (idx_state2_mate(&is, WHITE, occ))
-          white |= bit(bt);
-      } else {
-        if (idx_state2_mate(&is, BLACK, occ))
-          black |= bit(bt);
-      }
-    }
-    *q0 = white;
-    *q1 = black;
-  }
+  calc_mate_worker_tmpl(thread, true);
 }
 
 // Calc illegal and mate (L0) positions.
@@ -1050,15 +970,15 @@ static void calc_illegal_and_mate(void)
       }
     }
 
-    g_pos.sq[0] = KKSquare[s][0];
-    g_pos.sq[1] = KKSquare[s][1];
+    g_slice.sq[0] = KKSquare[s][0];
+    g_slice.sq[1] = KKSquare[s][1];
 
     kslice_clear_addr(kslice_buf[0], s); // wtm illegal
     kslice_clear_addr(kslice_buf[1], s); // btm illegal
 
     for (int stm = 0; stm < 2; stm++) {
       int k;
-      g_pos.stm = stm;
+      g_slice.stm = stm;
       if (s < 441) {
         if ((k = g_piece_set[stm][KNIGHT]) >= 0)
           run_threaded(calc_illegal_knight_worker, &work_capt_dynamic[k]);

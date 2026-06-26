@@ -433,9 +433,9 @@ static void join_wdl_462(int stm)
     if (file_exists(name))
       continue;
 
-    g_pos.sq[0] = KKSquare[s][0];
-    g_pos.sq[1] = KKSquare[s][1];
-    g_pos.stm = stm;
+    g_slice.sq[0] = KKSquare[s][0];
+    g_slice.sq[1] = KKSquare[s][1];
+    g_slice.stm = stm;
 
     create_name(str, s, stm, "merged/wdl", -1);
     bool has_capt_bloss = read_wdl_slice(str, table, kslice_sizes[s >= 441]);
@@ -505,9 +505,9 @@ static void join_dtz_462(int stm)
     if (file_exists(name))
       continue;
 
-    g_pos.sq[0] = KKSquare[s][0];
-    g_pos.sq[1] = KKSquare[s][1];
-    g_pos.stm = stm;
+    g_slice.sq[0] = KKSquare[s][0];
+    g_slice.sq[1] = KKSquare[s][1];
+    g_slice.stm = stm;
 
     create_name(str, s, stm, "stats", -1);
     FILE *F = file_open_read(str);
@@ -604,9 +604,9 @@ void join_final_462(int type)
   }
 
   *p++ = 1; // version number
-  *p++ = g_pos.num;
-  for (int i = 2; i < g_pos.num; i++)
-    *p++ = (g_pos.pt[i] & 7) | ((g_pos.pt[i] & 8) << 4);
+  *p++ = g_slice.num;
+  for (int i = 2; i < g_slice.num; i++)
+    *p++ = (g_slice.pt[i] & 7) | ((g_slice.pt[i] & 8) << 4);
   *p++ = LT_PIECE_KK;
   if (type != WDL) {
     uint8_t dist_format = (has_stm[WHITE] && has_stm[BLACK]) ? TWO_SIDED : 0;
@@ -779,7 +779,7 @@ static void join_wdl_10(int stm)
   uint8_t *table = join_table;
 
   create_dir(-1, stm, "wdl");
-  g_pos.stm = stm;
+  g_slice.stm = stm;
 
   for (int k = 0; k < 10; k++) {
     char name[64];
@@ -792,15 +792,15 @@ static void join_wdl_10(int stm)
     uint64_t stats[MAX_STATS] = { 0 };
     bool has_capt_bloss = false;
 
-    g_pos.sq[stm] = InvTriangle[k];
+    g_slice.sq[stm] = InvTriangle[k];
 
     for (int l = 0; l < 64; l++) {
       if (KKIdx[k][l] < 0)
         continue;
 
-      g_pos.sq[stm ^ 1] = l;
+      g_slice.sq[stm ^ 1] = l;
 
-      int s = KKMap[g_pos.sq[0]][g_pos.sq[1]];
+      int s = KKMap[g_slice.sq[0]][g_slice.sq[1]];
       create_name(str, s, stm, "merged/wdl", -1);
       if (read_wdl_slice(str, table + num * kslice_size, kslice_sizes[s >= 441]))
         has_capt_bloss = true;
@@ -835,8 +835,8 @@ static void join_wdl_10(int stm)
       if (KKIdx[k][l] < 0)
         continue;
 
-      g_pos.sq[stm ^ 1] = l;
-      int s = KKMap[g_pos.sq[0]][g_pos.sq[1]];
+      g_slice.sq[stm ^ 1] = l;
+      int s = KKMap[g_slice.sq[0]][g_slice.sq[1]];
 
       kslice_delete(s, stm, "merged/wdl", -1);
     }
@@ -878,7 +878,7 @@ static void join_dtz_10(int stm)
   }
 
   compress_alloc_dtz(tb_wide);
-  g_pos.stm = stm;
+  g_slice.stm = stm;
 
   for (int k = 0; k < 10; k++) {
     char name[64];
@@ -889,14 +889,14 @@ static void join_dtz_10(int stm)
     init_permute_piece_10(k);
     int num = 0;
     uint64_t stats[MAX_STATS] = { 0 };
-    g_pos.sq[stm] = InvTriangle[k];
+    g_slice.sq[stm] = InvTriangle[k];
 
     for (int l = 0; l < 64; l++) {
       if (KKIdx[k][l] < 0)
         continue;
 
-      g_pos.sq[stm ^ 1] = l;
-      int s = KKMap[g_pos.sq[0]][g_pos.sq[1]];
+      g_slice.sq[stm ^ 1] = l;
+      int s = KKMap[g_slice.sq[0]][g_slice.sq[1]];
 
       create_name(str, s, stm, "stats", -1);
       FILE *F = file_open_read(str);
@@ -928,8 +928,8 @@ static void join_dtz_10(int stm)
         if (KKIdx[k][l] < 0)
           continue;
 
-        g_pos.sq[stm ^ 1] = l;
-        int s = KKMap[g_pos.sq[0]][g_pos.sq[1]];
+        g_slice.sq[stm ^ 1] = l;
+        int s = KKMap[g_slice.sq[0]][g_slice.sq[1]];
 
         create_name(str, s, stm, "merged/dtz", -1);
         FILE *F = file_open_read(str);
@@ -952,8 +952,8 @@ static void join_dtz_10(int stm)
         if (KKIdx[k][l] < 0)
           continue;
 
-        g_pos.sq[stm ^ 1] = l;
-        int s = KKMap[g_pos.sq[0]][g_pos.sq[1]];
+        g_slice.sq[stm ^ 1] = l;
+        int s = KKMap[g_slice.sq[0]][g_slice.sq[1]];
 
         create_name(str, s, stm, "merged/dtz", -1);
         FILE *F = file_open_read(str);
@@ -976,8 +976,8 @@ static void join_dtz_10(int stm)
         if (KKIdx[k][l] < 0)
           continue;
 
-        g_pos.sq[stm ^ 1] = l;
-        int s = KKMap[g_pos.sq[0]][g_pos.sq[1]];
+        g_slice.sq[stm ^ 1] = l;
+        int s = KKMap[g_slice.sq[0]][g_slice.sq[1]];
 
         create_name(str, s, stm, "merged/dtz", -1);
         FILE *F = file_open_read(str);
@@ -1007,8 +1007,8 @@ static void join_dtz_10(int stm)
       if (KKIdx[k][l] < 0)
         continue;
 
-      g_pos.sq[stm ^ 1] = l;
-      int s = KKMap[g_pos.sq[0]][g_pos.sq[1]];
+      g_slice.sq[stm ^ 1] = l;
+      int s = KKMap[g_slice.sq[0]][g_slice.sq[1]];
 
       kslice_delete(s, stm, "merged/dtz", -1);
     }
@@ -1044,9 +1044,9 @@ static void join_final_10(int type)
   }
 
   *p++ = 1; // version number
-  *p++ = g_pos.num;
-  for (int i = 2; i < g_pos.num; i++)
-    *p++ = (g_pos.pt[i] & 7) | ((g_pos.pt[i] & 8) << 4);
+  *p++ = g_slice.num;
+  for (int i = 2; i < g_slice.num; i++)
+    *p++ = (g_slice.pt[i] & 7) | ((g_slice.pt[i] & 8) << 4);
   *p++ = LT_PIECE_K;
   if (type != WDL) {
     uint8_t dist_format = (has_stm[WHITE] && has_stm[BLACK]) ? TWO_SIDED : 0;

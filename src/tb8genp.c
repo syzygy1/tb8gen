@@ -184,6 +184,7 @@ int main(int argc, char **argv)
   for (int i = 0; i < numpcs; i++)
     g_pos.pt[i] = pt[i];
 
+#if 0
   k = 0;
   for (int i = 3; i < numpcs; i++)
     if (!(pt[i] & 0x08))
@@ -195,6 +196,7 @@ int main(int argc, char **argv)
     if (pt[i] & 0x08)
       g_pos.pcs[BLACK][k++] = i;
   g_pos.pcs[BLACK][k] = -1;
+#endif
 
   // Initialize main RankInfo struct.
   uint8_t mult[MAX_SETS] = { 0 };

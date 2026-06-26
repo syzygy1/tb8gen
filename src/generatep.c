@@ -238,22 +238,28 @@ void init_generation_work(void)
 static void calc_sub_worker(struct ThreadData *thread)
 {
   struct IdxState2 is;
-  Position pos = g_pos;
   int k = work_set;
   int r = work_r;
-  int m = ri.last[k];
-  int n = --pos.num;
+  int stm = g_slice.stm;
 
+  Position pos = g_pos;
+  pos.sq[0] = g_slice.sq[0];
+  pos.sq[1] = g_slice.sq[1];
+  pos.sq[2] = g_slice.sq[2];
+  pos.stm = stm;
+  int n = --pos.num;
+  int m = ri.last[k];
   pos.pt[m] = pos.pt[n];
   uint8_t *restrict p[5];
   for (int i = 0; i < 5; i++)
     p[i] = k16slice_sub_buf[i] + sub_offset[k] + r * kslice_sub_alloc_size[k];
 
-  Bitboard occ = idx_state2_init(&is, thread->begin, pos.sq, &capt_ri[k]);
+  Bitboard occ = idx_state2_init(&is, thread->begin, g_slice.sq, &capt_ri[k],
+      false);
   for (uint64_t idx = thread->begin, end = thread->end; idx < end;
       idx++, occ = idx_state2_inc(&is, &capt_ri[k]))
   {
-    if (!idx_state2_legal(&is, pos.stm, occ))
+    if (!idx_state2_legal(&is, stm, occ))
       continue;
     pos.occ = occ;
     idx_state2_to_sq(&is, pos.sq, &capt_ri[k]);
@@ -285,7 +291,7 @@ static void calc_sub_kslices(int stm)
     create_dir(-1, stm, name[i]);
   }
 
-  g_pos.stm = stm;
+  g_slice.stm = stm;
 
   for (int s = 0; s < 240; s++) {
     show_progress(phase, s, 240, false);
@@ -303,15 +309,15 @@ static void calc_sub_kslices(int stm)
         g_thread_data[t].cnt = 0;
 
       for (int r = 0; r < 16; r++) {
-        g_pos.sq[0] = KK16Square[s][r][0];
-        g_pos.sq[1] = KK16Square[s][r][1];
+        g_slice.sq[0] = KK16Square[s][r][0];
+        g_slice.sq[1] = KK16Square[s][r][1];
         work_r = r;
 
-        if (is_broken(&g_pos))
+        if (is_broken(&g_slice))
           continue;
 
         for (int k = 0; k < ri.numsets; k++) {
-          if ((g_pos.pt[ri.first[k]] >> 3) != stm)
+          if ((g_set_pt[k] >> 3) != stm)
             continue;
           work_set = k;
           run_threaded(calc_sub_worker, &work_capt_dynamic[k]);
@@ -363,19 +369,25 @@ INLINE bool idx_state2_legal_psub(const struct IdxState2 *is, Bitboard occ)
 static void calc_psub_worker(struct ThreadData *thread)
 {
   struct IdxState2 is;
-  Position pos = g_pos;
   int k = work_set;
   int r = work_r;
-  int m = ri.last[k];
-  int n = --pos.num;
 
+  Position pos = g_pos;
+  pos.sq[0] = g_slice.sq[0];
+  pos.sq[1] = g_slice.sq[1];
+  pos.sq[2] = g_slice.sq[2];
+  pos.stm = BLACK;
+  int n = --pos.num;
+  int m = ri.last[k];
   pos.pt[2] = pos.pt[m];
   pos.pt[m] = pos.pt[n];
+
   uint8_t *restrict p[5];
   for (int i = 0; i < 5; i++)
     p[i] = k16slice_sub_buf[i] + psub_offset[k] + r * kslice_sub_alloc_size[k];
 
-  Bitboard occ = idx_state2_init(&is, thread->begin, pos.sq, &capt_ri[k]);
+  Bitboard occ = idx_state2_init(&is, thread->begin, g_slice.sq, &capt_ri[k],
+      false);
   for (uint64_t idx = thread->begin, end = thread->end; idx < end;
       idx++, occ = idx_state2_inc(&is, &capt_ri[k]))
   {
@@ -409,7 +421,7 @@ static void calc_psub_kslices(void)
     create_dir(-1, WHITE, name[i]);
   }
 
-  g_pos.stm = BLACK;
+  g_slice.stm = BLACK;
 
   for (int s = 0; s < 240; s++) {
     show_progress("probing pawn subtables for black", s, 240, false);
@@ -424,11 +436,11 @@ static void calc_psub_kslices(void)
         k16slice_sub_clear_addr(k16slice_sub_buf[i], WHITE);
 
       for (int r = 0; r < 16; r++) {
-        g_pos.sq[0] = KK16Square[s][r][0];
-        g_pos.sq[1] = KK16Square[s][r][1];
+        g_slice.sq[0] = KK16Square[s][r][0];
+        g_slice.sq[1] = KK16Square[s][r][1];
         work_r = r;
 
-        if (is_broken(&g_pos))
+        if (is_broken(&g_slice))
           continue;
 
         for (int i = 0; g_sets[WHITE][i] >= 0; i++) {
@@ -471,16 +483,15 @@ static void calc_psub_kslices(void)
 static void predecessors_sub_worker(struct ThreadData *thread)
 {
   struct IdxState2 is;
-  Position pos = g_pos;
-  int stm = pos.stm;
+  int stm = g_slice.stm;
   int k = work_set;
 
   uint64_t *restrict p =
-    (uint64_t *)kslice_sub_get_address(pos.sq, k) + (thread->begin >> 6);
-  uint8_t *restrict const q = kslice_get_address(pos.sq);
+    (uint64_t *)kslice_sub_get_address(g_slice.sq, k) + (thread->begin >> 6);
+  uint8_t *restrict const q = kslice_get_address(g_slice.sq);
 
   uint64_t last = thread->begin;
-  idx_state2_init(&is, last, pos.sq, &capt_ri[k]);
+  idx_state2_init(&is, last, g_slice.sq, &capt_ri[k], false);
 
   for (uint64_t idx = last, end = thread->end; idx < end; idx += 64) {
     uint64_t w = *p++;
@@ -503,18 +514,17 @@ static void predecessors_sub_worker(struct ThreadData *thread)
 // positions.
 static void predecessors_sub(int stm, int s)
 {
-  g_pos.stm = stm;
+  g_slice.stm = stm;
   for (int r = 0; r < 16; r++) {
-    g_pos.sq[0] = KK16Square[s][r][0];
-    g_pos.sq[1] = KK16Square[s][r][1];
+    g_slice.sq[0] = KK16Square[s][r][0];
+    g_slice.sq[1] = KK16Square[s][r][1];
 
-    if (is_broken(&g_pos))
+    if (is_broken(&g_slice))
       continue;
 
     // Loop through the sets from which a piece is removed.
     for (int k = 0; k < ri.numsets; k++) {
-      int m = ri.last[k];
-      if ((g_pos.pt[m] >> 3) == stm)
+      if ((g_set_pt[k] >> 3) == stm)
         continue;
       work_set = k;
       run_threaded(predecessors_sub_worker, &work_capt_dynamic[k]);
@@ -526,16 +536,15 @@ static void predecessors_psub_worker_tmpl(struct ThreadData *thread,
     const int pc)
 {
   struct IdxState2 is;
-  Position pos = g_pos;
   int k = g_piece_set[WHITE][pc];
-  int psq = g_pos.sq[2];
+  int psq = g_slice.sq[2];
 
   uint64_t *restrict p =
-    (uint64_t *)kslice_psub_get_address(pos.sq, k) + (thread->begin >> 6);
-  uint8_t *restrict const q = kslice_get_address(pos.sq);
+    (uint64_t *)kslice_psub_get_address(g_slice.sq, k) + (thread->begin >> 6);
+  uint8_t *restrict const q = kslice_get_address(g_slice.sq);
 
   uint64_t last = thread->begin;
-  idx_state2_init(&is, last, pos.sq, &capt_ri[k]);
+  idx_state2_init(&is, last, g_slice.sq, &capt_ri[k], false);
 
   for (uint64_t idx = last, end = thread->end; idx < end; idx += 64) {
     uint64_t w = *p++;
@@ -573,10 +582,10 @@ static void predecessors_psub_queen_worker(struct ThreadData *thread)
 static void predecessors_psub(int s)
 {
   for (int r = 0; r < 16; r++) {
-    g_pos.sq[0] = KK16Square[s][r][0];
-    g_pos.sq[1] = KK16Square[s][r][1];
+    g_slice.sq[0] = KK16Square[s][r][0];
+    g_slice.sq[1] = KK16Square[s][r][1];
 
-    if (is_broken(&g_pos))
+    if (is_broken(&g_slice))
       continue;
 
     // Loop through the sets from which a piece uncaptures the pawn.
@@ -595,14 +604,19 @@ static void predecessors_psub(int s)
 static void calc_king_captures_pawn_worker(struct ThreadData *thread)
 {
   struct IdxState2 is;
-  Position pos = g_pos;
   int lower = work_lower;
   int upper = work_upper;
+
+  Position pos = g_pos;
+  pos.sq[0] = g_slice.sq[0];
+  pos.sq[1] = g_slice.sq[1];
+  pos.sq[2] = g_slice.sq[2];
+  pos.stm = g_slice.stm;
   int stm = pos.stm;
 
-  uint8_t *restrict const p = kslice_get_address(pos.sq);
+  uint8_t *restrict const p = kslice_get_address(g_slice.sq);
 
-  Bitboard occ = idx_state2_init(&is, thread->begin, pos.sq, &ri);
+  Bitboard occ = idx_state2_init(&is, thread->begin, g_slice.sq, &ri, false);
   for (uint64_t idx = thread->begin, end = thread->end; idx < end;
       idx++, occ = idx_state2_inc(&is, &ri))
   {
@@ -610,11 +624,11 @@ static void calc_king_captures_pawn_worker(struct ThreadData *thread)
       continue;
     idx_state2_to_sq(&is, pos.sq, &ri);
     pos.occ = occ;
-    if (do_capture(&pos, g_pos.sq[0], g_pos.sq[2], 0, 2)) {
+    if (do_capture(&pos, g_slice.sq[0], g_slice.sq[2], 0, 2)) {
       int v = -probe_wdl(&pos, -2, 2);
       if (v >= lower && v <= upper)
         kslice_bit_set(p, idx);
-      undo_capture(&pos, g_pos.sq[0], g_pos.sq[2], 0, 2);
+      undo_capture(&pos, g_slice.sq[0], g_slice.sq[2], 0, 2);
     }
   }
 }
@@ -623,15 +637,15 @@ static void calc_king_captures_pawn(int s, int lower, int upper)
 {
   work_lower = lower;
   work_upper = upper;
-  g_pos.stm = WHITE;
+  g_slice.stm = WHITE;
   for (int r = 0; r < 16; r++) {
-    g_pos.sq[0] = KK16Square[s][r][0];
-    g_pos.sq[1] = KK16Square[s][r][1];
+    g_slice.sq[0] = KK16Square[s][r][0];
+    g_slice.sq[1] = KK16Square[s][r][1];
 
-    if (is_broken(&g_pos))
+    if (is_broken(&g_slice))
       continue;
 
-    if (!(king_attacks(g_pos.sq[0]) & bit(g_pos.sq[2])))
+    if (!(king_attacks(g_slice.sq[0]) & bit(g_slice.sq[2])))
       continue;
 
     run_threaded(calc_king_captures_pawn_worker, &work_g_dynamic);
@@ -846,12 +860,16 @@ static int probe_promotions(Position *pos, int v)
 static void calc_pawn_capts_worker(struct ThreadData *thread)
 {
   struct IdxState2 is;
+
   Position pos = g_pos;
+  pos.sq[0] = g_slice.sq[0];
+  pos.sq[1] = g_slice.sq[1];
+  pos.sq[2] = g_slice.sq[2];
   pos.stm = BLACK;
 
   size_t offset = k16offset(pos.sq);
 
-  Bitboard occ = idx_state2_init(&is, thread->begin, pos.sq, &ri);
+  Bitboard occ = idx_state2_init(&is, thread->begin, g_slice.sq, &ri, false);
 
   for (uint64_t idx = thread->begin, end = thread->end; idx < end;
       idx++, occ = idx_state2_inc(&is, &ri))
@@ -866,10 +884,10 @@ static void calc_pawn_capts_worker(struct ThreadData *thread)
       int sq = pop_lsb(&b);
       int j = piece_idx(&pos, sq);
       if (pos.pt[j] & 0x08) continue;
-      if (do_capture(&pos, g_pos.sq[2], sq, 2, j)) {
+      if (do_capture(&pos, g_slice.sq[2], sq, 2, j)) {
         v = sq < 8 ? probe_promotions(&pos, v)
                    : max(v, -probe_wdl(&pos, -2, -v));
-        undo_capture(&pos, g_pos.sq[2], sq, 2, j);
+        undo_capture(&pos, g_slice.sq[2], sq, 2, j);
       }
     }
     if (v > -3)
@@ -910,13 +928,13 @@ static void calc_pawn_capts(void)
         k16slice_clear_addr(k16slice_buf[i]);
 
       for (int r = 0; r < 16; r++) {
-        g_pos.sq[0] = KK16Square[s][r][0];
-        g_pos.sq[1] = KK16Square[s][r][1];
+        g_slice.sq[0] = KK16Square[s][r][0];
+        g_slice.sq[1] = KK16Square[s][r][1];
 
-        if (is_broken(&g_pos))
+        if (is_broken(&g_slice))
           continue;
 
-        if (pawn_attacks(BLACK, g_pos.sq[2]) & bit(g_pos.sq[0]))
+        if (pawn_attacks(BLACK, g_slice.sq[2]) & bit(g_slice.sq[0]))
           continue;
 
         run_threaded(calc_pawn_capts_worker, &work_g_dynamic);
@@ -947,9 +965,13 @@ static void calc_pawn_capts(void)
 static void calc_pawn_prom_worker(struct ThreadData *thread)
 {
   struct IdxState2 is;
+
   Position pos = g_pos;
+  pos.sq[0] = g_slice.sq[0];
+  pos.sq[1] = g_slice.sq[1];
+  pos.sq[2] = g_slice.sq[2];
   pos.stm = WHITE;
-  int s = g_pos.sq[2];
+  int s = pos.sq[2];
 
   uint8_t *restrict ilg = k16slice_buf[1] + k16offset(pos.sq);
   uint8_t *restrict p[5];
@@ -957,7 +979,7 @@ static void calc_pawn_prom_worker(struct ThreadData *thread)
     p[i] = k16slice_buf[2 + i] + k16offset(pos.sq);
 
   uint64_t last = thread->begin;
-  idx_state2_init(&is, last, pos.sq, &ri);
+  idx_state2_init(&is, last, g_slice.sq, &ri, false);
   for (uint64_t idx = last, end = thread->end; idx < end; idx++) {
     if (kslice_bit_test(ilg, idx))
       continue;
@@ -993,15 +1015,15 @@ INLINE uint64_t pawn_push_idx(struct IdxState2 *is, int from, int to)
 static void calc_pawn_push_worker(struct ThreadData *thread)
 {
   struct IdxState2 is;
-  int s = g_pos.sq[2];
+  int s = g_slice.sq[2];
 
-  uint8_t *restrict ilg = k16slice_buf[1] + k16offset(g_pos.sq);
+  uint8_t *restrict ilg = k16slice_buf[1] + k16offset(g_slice.sq);
   uint8_t *restrict p[5];
   for (int i = 0; i < 5; i++)
-    p[i] = k16slice_buf[2 + i] + k16offset(g_pos.sq);
+    p[i] = k16slice_buf[2 + i] + k16offset(g_slice.sq);
 
   uint64_t last = thread->begin;
-  idx_state2_init(&is, last, g_pos.sq, &ri);
+  idx_state2_init(&is, last, g_slice.sq, &ri, false);
   for (uint64_t idx = last, end = thread->end; idx < end; idx++) {
     if (kslice_bit_test(ilg, idx))
       continue;
@@ -1033,12 +1055,12 @@ static void calc_pawn_push(void)
   char str[64];
   uint8_t dummy;
 
-  if (g_pos.sq[2] - 8 == g_pos.sq[0] || g_pos.sq[2] - 8 == g_pos.sq[1])
+  if (g_slice.sq[2] - 8 == g_slice.sq[0] || g_slice.sq[2] - 8 == g_slice.sq[1])
     return;
 
-  int q = PawnFlip[0][g_pos.sq[2] - 8];
-  sprintf(str, "../%s/merged/wdl/w/%c%c%c%c", pawnstr[q],
-      fl(g_pos.sq[0]), rk(g_pos.sq[0]), fl(g_pos.sq[1]), rk(g_pos.sq[1]));
+  int q = PawnFlip[0][g_slice.sq[2] - 8];
+  sprintf(str, "../%s/merged/wdl/w/%c%c%c%c", pawnstr[q], fl(g_slice.sq[0]),
+      rk(g_slice.sq[0]), fl(g_slice.sq[1]), rk(g_slice.sq[1]));
   FILE *F = file_open_read(str);
   file_read(&dummy, 1, F);
   read_data(F, merged_table, kslice_size);
@@ -1050,15 +1072,15 @@ static void calc_pawn_push(void)
 static void calc_pawn_double_push_worker(struct ThreadData *thread)
 {
   struct IdxState2 is;
-  int s = g_pos.sq[2];
+  int s = g_slice.sq[2];
 
-  uint8_t *restrict ilg = k16slice_buf[1] + k16offset(g_pos.sq);
+  uint8_t *restrict ilg = k16slice_buf[1] + k16offset(g_slice.sq);
   uint8_t *restrict p[5];
   for (int i = 0; i < 5; i++)
-    p[i] = k16slice_buf[2 + i] + k16offset(g_pos.sq);
+    p[i] = k16slice_buf[2 + i] + k16offset(g_slice.sq);
 
   uint64_t last = thread->begin;
-  idx_state2_init(&is, last, g_pos.sq, &ri);
+  idx_state2_init(&is, last, g_slice.sq, &ri, false);
   for (uint64_t idx = last, end = thread->end; idx < end; idx++) {
     if (kslice_bit_test(ilg, idx))
       continue;
@@ -1089,25 +1111,27 @@ static void calc_pawn_double_push(void)
   char str[64];
   uint8_t dummy;
 
-  if (g_pos.sq[2] - 8 == g_pos.sq[0] || g_pos.sq[2] - 8 == g_pos.sq[1])
+  if (g_slice.sq[2] - 8 == g_slice.sq[0] || g_slice.sq[2] - 8 == g_slice.sq[1])
     return;
 
-  int q = PawnFlip[0][g_pos.sq[2] - 8];
-  sprintf(str, "../%s/merged/wdl/w/%c%c%c%c", pawnstr[q],
-      fl(g_pos.sq[0]), rk(g_pos.sq[0]), fl(g_pos.sq[1]), rk(g_pos.sq[1]));
+  int q = PawnFlip[0][g_slice.sq[2] - 8];
+  sprintf(str, "../%s/merged/wdl/w/%c%c%c%c", pawnstr[q], fl(g_slice.sq[0]),
+      rk(g_slice.sq[0]), fl(g_slice.sq[1]), rk(g_slice.sq[1]));
   FILE *F = file_open_read(str);
   file_read(&dummy, 1, F);
   read_data(F, merged_table, kslice_size);
   fclose(F);
 
-  if (g_pos.sq[2] - 16 == g_pos.sq[0] || g_pos.sq[2] - 16 == g_pos.sq[1]) {
+  if (   g_slice.sq[2] - 16 == g_slice.sq[0]
+      || g_slice.sq[2] - 16 == g_slice.sq[1])
+  {
     run_threaded(calc_pawn_push_worker, &work_g_dynamic);
     return;
   }
 
-  q = PawnFlip[0][g_pos.sq[2] - 16];
-  sprintf(str, "../%s/merged/wdl/w/%c%c%c%c", pawnstr[q],
-      fl(g_pos.sq[0]), rk(g_pos.sq[0]), fl(g_pos.sq[1]), rk(g_pos.sq[1]));
+  q = PawnFlip[0][g_slice.sq[2] - 16];
+  sprintf(str, "../%s/merged/wdl/w/%c%c%c%c", pawnstr[q], fl(g_slice.sq[0]),
+      rk(g_slice.sq[0]), fl(g_slice.sq[1]), rk(g_slice.sq[1]));
   F = file_open_read(str);
   file_read(&dummy, 1, F);
   read_data(F, merged_table2, kslice_size);
@@ -1119,15 +1143,14 @@ static void calc_pawn_double_push(void)
 static void predecessors_worker(struct ThreadData *thread)
 {
   struct IdxState2 is;
-  Position pos = g_pos;
-  int stm = pos.stm;
+  int stm = g_slice.stm;
 
-  uint64_t *restrict p = (uint64_t *)kslice_get_address_scratch(pos.sq);
-  uint8_t *restrict const q = kslice_get_address(pos.sq);
+  uint64_t *restrict p = (uint64_t *)kslice_get_address_scratch(g_slice.sq);
+  uint8_t *restrict const q = kslice_get_address(g_slice.sq);
 
   p += thread->begin >> 6;
   uint64_t last = thread->begin;
-  idx_state2_init(&is, last, pos.sq, &ri);
+  idx_state2_init(&is, last, g_slice.sq, &ri, false);
   for (uint64_t idx = last, end = thread->end; idx < end; idx += 64) {
     uint64_t w = *p++;
     while (w) {
@@ -1147,12 +1170,12 @@ static void predecessors_worker(struct ThreadData *thread)
 // TODO: use k16slice_read_count[16] to skip empty kslices
 static void predecessors(int stm, int s)
 {
-  g_pos.stm = stm;
+  g_slice.stm = stm;
   for (int r = 0; r < 16; r++) {
-    g_pos.sq[0] = KK16Square[s][r][0];
-    g_pos.sq[1] = KK16Square[s][r][1];
+    g_slice.sq[0] = KK16Square[s][r][0];
+    g_slice.sq[1] = KK16Square[s][r][1];
 
-    if (is_broken(&g_pos))
+    if (is_broken(&g_slice))
       continue;
 
     run_threaded(predecessors_worker, &work_g_dynamic);
@@ -1162,16 +1185,15 @@ static void predecessors(int stm, int s)
 static void check_successors_worker(struct ThreadData *thread)
 {
   struct IdxState2 is;
-  Position pos = g_pos;
-  int stm = pos.stm;
+  int stm = g_slice.stm;
   uint64_t cnt = 0;
 
-  uint64_t *restrict p = (uint64_t *)kslice_get_address_scratch(pos.sq);
-  uint8_t *restrict const q = kslice_get_address(pos.sq);
+  uint64_t *restrict p = (uint64_t *)kslice_get_address_scratch(g_slice.sq);
+  uint8_t *restrict const q = kslice_get_address(g_slice.sq);
 
   p += thread->begin >> 6;
   uint64_t last = thread->begin;
-  idx_state2_init(&is, last, pos.sq, &ri);
+  idx_state2_init(&is, last, g_slice.sq, &ri, false);
 
   for (uint64_t idx = last, end = thread->end; idx < end; idx += 64, p++) {
     uint64_t todo = *p;
@@ -1200,14 +1222,14 @@ static void check_successors_worker(struct ThreadData *thread)
 // number of verified losses.
 static uint64_t check_successors(int stm, int s, uint64_t num[16])
 {
-  g_pos.stm = stm;
+  g_slice.stm = stm;
   for (int r = 0; r < 16; r++) {
     num[r] = 0;
 
-    g_pos.sq[0] = KK16Square[s][r][0];
-    g_pos.sq[1] = KK16Square[s][r][1];
+    g_slice.sq[0] = KK16Square[s][r][0];
+    g_slice.sq[1] = KK16Square[s][r][1];
 
-    if (is_broken(&g_pos))
+    if (is_broken(&g_slice))
       continue;
 
     for (int t = 0; t < g_num_threads; t++)
@@ -1229,13 +1251,14 @@ static uint64_t check_successors(int stm, int s, uint64_t num[16])
 static void calc_illegal_worker_tmpl(struct ThreadData *thread, const int pc)
 {
   struct IdxState2 is;
-  int stm = g_pos.stm;
+  int stm = g_slice.stm;
   int k = g_piece_set[stm][pc];
-  int ksq = g_pos.sq[stm ^ 1];
+  int ksq = g_slice.sq[stm ^ 1];
 
-  uint8_t *restrict const p = k16slice_buf[stm] + k16offset(g_pos.sq);
+  uint8_t *restrict const p = k16slice_buf[stm] + k16offset(g_slice.sq);
 
-  Bitboard occ = idx_state2_init(&is, thread->begin, g_pos.sq, &capt_ri[k]);
+  Bitboard occ = idx_state2_init(&is, thread->begin, g_slice.sq, &capt_ri[k],
+      false);
 
   for (uint64_t idx = thread->begin, end = thread->end; idx < end;
       idx++, occ = idx_state2_inc(&is, &capt_ri[k]))
@@ -1267,19 +1290,18 @@ static void calc_illegal_queen_worker(struct ThreadData *thread)
 static void calc_mate_worker(struct ThreadData *thread)
 {
   struct IdxState2 is;
-  Position pos = g_pos;
 
-  uint64_t *restrict p0 = (uint64_t *)(k16slice_buf[0] + k16offset(pos.sq));
-  uint64_t *restrict p1 = (uint64_t *)(k16slice_buf[1] + k16offset(pos.sq));
-  uint64_t *restrict q0 = (uint64_t *)(k16slice_buf[2] + k16offset(pos.sq));
-  uint64_t *restrict q1 = (uint64_t *)(k16slice_buf[3] + k16offset(pos.sq));
+  uint64_t *restrict p0 = (uint64_t *)(k16slice_buf[0] + k16offset(g_slice.sq));
+  uint64_t *restrict p1 = (uint64_t *)(k16slice_buf[1] + k16offset(g_slice.sq));
+  uint64_t *restrict q0 = (uint64_t *)(k16slice_buf[2] + k16offset(g_slice.sq));
+  uint64_t *restrict q1 = (uint64_t *)(k16slice_buf[3] + k16offset(g_slice.sq));
 
   uint64_t last = thread->begin;
   p0 += last >> 6;
   p1 += last >> 6;
   q0 += last >> 6;
   q1 += last >> 6;
-  idx_state2_init(&is, last, pos.sq, &ri);
+  idx_state2_init(&is, last, g_slice.sq, &ri, false);
   for (uint64_t idx = last, end = thread->end; idx < end;
       idx += 64, p0++, p1++, q0++, q1++)
   {
@@ -1357,13 +1379,13 @@ static void calc_illegal_and_mate_and_pawn_push(void)
     k16slice_clear_addr(k16slice_buf[1]); // btm illegal
 
     for (int r = 0; r < 16; r++) {
-      g_pos.sq[0] = KK16Square[s][r][0];
-      g_pos.sq[1] = KK16Square[s][r][1];
+      g_slice.sq[0] = KK16Square[s][r][0];
+      g_slice.sq[1] = KK16Square[s][r][1];
 
-      if (is_broken(&g_pos))
+      if (is_broken(&g_slice))
         continue;
 
-      g_pos.stm = WHITE;
+      g_slice.stm = WHITE;
       int k;
       if ((k = g_piece_set[WHITE][KNIGHT]) >= 0)
         run_threaded(calc_illegal_knight_worker, &work_capt_dynamic[k]);
@@ -1374,12 +1396,12 @@ static void calc_illegal_and_mate_and_pawn_push(void)
       if ((k = g_piece_set[WHITE][QUEEN]) >= 0)
         run_threaded(calc_illegal_queen_worker, &work_capt_dynamic[k]);
 
-      if (pawn_attacks(BLACK, g_pos.sq[2]) & bit(g_pos.sq[0])) {
-        kslice_set_addr(k16slice_buf[1] + k16offset(g_pos.sq));
+      if (pawn_attacks(BLACK, g_slice.sq[2]) & bit(g_slice.sq[0])) {
+        kslice_set_addr(k16slice_buf[1] + k16offset(g_slice.sq));
         continue;
       }
 
-      g_pos.stm = BLACK;
+      g_slice.stm = BLACK;
 
       if ((k = g_piece_set[BLACK][KNIGHT]) >= 0)
         run_threaded(calc_illegal_knight_worker, &work_capt_dynamic[k]);
@@ -1400,10 +1422,10 @@ static void calc_illegal_and_mate_and_pawn_push(void)
     k16slice_clear_addr(k16slice_buf[3]); // btm mate
 
     for (int r = 0; r < 16; r++) {
-      g_pos.sq[0] = KK16Square[s][r][0];
-      g_pos.sq[1] = KK16Square[s][r][1];
+      g_slice.sq[0] = KK16Square[s][r][0];
+      g_slice.sq[1] = KK16Square[s][r][1];
 
-      if (is_broken(&g_pos))
+      if (is_broken(&g_slice))
         continue;
 
       run_threaded(calc_mate_worker, &work_g_static);
@@ -1418,15 +1440,15 @@ static void calc_illegal_and_mate_and_pawn_push(void)
       k16slice_clear_addr(k16slice_buf[2 + i]);
 
     for (int r = 0; r < 16; r++) {
-      g_pos.sq[0] = KK16Square[s][r][0];
-      g_pos.sq[1] = KK16Square[s][r][1];
+      g_slice.sq[0] = KK16Square[s][r][0];
+      g_slice.sq[1] = KK16Square[s][r][1];
 
-      if (is_broken(&g_pos))
+      if (is_broken(&g_slice))
         continue;
 
-      if (g_pos.sq[2] < 16)
+      if (g_slice.sq[2] < 16)
         run_threaded(calc_pawn_prom_worker, &work_g_dynamic);
-      else if (g_pos.sq[2] < 48)
+      else if (g_slice.sq[2] < 48)
         calc_pawn_push();
       else
         calc_pawn_double_push();
@@ -1738,21 +1760,21 @@ void generate(void)
     file_read(&max_iteration, sizeof max_iteration, F);
     fclose(F);
     printf("Table for pawn slice %s was already generated.\n",
-        pawnstr[PawnFlip[0][g_pos.sq[2]]]);
+        pawnstr[PawnFlip[0][g_slice.sq[2]]]);
     return;
   }
 
   printf("Generating table for pawn slice %s.\n",
-      pawnstr[PawnFlip[0][g_pos.sq[2]]]);
+      pawnstr[PawnFlip[0][g_slice.sq[2]]]);
 
   for (int i = 0; i < 7; i++)
     k16slice_buf[i] = alloc_k16slice();
 
-  if (g_pos.sq[2] >= 16) {
+  if (g_slice.sq[2] >= 16) {
     merged_table = alloc_huge(kslice_size);
     if (!merged_table)
       out_of_mem();
-    if (g_pos.sq[2] >= 48) {
+    if (g_slice.sq[2] >= 48) {
       merged_table2 = alloc_huge(kslice_size);
       if (!merged_table2)
         out_of_mem();
@@ -1860,9 +1882,9 @@ void generate(void)
   uint64_t num_kslices = 0;
   for (int s = 0; s < 240; s++)
     for (int r = 0; r < 16; r++) {
-      g_pos.sq[0] = KK16Square[s][r][0];
-      g_pos.sq[1] = KK16Square[s][r][1];
-      num_kslices += !is_broken(&g_pos);
+      g_slice.sq[0] = KK16Square[s][r][0];
+      g_slice.sq[1] = KK16Square[s][r][1];
+      num_kslices += !is_broken(&g_slice);
     }
 
   for (int stm = 0; stm < 2; stm++) {

@@ -51,6 +51,13 @@ struct IdxState2 {
   uint8_t sq[3];
 };
 
+struct Slice {
+  uint8_t sq[3];
+  int stm;
+};
+
+extern struct Slice g_slice;
+
 extern struct RankInfo ri, capt_ri[MAX_SETS];
 extern int pc_to_set[MAX_PIECES];
 extern Bitboard Unrank2[62 * 61 / 2], Unrank3[62 * 61 * 60 / 6];
@@ -270,7 +277,7 @@ uint64_t perm_rank_bb_ref(const Bitboard *set_bb, const struct RankInfo *ri);
 uint64_t unrank_bb_ref(uint64_t idx, Bitboard *set_bb,
     const struct RankInfo *ri);
 Bitboard idx_state2_init(struct IdxState2 *is, uint64_t idx,
-    const  uint8_t *restrict sq, const struct RankInfo *ri);
+    const  uint8_t *restrict sq, const struct RankInfo *ri, const bool ref);
 bool idx_state2_mate(struct IdxState2 *is, int stm, Bitboard occ);
 bool idx_state2_has_legal_moves(struct IdxState2 *is, int stm, Bitboard occ);
 

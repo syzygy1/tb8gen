@@ -49,13 +49,13 @@ void collect_stats(int stm)
 
   for (int s = 0; s < 240; s++)
     for (int r = 0; r < 16; r++) {
-      g_pos.sq[0] = KK16Square[s][r][0];
-      g_pos.sq[1] = KK16Square[s][r][1];
+      g_slice.sq[0] = KK16Square[s][r][0];
+      g_slice.sq[1] = KK16Square[s][r][1];
 
-      if (is_broken(&g_pos))
+      if (is_broken(&g_slice))
         continue;
 
-      create_name_sq(str, g_pos.sq[0], g_pos.sq[1], stm, "stats", -1);
+      create_name_sq(str, g_slice.sq[0], g_slice.sq[1], stm, "stats", -1);
       FILE *F = file_open_read(str);
       read_data(F, tmp, sizeof tmp);
       fclose(F);
@@ -152,13 +152,6 @@ void print_max_fens(FILE *F, struct MaxFen *mf)
         mf->fen[b][0]);
   fprintf(F, "\n");
 }
-
-// FIXME:
-// - checksum on "lossless" stats per ply
-// - checksum on actual stored vals
-//   - mate = 0, win-in-n -> n-1, rounding > DRAW_RULE
-//   - remove CAPT_WIN, PAWN_WIN, CAPT_CWIN, PAWN_CWIN
-//     i.e. all values not stored in the DTZ table.
 
 static void stats_to_count(uint64_t stats[MAX_STATS],
     uint64_t cnt[2][MAX_STATS / 2])

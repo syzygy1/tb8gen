@@ -12,6 +12,7 @@
 #include "probe.h"
 #include "types.h"
 
+struct Slice g_slice;
 struct RankInfo ri, capt_ri[MAX_SETS];
 int pc_to_set[MAX_PIECES];
 Bitboard Unrank2[62 * 61 / 2], Unrank3[62 * 61 * 60 / 6];
@@ -591,16 +592,20 @@ void calc_factors(struct RankInfo *ri, int n)
 }
 
 Bitboard idx_state2_init(struct IdxState2 *is, uint64_t idx,
-    const uint8_t *restrict sq, const struct RankInfo *ri)
+    const uint8_t *restrict sq, const struct RankInfo *ri, const bool ref)
 {
-  for (int k = ri->numsets - 1; k >= 0; k--)
-    idx = divmod_recip(idx, ri->factor[k], ri->recip[k], &is->sub[k]);
   is->sq[0] = sq[0];
   is->sq[1] = sq[1];
   if (has_pawns)
     is->sq[2] = sq[2];
   is->occ[0] = bit(sq[0]) | bit(sq[1]) | (has_pawns ? bit(sq[2]) : 0);
   is->bb[0] = is->occ[0];
+
+  if (ref)
+    return 0;
+
+  for (int k = ri->numsets - 1; k >= 0; k--)
+    idx = divmod_recip(idx, ri->factor[k], ri->recip[k], &is->sub[k]);
   for (int i = 0; i < ri->numsets; i++) {
     is->bb[i + 1] = unrank_binomial2(is->sub[i], ri->mult[i], is->occ[i]);
     is->occ[i + 1] = is->occ[i] | is->bb[i + 1];

@@ -138,13 +138,13 @@ INLINE void NAME(merge_mark_uncapture)(int k, int ksq, T *restrict const p,
 static void NAME(merge_illegal_worker)(struct ThreadData *thread)
 {
   struct IdxState2 is;
-  Position pos = g_pos;
   int k = work_set;
-  int ksq = pos.sq[pos.stm ^ 1];
+  int ksq = g_slice.sq[g_slice.stm ^ 1];
 
   T *restrict const p = merge_table;
 
-  Bitboard occ = idx_state2_init(&is, thread->begin, pos.sq, &capt_ri[k]);
+  Bitboard occ = idx_state2_init(&is, thread->begin, g_slice.sq, &capt_ri[k],
+      false);
 
   for (uint64_t idx = thread->begin, end = thread->end; idx < end;
       idx++, occ = idx_state2_inc(&is, &capt_ri[k]))
@@ -156,13 +156,13 @@ static void NAME(merge_illegal_worker)(struct ThreadData *thread)
 static void NAME(merge_illegal_ref_worker)(struct ThreadData *thread)
 {
   struct IdxState2 is;
-  Position pos = g_pos;
   int k = work_set;
-  int ksq = pos.sq[pos.stm ^ 1];
+  int ksq = g_slice.sq[g_slice.stm ^ 1];
 
   T *restrict const p = merge_table;
 
-  Bitboard occ = idx_state2_init(&is, thread->begin, pos.sq, &capt_ri[k]);
+  Bitboard occ = idx_state2_init(&is, thread->begin, g_slice.sq, &capt_ri[k],
+      false);
 
   for (uint64_t idx = thread->begin, end = thread->end; idx < end;
       idx++, occ = idx_state2_inc(&is, &capt_ri[k]))
@@ -207,13 +207,13 @@ static void NAME(merge_bitmaps)(int stm, int s)
   // DRAW
   run_threaded(NAME(merge_draw_worker), &work_g_merge_static[s >= 441]);
 
-  g_pos.stm = stm;
-  g_pos.sq[0] = KKSquare[s][0];
-  g_pos.sq[1] = KKSquare[s][1];
+  g_slice.stm = stm;
+  g_slice.sq[0] = KKSquare[s][0];
+  g_slice.sq[1] = KKSquare[s][1];
 
   // ILLEGAL
   for (int k = 0; k < ri.numsets; k++) {
-    if ((g_pos.pt[ri.first[k]] >> 3) != stm)
+    if ((g_set_pt[k] >> 3) != stm)
       continue;
     work_set = k;
     if (s < 441)
