@@ -73,7 +73,7 @@ void p_idx_state_init(struct PIdxState *is, uint64_t idx,
   }
   is->sub[0] = idx;
   is->n = 0;
-  is->bb[0] = bit(g_pos.sq[2]);
+  is->bb[0] = bit(g_slice.sq[2]);
   is->occ[0] = is->bb[0];
 }
 
@@ -125,7 +125,7 @@ uint64_t p_bb_to_idx(const struct PIdxState *is,
 {
   int sq0 = lsb(is->bb[king_perm[0]]);
   int sq1 = lsb(is->bb[king_perm[1]]);
-  int psq = g_pos.sq[2];
+  int psq = g_slice.sq[2];
   Bitboard occ = bit(sq0) | bit(sq1) | bit(psq);
 
   int s0 = (sq0 > psq);
@@ -201,7 +201,7 @@ static void generate_test_list(uint64_t size, int n)
 void init_permute_pawn_p(void)
 {
   assume(ri.numsets + 2 <= MAX_SETS);
-  //int stm = g_pos.stm;
+  //int stm = g_slice.stm;
   p_ii.numsets = ri.numsets + 2;
   p_ii.first[0] = 0; // stm ?
   p_ii.mult[0] = 1;

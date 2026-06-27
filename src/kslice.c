@@ -156,7 +156,7 @@ void kslice_setup(void)
   work_cl[1]->schedule = WORK_STATIC;
   sub_size[0] = sub_size[1] = 0;
   for (int i = 0; i < ri.numsets; i++) {
-    int stm = g_pos.pt[ri.first[i]] >> 3;
+    int stm = g_set_pt[i] >> 3;
     sub_offset[i] = sub_size[stm];
     sub_size[stm] += bits_to_aligned(kslice_sub_size[i]);
   }

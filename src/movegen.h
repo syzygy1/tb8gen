@@ -61,7 +61,8 @@ INLINE int popcnt(Bitboard b)
 
 #include "magic.h"
 //#include "hyper.h"
-//#include "bmi2.h"
+#include "bmi2-plain.h"
+#include "bmi2-fancy.h"
 
 INLINE Bitboard king_mask(int sq)
 {

@@ -109,6 +109,8 @@ static void find_position(int s, int stm, bool loss, bool cursed)
     return;
 
   Position pos = g_pos;
+  pos.sq[0] = g_slice.sq[0];
+  pos.sq[1] = g_slice.sq[1];
   pos.stm = stm ^ loss;
   struct IdxState is;
   idx_state_init(&is, idx, pos.sq, &ri, s >= 441);

@@ -73,7 +73,7 @@ void pk_idx_state_init(struct PKIdxState *is, uint64_t idx,
   }
   is->sub[0] = idx;
   is->n = 0;
-  is->bb[0] = bit(g_pos.sq[stm]) | bit(g_pos.sq[2]);
+  is->bb[0] = bit(g_slice.sq[stm]) | bit(g_slice.sq[2]);
   is->occ[0] = is->bb[0];
 }
 
@@ -123,9 +123,9 @@ uint64_t pk_bb_to_idx(const struct PKIdxState *is,
     const struct RankInfo *rank_ri, int8_t king_perm, int stm)
 {
   int ksq = lsb(is->bb[king_perm]);
-  Bitboard occ = bit(g_pos.sq[stm]) | bit(ksq) | bit(g_pos.sq[2]);
+  Bitboard occ = bit(g_slice.sq[stm]) | bit(ksq) | bit(g_slice.sq[2]);
 
-  int s0 = (ksq > g_pos.sq[stm]) + (ksq > g_pos.sq[2]);
+  int s0 = (ksq > g_slice.sq[stm]) + (ksq > g_slice.sq[2]);
   uint64_t idx = ksq - s0;
   return perm_rank_bb_from(is->bb, idx, 0, occ, rank_ri);
 }
@@ -197,7 +197,7 @@ static void generate_test_list(uint64_t size, int n)
 void init_permute_pawn_pk(int stm)
 {
   assume(ri.numsets + 1 <= MAX_SETS);
-  g_pos.stm = stm;
+  g_slice.stm = stm;
   pk_ri.numsets = ri.numsets + 1;
   pk_ri.first[0] = stm ^ 1;
   pk_ri.mult[0] = 1;

@@ -1,4 +1,6 @@
-FLAGS = -DMAGIC
+#FLAGS = -DMAGIC
+#FLAGS = -DBMI2_PLAIN
+FLAGS = -DBMI2_FANCY
 
 # Use libzstd instead of LZ4 for compression of temporary files, and set
 # compression level.

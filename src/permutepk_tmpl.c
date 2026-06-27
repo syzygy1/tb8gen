@@ -18,7 +18,7 @@ static void NAME(convert_data_pawn)(struct ThreadData *thread)
 
   uint64_t idx_dec_buf[NUM];
 
-  int stm = g_pos.stm;
+  int stm = g_slice.stm;
 
   init_source_rank_ri_pk(&rank_ri, &king_perm, perm_ii, stm);
   pk_idx_state_init(&is, thread->begin, perm_ii, stm);
@@ -66,7 +66,7 @@ static void NAME(convert_est_data_pawn)(struct ThreadData *thread)
 
   uint64_t idx_dec_buf[NUM];
 
-  int stm = g_pos.stm;
+  int stm = g_slice.stm;
 
   for (int p = 0; p < num_cands; p++) {
     init_source_rank_ri_pk(&rank_ri, &king_perm, &try_ii[p], stm);

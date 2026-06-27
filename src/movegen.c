@@ -45,7 +45,8 @@ INLINE bool valid(int sq, signed char delta[2])
 
 #include "magic.c"
 //#include "hyper.c"
-//#include "bmi2.c"
+#include "bmi2-plain.c"
+#include "bmi2-fancy.c"
 
 const char PieceChar[] = " PNBRQK  pnbrqk ";
 

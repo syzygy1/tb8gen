@@ -78,7 +78,7 @@ void p10_idx_state_init(struct P10IdxState *is, uint64_t idx,
     idx /= ii->factor[k];
   }
   is->sub[0] = idx;
-  is->sq[stm] = g_pos.sq[stm];
+  is->sq[stm] = g_slice.sq[stm];
   is->sq[stm ^ 1] = InvSquare[is->sub[ii->k2]];
   is->n = 0;
   is->bb[0] = bit(is->sq[0]) | bit(is->sq[1]);
@@ -225,8 +225,8 @@ void init_permute_piece_10(int k)
     generate_set_perms(ri.numsets + 1);
 
     for (int i = 0; i < ri.numsets; i++)
-      set_pt[i + 1] = g_pos.pt[ri.first[i]];
-    set_pt[0] = g_pos.pt[g_pos.stm ^ 1];
+      set_pt[i + 1] = g_set_pt[i];
+    set_pt[0] = g_slice.pt[g_slice.stm ^ 1];
   }
 
   if (num[k] != current_size) {

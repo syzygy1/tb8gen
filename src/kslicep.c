@@ -207,7 +207,7 @@ void kslice_setup(void)
 
   sub_size[0] = sub_size[1] = 0;
   for (int i = 0; i < ri.numsets; i++) {
-    int stm = g_pos.pt[ri.first[i]] >> 3;
+    int stm = g_set_pt[i] >> 3;
     sub_offset[i] = sub_size[stm];
     kslice_sub_alloc_size[i] = bits_to_aligned(kslice_sub_size[i]);
     sub_size[stm] += 16 * kslice_sub_alloc_size[i];
@@ -215,7 +215,7 @@ void kslice_setup(void)
   // FIXME: it seems psub_offset[i] == sub_offset[i]...
   size_t psize = 0;
   for (int i = 0; i < ri.numsets; i++)
-    if ((g_pos.pt[ri.first[i]] >> 3) == WHITE) {
+    if ((g_set_pt[i] >> 3) == WHITE) {
       psub_offset[i] = psize; // sub_size[BLACK];
       psize += 16 * kslice_sub_alloc_size[i];
 //      sub_size[BLACK] += 16 * kslice_sub_alloc_size[i];

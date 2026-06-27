@@ -184,20 +184,6 @@ int main(int argc, char **argv)
   for (int i = 0; i < numpcs; i++)
     g_pos.pt[i] = pt[i];
 
-#if 0
-  k = 0;
-  for (int i = 3; i < numpcs; i++)
-    if (!(pt[i] & 0x08))
-      g_pos.pcs[WHITE][k++] = i;
-  g_pos.pcs[WHITE][k] = -1;
-
-  k = 0;
-  for (int i = 3; i < numpcs; i++)
-    if (pt[i] & 0x08)
-      g_pos.pcs[BLACK][k++] = i;
-  g_pos.pcs[BLACK][k] = -1;
-#endif
-
   // Initialize main RankInfo struct.
   uint8_t mult[MAX_SETS] = { 0 };
   k = 0;
@@ -216,16 +202,6 @@ int main(int argc, char **argv)
   for (k = 0; k < ri.numsets; k++) {
     capt_ri[k] = ri;
     capt_ri[k].mult[k]--;
-#if 0
-    if (capt_ri[k].mult[k] == 0) {
-      for (int i = k + 1; i < ri.numsets; i++) {
-        capt_ri[k].first[i - 1] = capt_ri[k].first[i];
-        capt_ri[k].mult[i - 1] = capt_ri[k].mult[i];
-        capt_ri[k].last[i - 1] = capt_ri[k].last[i];
-      }
-      capt_ri[k].numsets--;
-    }
-#endif
     calc_factors(&capt_ri[k], 61);
     kslice_sub_size[k] = capt_ri[k].sizes[0];
   }
@@ -267,7 +243,7 @@ int main(int argc, char **argv)
   make_dir("stats");
 
   for (int q = 0; q < 24; q++) {
-    g_pos.sq[2] = InvPawnFlip[0][q];
+    g_slice.sq[2] = InvPawnFlip[0][q];
     make_dir(pawnstr[q]);
     change_dir(pawnstr[q]);
 
@@ -384,7 +360,7 @@ int main(int argc, char **argv)
 
     if (!g_cleanup) continue;
 
-    if (g_pos.sq[2] >= 16 && g_pos.sq[2] < 40)
+    if (g_slice.sq[2] >= 16 && g_slice.sq[2] < 40)
       rmdir(pawnstr[q - 1]);
     else {
       rmdir(pawnstr[q - 2]);
