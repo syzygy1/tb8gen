@@ -41,12 +41,6 @@ void collect_stats(int stm)
     FILE *F = file_open_read(str);
     read_data(F, tmp, sizeof tmp);
     fclose(F);
-    if (stm == WHITE && tmp[MAX_STATS - 1 - 92])
-      printf("92: %s\n", str);
-    if (stm == BLACK && tmp[MAX_STATS - 1 - 64])
-      printf("64: %s\n", str);
-    if (stm == BLACK && tmp[MAX_STATS - 1 - 119])
-      printf("119: %s\n", str);
     for (int i = 0; i < MAX_STATS; i++)
       stats[i] += tmp[i];
   }

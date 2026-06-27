@@ -226,7 +226,7 @@ void init_permute_piece_10(int k)
 
     for (int i = 0; i < ri.numsets; i++)
       set_pt[i + 1] = g_set_pt[i];
-    set_pt[0] = g_slice.pt[g_slice.stm ^ 1];
+    set_pt[0] = g_pos.pt[g_slice.stm ^ 1];
   }
 
   if (num[k] != current_size) {

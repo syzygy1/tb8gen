@@ -177,7 +177,7 @@ static void init_magics(struct MagicInit *magic_init, struct Magic *magic,
           attacks |= bit(s + delta[j][0]);
           if (b & bit(s + delta[j][0])) break;
         }
-      magic[sq].data[(b * mask) >> shift] = attacks;
+      magic[sq].data[(b * magic[sq].magic) >> shift] = attacks;
       b = (b - mask) & mask;
     } while (b);
   }
