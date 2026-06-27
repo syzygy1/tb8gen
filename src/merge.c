@@ -110,10 +110,10 @@ static void find_position(int s, int stm, bool loss, bool cursed)
 
   Position pos = g_pos;
   pos.stm = stm ^ loss;
-  struct IdxState2 is;
-  idx_state2_init(&is, idx, pos.sq, &ri, s >= 441);
+  struct IdxState is;
+  idx_state_init(&is, idx, pos.sq, &ri, s >= 441);
   if (s < 441)
-    idx_state2_to_sq(&is, pos.sq, &ri);
+    idx_state_to_sq(&is, pos.sq, &ri);
   else
     unrank_bb_ref(idx, is.bb, &ri);
   pos_to_fen(&pos, mf.fen[stm][cursed], false);

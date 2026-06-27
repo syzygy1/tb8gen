@@ -133,7 +133,7 @@ static void NAME(merge_capt_bloss_worker)(struct ThreadData *thread)
 }
 
 INLINE void NAME(merge_mark_unmoves)(int k, T *restrict const p, Bitboard occ,
-    struct IdxState2 *is)
+    struct IdxState *is)
 {
   uint64_t idx0 = 0;
   for (int i = 0; i < k; i++)
@@ -153,16 +153,16 @@ INLINE void NAME(merge_mark_unmoves)(int k, T *restrict const p, Bitboard occ,
 
 static void NAME(merge_illegal_worker)(struct ThreadData *thread)
 {
-  struct IdxState2 is;
+  struct IdxState is;
   int k = work_set;
 
   T *restrict const p = (T *)merge_table + 8 * k16offset(g_slice.sq);
 
-  Bitboard occ = idx_state2_init(&is, thread->begin, g_slice.sq, &capt_ri[k],
+  Bitboard occ = idx_state_init(&is, thread->begin, g_slice.sq, &capt_ri[k],
       false);
 
   for (uint64_t idx = thread->begin, end = thread->end; idx < end;
-      idx++, occ = idx_state2_inc(&is, &capt_ri[k]))
+      idx++, occ = idx_state_inc(&is, &capt_ri[k]))
   {
     NAME(merge_mark_unmoves)(k, p, occ, &is);
   }

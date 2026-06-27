@@ -197,7 +197,7 @@ int main(int argc, char **argv)
     pos.sq[0] = 0;
     pos.sq[1] = 63;
     uint64_t size = ri.sizes[1];
-    struct IdxState2 is;
+    struct IdxState is;
     printf("Testing perfecting indexing on %lu positions.\n", size);
     struct timespec start, end;
     timespec_get(&start, TIME_UTC);

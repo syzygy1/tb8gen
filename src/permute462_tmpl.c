@@ -28,12 +28,12 @@ static void NAME(convert_data_piece)(struct ThreadData *thread)
   T *restrict dst = convert_data.dst;
   struct RankInfo *perm_ri = convert_data.perm_ri;
   struct RankInfo rank_ri;
-  struct IdxState2 is;
+  struct IdxState is;
 
   uint64_t idx_dec_buf[NUM];
 
   NAME(init_source_rank_ri)(&rank_ri, perm_ri);
-  idx_state2_init(&is, thread->begin, g_slice.sq, perm_ri, false);
+  idx_state_init(&is, thread->begin, g_slice.sq, perm_ri, false);
 
   uint64_t idx = thread->begin, end = thread->end;
   int fill = 0;
@@ -41,7 +41,7 @@ static void NAME(convert_data_piece)(struct ThreadData *thread)
 
   // Fill pipeline.
   for (; fill < NUM && idx < end;
-      fill++, idx++, idx_state2_inc(&is, perm_ri))
+      fill++, idx++, idx_state_inc(&is, perm_ri))
   {
     uint64_t idx_dec = perm_rank_bb(is.bb, &rank_ri);
     __builtin_prefetch(src + idx_dec, 0, 3);
@@ -49,7 +49,7 @@ static void NAME(convert_data_piece)(struct ThreadData *thread)
   }
 
   // Steady-state pipeline.
-  for (; idx < end; idx++, idx_state2_inc(&is, perm_ri)) {
+  for (; idx < end; idx++, idx_state_inc(&is, perm_ri)) {
     uint64_t idx_dec = perm_rank_bb(is.bb, &rank_ri);
     __builtin_prefetch(src + idx_dec, 0, 3);
     dst[idx - NUM] = src[idx_dec_buf[head]];
@@ -71,25 +71,25 @@ static void NAME(convert_est_data_piece)(struct ThreadData *thread)
   uint64_t dsize = est_data.dsize;
   T *restrict dst = est_data.dst;
   struct RankInfo rank_ri;
-  struct IdxState2 is;
+  struct IdxState is;
 
   uint64_t idx_dec_buf[NUM];
 
   for (int p = 0; p < num_cands; p++) {
     NAME(init_source_rank_ri)(&rank_ri, &try_ri[p]);
     for (int i = thread->begin; i < thread->end; i++) {
-      idx_state2_init(&is, segs[i], g_slice.sq, &try_ri[p], false);
+      idx_state_init(&is, segs[i], g_slice.sq, &try_ri[p], false);
       int j = 0, fill = 0, head = 0;
 
       for (; fill < NUM && j < seg_size;
-          fill++, j++, idx_state2_inc(&is, &try_ri[p]))
+          fill++, j++, idx_state_inc(&is, &try_ri[p]))
       {
         uint64_t idx_dec = perm_rank_bb(is.bb, &rank_ri);
         __builtin_prefetch(table + idx_dec, 0, 3);
         idx_dec_buf[fill] = idx_dec;
       }
 
-      for (; j < seg_size; j++, idx_state2_inc(&is, &try_ri[p])) {
+      for (; j < seg_size; j++, idx_state_inc(&is, &try_ri[p])) {
         uint64_t idx_dec = perm_rank_bb(is.bb, &rank_ri);
         __builtin_prefetch(table + idx_dec, 0, 3);
         dst[p * dsize + i * seg_size + j - NUM] = table[idx_dec_buf[head]];
@@ -111,7 +111,7 @@ static void NAME(convert_data_piece_ref)(struct ThreadData *thread)
   T *restrict dst = convert_data.dst;
   struct RankInfo *perm_ri = convert_data.perm_ri;
   struct RankInfo rank_ri;
-  struct IdxState2 is;
+  struct IdxState is;
 
   uint64_t idx_dec_buf[NUM];
 
@@ -154,7 +154,7 @@ static void NAME(convert_est_data_piece_ref)(struct ThreadData *thread)
   uint64_t dsize = est_data.dsize;
   T *restrict dst = est_data.dst;
   struct RankInfo rank_ri;
-  struct IdxState2 is;
+  struct IdxState is;
 
   uint64_t idx_dec_buf[NUM];
 

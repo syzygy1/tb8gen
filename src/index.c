@@ -205,11 +205,6 @@ INLINE uint64_t binom(int n, int k)
   return (k < 0 || k > n) ? 0 : Binomial[k][n];
 }
 
-INLINE int popcnt32(uint32_t m)
-{
-  return stdc_count_ones(m);
-}
-
 // Fold (p,s) into the range 0...11.
 // p = number of empty 2-orbits, s = number of empty 1-orbits.
 INLINE int fold_ps(int p, int s)
@@ -591,7 +586,7 @@ void calc_factors(struct RankInfo *ri, int n)
   ri->sizes[0] = f;
 }
 
-Bitboard idx_state2_init(struct IdxState2 *is, uint64_t idx,
+Bitboard idx_state_init(struct IdxState *is, uint64_t idx,
     const uint8_t *restrict sq, const struct RankInfo *ri, const bool ref)
 {
   is->sq[0] = sq[0];
@@ -613,7 +608,7 @@ Bitboard idx_state2_init(struct IdxState2 *is, uint64_t idx,
   return is->occ[ri->numsets];
 }
 
-static bool sq_attacked_by(struct IdxState2 *is, int sq, int stm, Bitboard occ)
+static bool sq_attacked_by(struct IdxState *is, int sq, int stm, Bitboard occ)
 {
   if (has_pawns && stm == BLACK && (bit(sq) & pawn_attacks(BLACK, is->sq[2])))
     return true;
@@ -626,7 +621,7 @@ static bool sq_attacked_by(struct IdxState2 *is, int sq, int stm, Bitboard occ)
   return false;
 }
 
-static bool is_pinned(struct IdxState2 *is, Bitboard bb, int ksq, int stm,
+static bool is_pinned(struct IdxState *is, Bitboard bb, int ksq, int stm,
     Bitboard occ)
 {
   // Check if piece might by pinned by a horizontal or vertical slider.
@@ -666,7 +661,7 @@ static bool is_pinned(struct IdxState2 *is, Bitboard bb, int ksq, int stm,
 }
 
 // Test for mate given. This function assumes that the stm is in check.
-bool idx_state2_mate(struct IdxState2 *is, int stm, Bitboard occ)
+bool idx_state_mate(struct IdxState *is, int stm, Bitboard occ)
 {
   int ksq = is->sq[stm];
 
@@ -728,7 +723,7 @@ bool idx_state2_mate(struct IdxState2 *is, int stm, Bitboard occ)
 }
 
 // Test legality of both quiet moves and captures to squares in b.
-INLINE bool legal_move(struct IdxState2 *is, Bitboard b, int ksq, int stm,
+INLINE bool legal_move(struct IdxState *is, Bitboard b, int ksq, int stm,
     Bitboard occ)
 {
   while (b) {
@@ -740,7 +735,7 @@ INLINE bool legal_move(struct IdxState2 *is, Bitboard b, int ksq, int stm,
   return false;
 }
 
-bool idx_state2_has_legal_moves(struct IdxState2 *is, int stm, Bitboard occ)
+bool idx_state_has_legal_moves(struct IdxState *is, int stm, Bitboard occ)
 {
   // Allowed squares are the empty and enemy squares.
   Bitboard allowed = ~occ;

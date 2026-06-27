@@ -31,7 +31,7 @@ bool one_sided, wins_only;
 int one_sided_stm;
 
 INLINE void mark_king_uncaptures(int stm, int k, Bitboard occ,
-    struct IdxState2 *is)
+    struct IdxState *is)
 {
   alignas(64) Bitboard bb[8];
   uint8_t ksq[2] = { is->sq[0], is->sq[1] };
@@ -63,7 +63,7 @@ INLINE void mark_king_uncaptures(int stm, int k, Bitboard occ,
 
 // Uncapture a piece in set k by a piece in set j.
 INLINE void mark_uncaptures(int stm, const int pc, int k,
-    uint8_t *restrict const p, Bitboard occ, struct IdxState2 *is,
+    uint8_t *restrict const p, Bitboard occ, struct IdxState *is,
     const bool ref)
 {
   int j = g_piece_set[stm][pc];
@@ -100,7 +100,7 @@ INLINE void mark_uncaptures(int stm, const int pc, int k,
 
 // Uncapture stm^1 king by an stm piece being added to set k.
 INLINE void mark_uncapture_king(int stm, const int pc, int ksq,
-    uint8_t *restrict const p, Bitboard occ, struct IdxState2 *is,
+    uint8_t *restrict const p, Bitboard occ, struct IdxState *is,
     const bool ref)
 {
   int k = g_piece_set[stm][pc];
@@ -125,7 +125,7 @@ INLINE void mark_uncapture_king(int stm, const int pc, int ksq,
 }
 
 // Return true if one move hits a set bit.
-INLINE bool test_king_moves(int stm, Bitboard occ, struct IdxState2 *is)
+INLINE bool test_king_moves(int stm, Bitboard occ, struct IdxState *is)
 {
   alignas(64) Bitboard bb[8];
   uint8_t ksq[2] = { is->sq[0], is->sq[1] };
@@ -155,7 +155,7 @@ INLINE bool test_king_moves(int stm, Bitboard occ, struct IdxState2 *is)
 }
 
 INLINE bool test_moves(int stm, const int pc, uint8_t *restrict const p,
-    Bitboard occ, struct IdxState2 *is, const bool ref)
+    Bitboard occ, struct IdxState *is, const bool ref)
 {
   int k = g_piece_set[stm][pc];
   if (k < 0) return false;
@@ -216,7 +216,7 @@ void init_verification_work(void)
 
 static void calc_sub_worker(struct ThreadData *thread)
 {
-  struct IdxState2 is;
+  struct IdxState is;
   int k = work_set;
   int stm = g_slice.stm;
 
@@ -232,15 +232,15 @@ static void calc_sub_worker(struct ThreadData *thread)
   for (int i = 0; i < 5; i++)
     p[i] = kslice_sub_buf[i] + sub_offset[k];
 
-  Bitboard occ = idx_state2_init(&is, thread->begin, g_slice.sq, &capt_ri[k],
+  Bitboard occ = idx_state_init(&is, thread->begin, g_slice.sq, &capt_ri[k],
       false);
   for (uint64_t idx = thread->begin, end = thread->end; idx < end;
-      idx++, occ = idx_state2_inc(&is, &capt_ri[k]))
+      idx++, occ = idx_state_inc(&is, &capt_ri[k]))
   {
-    if (!idx_state2_legal(&is, stm, occ))
+    if (!idx_state_legal(&is, stm, occ))
       continue;
     pos.occ = occ;
-    idx_state2_to_sq(&is, pos.sq, &capt_ri[k]);
+    idx_state_to_sq(&is, pos.sq, &capt_ri[k]);
     pos.sq[m] = pos.sq[n];
     int v = probe_wdl(&pos, -2, 2);
     kslice_bit_set(p[v + 2], idx);
@@ -321,7 +321,7 @@ static void calc_sub_kslices(int stm)
 
 static void predecessors_sub_worker(struct ThreadData *thread)
 {
-  struct IdxState2 is;
+  struct IdxState is;
   int stm = g_slice.stm;
   int k = work_set;
   int s = work_slice;
@@ -331,14 +331,14 @@ static void predecessors_sub_worker(struct ThreadData *thread)
   uint8_t *restrict const q = kslice_get_address(s);
 
   uint64_t last = thread->begin;
-  idx_state2_init(&is, last, g_slice.sq, &capt_ri[k], false);
+  idx_state_init(&is, last, g_slice.sq, &capt_ri[k], false);
 
   if (s < 441) {
     for (uint64_t idx = last, end = thread->end; idx < end; idx += 64) {
       uint64_t w = *p++;
       while (w) {
         uint64_t cur = idx + pop_lsb(&w);
-        Bitboard occ = idx_state2_add(&is, cur - last, &capt_ri[k]);
+        Bitboard occ = idx_state_add(&is, cur - last, &capt_ri[k]);
         last = cur;
         // Uncapture by king.
         mark_king_uncaptures(stm, k, occ, &is);
@@ -354,7 +354,7 @@ static void predecessors_sub_worker(struct ThreadData *thread)
       uint64_t w = *p++;
       while (w) {
         uint64_t cur = idx + pop_lsb(&w);
-        Bitboard occ = idx_state2_add(&is, cur - last, &capt_ri[k]);
+        Bitboard occ = idx_state_add(&is, cur - last, &capt_ri[k]);
         last = cur;
         // Uncapture by king.
         mark_king_uncaptures(stm, k, occ, &is);
@@ -461,18 +461,18 @@ finished:
 static void calc_illegal_worker_tmpl(struct ThreadData *thread, const int pc,
     const bool ref)
 {
-  struct IdxState2 is;
+  struct IdxState is;
   int stm = g_slice.stm;
   int k = g_piece_set[stm][pc];
   int ksq = g_slice.sq[stm ^ 1];
 
   uint8_t *restrict const p = kslice_buf[0];
 
-  Bitboard occ = idx_state2_init(&is, thread->begin, g_slice.sq, &capt_ri[k],
+  Bitboard occ = idx_state_init(&is, thread->begin, g_slice.sq, &capt_ri[k],
       false);
 
   for (uint64_t idx = thread->begin, end = thread->end; idx < end;
-      idx++, occ = idx_state2_inc(&is, &capt_ri[k]))
+      idx++, occ = idx_state_inc(&is, &capt_ri[k]))
   {
     mark_uncapture_king(stm, pc, ksq, p, occ, &is, ref);
   }
@@ -578,7 +578,7 @@ static mtx_t report_mutex;
 static int num_fails;
 
 static void report_fail(int s, uint64_t idx, Bitboard occ,
-    const struct IdxState2 *is)
+    const struct IdxState *is)
 {
   mtx_lock(&report_mutex);
   char fenstr[64];
@@ -587,7 +587,7 @@ static void report_fail(int s, uint64_t idx, Bitboard occ,
   pos.sq[1] = g_slice.sq[1];
   pos.stm = g_slice.stm;
   pos.occ = occ;
-  idx_state2_to_sq(is, pos.sq, &ri);
+  idx_state_to_sq(is, pos.sq, &ri);
   pos_to_fen(&pos, fenstr, false);
   int wdl = probe_wdl(&pos, -2, 2);
   printf("\nslice = %d, idx = %lu, wdl = %d\n%s\n", s, idx, wdl, fenstr);
@@ -597,7 +597,7 @@ static void report_fail(int s, uint64_t idx, Bitboard occ,
   mtx_unlock(&report_mutex);
 }
 
-static bool check_dtz_W101(struct IdxState2 *is, Bitboard occ)
+static bool check_dtz_W101(struct IdxState *is, Bitboard occ)
 {
   Position pos = g_pos;
   pos.sq[0] = g_slice.sq[0];
@@ -634,7 +634,7 @@ static bool check_dtz_W101(struct IdxState2 *is, Bitboard occ)
   return pos_ok;
 }
 
-static bool check_dtz_L101(struct IdxState2 *is, Bitboard occ)
+static bool check_dtz_L101(struct IdxState *is, Bitboard occ)
 {
   Position pos = g_pos;
   pos.sq[0] = g_slice.sq[0];
@@ -678,7 +678,7 @@ static int work_slice;
 INLINE void check_zero_worker_tmpl(struct ThreadData *thread, const int T,
     const bool ref)
 {
-  struct IdxState2 is;
+  struct IdxState is;
   int stm = g_slice.stm;
   int s = work_slice;
 
@@ -687,13 +687,13 @@ INLINE void check_zero_worker_tmpl(struct ThreadData *thread, const int T,
 
   p += thread->begin >> 6;
   uint64_t last = thread->begin;
-  idx_state2_init(&is, last, g_slice.sq, &ri, ref);
+  idx_state_init(&is, last, g_slice.sq, &ri, ref);
   for (uint64_t idx = last, end = thread->end; idx < end; idx += 64, p++) {
     uint64_t w = *p;
     while (w) {
       uint64_t cur = idx + pop_lsb(&w);
       Bitboard occ = ref ? unrank_bb_ref(cur, is.bb, &ri)
-        : idx_state2_add(&is, cur - last, &ri);
+        : idx_state_add(&is, cur - last, &ri);
       last = cur;
 
       if (   !test_moves(stm, QUEEN , q, occ, &is, ref)
@@ -764,7 +764,7 @@ enum { CO_REGULAR, CO_DRAW, CO_BLOSS, CO_LOSS };
 INLINE void check_one_worker_tmpl(struct ThreadData *thread, const int T,
     const bool ref)
 {
-  struct IdxState2 is;
+  struct IdxState is;
   int stm = g_slice.stm;
   int s = work_slice;
 
@@ -773,13 +773,13 @@ INLINE void check_one_worker_tmpl(struct ThreadData *thread, const int T,
 
   p += thread->begin >> 6;
   uint64_t last = thread->begin;
-  idx_state2_init(&is, last, g_slice.sq, &ri, ref);
+  idx_state_init(&is, last, g_slice.sq, &ri, ref);
   for (uint64_t idx = last, end = thread->end; idx < end; idx += 64, p++) {
     uint64_t w = *p;
     while (w) {
       uint64_t cur = idx + pop_lsb(&w);
       Bitboard occ = ref ? unrank_bb_ref(cur, is.bb, &ri)
-          : idx_state2_add(&is, cur - last, &ri);
+          : idx_state_add(&is, cur - last, &ri);
       last = cur;
 
       if (   test_moves(stm, QUEEN , q, occ, &is, ref)
@@ -794,8 +794,8 @@ INLINE void check_one_worker_tmpl(struct ThreadData *thread, const int T,
         report_fail(s, cur, occ, &is);
         break;
       case CO_DRAW:
-        if (    idx_state2_has_legal_moves(&is, stm, occ)
-            || !idx_state2_legal(&is, stm ^ 1, occ))
+        if (    idx_state_has_legal_moves(&is, stm, occ)
+            || !idx_state_legal(&is, stm ^ 1, occ))
           report_fail(s, cur, occ, &is);
         break;
       case CO_BLOSS:
@@ -803,7 +803,7 @@ INLINE void check_one_worker_tmpl(struct ThreadData *thread, const int T,
           report_fail(s, cur, occ, &is);
         break;
       case CO_LOSS:
-        if (idx_state2_legal(&is, stm ^ 1, occ))
+        if (idx_state_legal(&is, stm ^ 1, occ))
           report_fail(s, cur, occ, &is);
         break;
       default:
@@ -1063,7 +1063,7 @@ static void init_perm_rank_ri(struct RankInfo *rank_ri,
   }
 }
 
-static uint64_t depermute_462_idx(struct IdxState2 *is,
+static uint64_t depermute_462_idx(struct IdxState *is,
     const struct RankInfo *rank_ri, int t)
 {
   alignas(64) Bitboard bb[8];
@@ -1075,7 +1075,7 @@ static uint64_t depermute_462_idx(struct IdxState2 *is,
   return perm_rank_bb(set_bb, rank_ri);
 }
 
-static uint64_t depermute_462_ref_idx(struct IdxState2 *is,
+static uint64_t depermute_462_ref_idx(struct IdxState *is,
     const struct RankInfo *rank_ri, int t)
 {
   alignas(64) Bitboard bb[8];
@@ -1119,13 +1119,13 @@ static void depermute_wdl_462_worker(struct ThreadData *thread)
   uint8_t *restrict src = tb_table;
   const struct RankInfo *dst_ri = &tb_ri[g_slice.stm];
   struct RankInfo rank_ri;
-  struct IdxState2 is;
+  struct IdxState is;
 
   uint64_t idx_dec_buf[NUM];
 
   init_perm_rank_ri(&rank_ri, table_info, dst_ri);
   int t = KK_transform[g_slice.sq[0]][g_slice.sq[1]];
-  idx_state2_init(&is, thread->begin, g_slice.sq, dst_ri, false);
+  idx_state_init(&is, thread->begin, g_slice.sq, dst_ri, false);
 
   uint64_t idx = thread->begin, end = thread->end;
   int fill = 0;
@@ -1133,7 +1133,7 @@ static void depermute_wdl_462_worker(struct ThreadData *thread)
 
   // Fill pipeline.
   for (; fill < NUM && idx < end;
-      fill++, idx++, idx_state2_inc(&is, dst_ri))
+      fill++, idx++, idx_state_inc(&is, dst_ri))
   {
     uint64_t idx_dec = depermute_462_idx(&is, &rank_ri, t);
     __builtin_prefetch(src + idx_dec, 0, 3);
@@ -1141,7 +1141,7 @@ static void depermute_wdl_462_worker(struct ThreadData *thread)
   }
 
   // Steady-state pipeline.
-  for (; idx < end; idx++, idx_state2_inc(&is, dst_ri)) {
+  for (; idx < end; idx++, idx_state_inc(&is, dst_ri)) {
     uint64_t idx_dec = depermute_462_idx(&is, &rank_ri, t);
     __builtin_prefetch(src + idx_dec, 0, 3);
     store_wdl(idx - NUM, tmp, src[idx_dec_buf[head]]);
@@ -1164,7 +1164,7 @@ static void depermute_wdl_462_ref_worker(struct ThreadData *thread)
   uint8_t *restrict src = tb_table;
   const struct RankInfo *dst_ri = &tb_ri[g_slice.stm];
   struct RankInfo rank_ri;
-  struct IdxState2 is;
+  struct IdxState is;
 
   uint64_t idx_dec_buf[NUM];
 
@@ -1317,7 +1317,7 @@ static void init_10_ksq(uint8_t *restrict sq)
     Swap(sq[0], sq[1]);
 }
 
-static uint64_t depermute_10_idx(struct IdxState2 *is,
+static uint64_t depermute_10_idx(struct IdxState *is,
     const struct TbTable2 *table, const int8_t *restrict perm, int t, int k2sq)
 {
   alignas(64) Bitboard bb[8];
@@ -1342,7 +1342,7 @@ static void depermute_wdl_10_worker(struct ThreadData *thread)
   const uint8_t *restrict src = tb_table;
   const struct TbTable2 *table = table_info;
   const struct RankInfo *dst_ri = &tb_ri[g_slice.stm];
-  struct IdxState2 is;
+  struct IdxState is;
   int8_t perm[MAX_SETS + 1];
 
   uint64_t idx_dec_buf[NUM];
@@ -1352,7 +1352,7 @@ static void depermute_wdl_10_worker(struct ThreadData *thread)
   int t = KK_transform[sq[0]][sq[1]];
   int k2sq = k2sq_10();
 
-  idx_state2_init(&is, thread->begin, sq, dst_ri, false);
+  idx_state_init(&is, thread->begin, sq, dst_ri, false);
 
   uint64_t idx = thread->begin, end = thread->end;
   int fill = 0;
@@ -1363,7 +1363,7 @@ static void depermute_wdl_10_worker(struct ThreadData *thread)
 
   // Fill pipeline.
   for (; fill < NUM && idx < end;
-      fill++, idx++, idx_state2_inc(&is, dst_ri))
+      fill++, idx++, idx_state_inc(&is, dst_ri))
   {
     // Now basically just probe the wdl_10 table slice.
     uint64_t idx_dec = depermute_10_idx(&is, table, perm, t, k2sq);
@@ -1372,7 +1372,7 @@ static void depermute_wdl_10_worker(struct ThreadData *thread)
   }
 
   // Steady-state pipeline.
-  for (; idx < end; idx++, idx_state2_inc(&is, dst_ri)) {
+  for (; idx < end; idx++, idx_state_inc(&is, dst_ri)) {
     uint64_t idx_dec = depermute_10_idx(&is, table, perm, t, k2sq);
     __builtin_prefetch(src + idx_dec, 0, 3);
     store_wdl(idx - NUM, tmp, src[idx_dec_buf[head]]);
@@ -1396,7 +1396,7 @@ static void depermute_wdl_10_ref_worker(struct ThreadData *thread)
   uint8_t *restrict src = tb_table;
   const struct TbTable2 *table = table_info;
   const struct RankInfo *dst_ri = &tb_ri[g_slice.stm];
-  struct IdxState2 is;
+  struct IdxState is;
   int8_t perm[MAX_SETS + 1];
 
   uint64_t idx_dec_buf[NUM];
@@ -1515,13 +1515,13 @@ void depermute_dtz_462_worker(struct ThreadData *thread)
   uint8_t *restrict dst = dtz_table;
   const struct RankInfo *dst_ri = &tb_ri[g_slice.stm];
   struct RankInfo rank_ri;
-  struct IdxState2 is;
+  struct IdxState is;
 
   uint64_t idx_dec_buf[NUM];
 
   init_perm_rank_ri(&rank_ri, table_info, dst_ri);
   int t = KK_transform[g_slice.sq[0]][g_slice.sq[1]];
-  idx_state2_init(&is, thread->begin, g_slice.sq, dst_ri, false);
+  idx_state_init(&is, thread->begin, g_slice.sq, dst_ri, false);
 
   uint64_t idx = thread->begin, end = thread->end;
   int fill = 0;
@@ -1529,7 +1529,7 @@ void depermute_dtz_462_worker(struct ThreadData *thread)
 
   // Fill pipeline.
   for (; fill < NUM && idx < end;
-      fill++, idx++, idx_state2_inc(&is, dst_ri))
+      fill++, idx++, idx_state_inc(&is, dst_ri))
   {
     uint64_t idx_dec = depermute_462_idx(&is, &rank_ri, t);
     __builtin_prefetch(src + idx_dec, 0, 3);
@@ -1537,7 +1537,7 @@ void depermute_dtz_462_worker(struct ThreadData *thread)
   }
 
   // Steady-state pipeline.
-  for (; idx < end; idx++, idx_state2_inc(&is, dst_ri)) {
+  for (; idx < end; idx++, idx_state_inc(&is, dst_ri)) {
     uint64_t idx_dec = depermute_462_idx(&is, &rank_ri, t);
     __builtin_prefetch(src + idx_dec, 0, 3);
     dst[idx - NUM] = src[idx_dec_buf[head]];
@@ -1558,7 +1558,7 @@ void depermute_dtz_462_ref_worker(struct ThreadData *thread)
   uint8_t *restrict dst = dtz_table;
   const struct RankInfo *dst_ri = &tb_ri[g_slice.stm];
   struct RankInfo rank_ri;
-  struct IdxState2 is;
+  struct IdxState is;
 
   uint64_t idx_dec_buf[NUM];
 
@@ -1602,7 +1602,7 @@ void depermute_dtz_10_worker(struct ThreadData *thread)
   uint8_t *restrict dst = dtz_table;
   const struct TbTable2 *table = table_info;
   const struct RankInfo *dst_ri = &tb_ri[g_slice.stm];
-  struct IdxState2 is;
+  struct IdxState is;
   int8_t perm[MAX_SETS + 1];
 
   uint64_t idx_dec_buf[NUM];
@@ -1612,7 +1612,7 @@ void depermute_dtz_10_worker(struct ThreadData *thread)
   int t = KK_transform[sq[0]][sq[1]];
   int k2sq = k2sq_10();
 
-  idx_state2_init(&is, thread->begin, sq, dst_ri, false);
+  idx_state_init(&is, thread->begin, sq, dst_ri, false);
 
   uint64_t idx = thread->begin, end = thread->end;
   int fill = 0;
@@ -1620,7 +1620,7 @@ void depermute_dtz_10_worker(struct ThreadData *thread)
 
   // Fill pipeline.
   for (; fill < NUM && idx < end;
-      fill++, idx++, idx_state2_inc(&is, dst_ri))
+      fill++, idx++, idx_state_inc(&is, dst_ri))
   {
     uint64_t idx_dec = depermute_10_idx(&is, table, perm, t, k2sq);
     __builtin_prefetch(src + idx_dec, 0, 3);
@@ -1628,7 +1628,7 @@ void depermute_dtz_10_worker(struct ThreadData *thread)
   }
 
   // Steady-state pipeline.
-  for (; idx < end; idx++, idx_state2_inc(&is, dst_ri)) {
+  for (; idx < end; idx++, idx_state_inc(&is, dst_ri)) {
     uint64_t idx_dec = depermute_10_idx(&is, table, perm, t, k2sq);
     __builtin_prefetch(src + idx_dec, 0, 3);
     dst[idx - NUM] = src[idx_dec_buf[head]];
@@ -1650,7 +1650,7 @@ void depermute_dtz_10_ref_worker(struct ThreadData *thread)
   uint8_t *restrict dst = dtz_table;
   const struct TbTable2 *table = table_info;
   const struct RankInfo *dst_ri = &tb_ri[g_slice.stm];
-  struct IdxState2 is;
+  struct IdxState is;
   int8_t perm[MAX_SETS + 1];
 
   uint64_t idx_dec_buf[NUM];

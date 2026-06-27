@@ -115,7 +115,7 @@ static void NAME(merge_capt_bloss_worker)(struct ThreadData *thread)
 }
 
 INLINE void NAME(merge_mark_uncapture)(int k, int ksq, T *restrict const p,
-    Bitboard occ, struct IdxState2 *is, const bool ref)
+    Bitboard occ, struct IdxState *is, const bool ref)
 {
   uint64_t idx0 = 0;
   if (!ref) {
@@ -137,17 +137,17 @@ INLINE void NAME(merge_mark_uncapture)(int k, int ksq, T *restrict const p,
 
 static void NAME(merge_illegal_worker)(struct ThreadData *thread)
 {
-  struct IdxState2 is;
+  struct IdxState is;
   int k = work_set;
   int ksq = g_slice.sq[g_slice.stm ^ 1];
 
   T *restrict const p = merge_table;
 
-  Bitboard occ = idx_state2_init(&is, thread->begin, g_slice.sq, &capt_ri[k],
+  Bitboard occ = idx_state_init(&is, thread->begin, g_slice.sq, &capt_ri[k],
       false);
 
   for (uint64_t idx = thread->begin, end = thread->end; idx < end;
-      idx++, occ = idx_state2_inc(&is, &capt_ri[k]))
+      idx++, occ = idx_state_inc(&is, &capt_ri[k]))
   {
     NAME(merge_mark_uncapture)(k, ksq, p, occ, &is, false);
   }
@@ -155,17 +155,17 @@ static void NAME(merge_illegal_worker)(struct ThreadData *thread)
 
 static void NAME(merge_illegal_ref_worker)(struct ThreadData *thread)
 {
-  struct IdxState2 is;
+  struct IdxState is;
   int k = work_set;
   int ksq = g_slice.sq[g_slice.stm ^ 1];
 
   T *restrict const p = merge_table;
 
-  Bitboard occ = idx_state2_init(&is, thread->begin, g_slice.sq, &capt_ri[k],
+  Bitboard occ = idx_state_init(&is, thread->begin, g_slice.sq, &capt_ri[k],
       false);
 
   for (uint64_t idx = thread->begin, end = thread->end; idx < end;
-      idx++, occ = idx_state2_inc(&is, &capt_ri[k]))
+      idx++, occ = idx_state_inc(&is, &capt_ri[k]))
   {
     NAME(merge_mark_uncapture)(k, ksq, p, occ, &is, true);
   }

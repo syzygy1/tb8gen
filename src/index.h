@@ -44,7 +44,7 @@ extern struct RankInfo rank_info_61[32];
 extern struct RankInfo rank_info_62[64];
 extern struct RankInfo rank_info_63[64];
 
-struct IdxState2 {
+struct IdxState {
   alignas(64) Bitboard occ[8];
   Bitboard bb[8];
   uint32_t sub[MAX_SETS + 1];
@@ -188,7 +188,7 @@ INLINE void mirror_diagonal(uint8_t *sq)
   memcpy(sq, &v, 8);
 }
 
-INLINE Bitboard idx_state2_inc(struct IdxState2 *is, const struct RankInfo *ri)
+INLINE Bitboard idx_state_inc(struct IdxState *is, const struct RankInfo *ri)
 {
   uint32_t *const restrict sub = is->sub;
   int i = ri->numsets;
@@ -209,7 +209,7 @@ INLINE Bitboard idx_state2_inc(struct IdxState2 *is, const struct RankInfo *ri)
   return occ;
 }
 
-INLINE Bitboard idx_state2_add(struct IdxState2 *is, uint64_t v,
+INLINE Bitboard idx_state_add(struct IdxState *is, uint64_t v,
     const struct RankInfo *restrict ri)
 {
   uint32_t *const restrict sub = is->sub;
@@ -237,7 +237,7 @@ INLINE Bitboard idx_state2_add(struct IdxState2 *is, uint64_t v,
   return occ;
 }
 
-INLINE bool idx_state2_legal(const struct IdxState2 *is, int stm, Bitboard occ)
+INLINE bool idx_state_legal(const struct IdxState *is, int stm, Bitboard occ)
 {
   int ksq = is->sq[stm ^ 1];
   if (has_pawns && stm == BLACK && (pawn_attacks(BLACK, is->sq[2]) & bit(ksq)))
@@ -251,7 +251,7 @@ INLINE bool idx_state2_legal(const struct IdxState2 *is, int stm, Bitboard occ)
   return true;
 }
 
-INLINE void idx_state2_to_sq(const struct IdxState2 *is, uint8_t *restrict sq,
+INLINE void idx_state_to_sq(const struct IdxState *is, uint8_t *restrict sq,
     const struct RankInfo *ri)
 {
   for (int k = 0; k < ri->numsets; k++) {
@@ -276,10 +276,10 @@ uint64_t rank_bb_ref(const Bitboard *set_bb, const struct RankInfo *ri);
 uint64_t perm_rank_bb_ref(const Bitboard *set_bb, const struct RankInfo *ri);
 uint64_t unrank_bb_ref(uint64_t idx, Bitboard *set_bb,
     const struct RankInfo *ri);
-Bitboard idx_state2_init(struct IdxState2 *is, uint64_t idx,
+Bitboard idx_state_init(struct IdxState *is, uint64_t idx,
     const  uint8_t *restrict sq, const struct RankInfo *ri, const bool ref);
-bool idx_state2_mate(struct IdxState2 *is, int stm, Bitboard occ);
-bool idx_state2_has_legal_moves(struct IdxState2 *is, int stm, Bitboard occ);
+bool idx_state_mate(struct IdxState *is, int stm, Bitboard occ);
+bool idx_state_has_legal_moves(struct IdxState *is, int stm, Bitboard occ);
 
 void calc_factors(struct RankInfo *ri, int n);
 
