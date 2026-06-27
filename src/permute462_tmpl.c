@@ -33,7 +33,7 @@ static void NAME(convert_data_piece)(struct ThreadData *thread)
   uint64_t idx_dec_buf[NUM];
 
   NAME(init_source_rank_ri)(&rank_ri, perm_ri);
-  idx_state2_init(&is, thread->begin, g_slice.sq, perm_ri);
+  idx_state2_init(&is, thread->begin, g_slice.sq, perm_ri, false);
 
   uint64_t idx = thread->begin, end = thread->end;
   int fill = 0;
@@ -78,7 +78,7 @@ static void NAME(convert_est_data_piece)(struct ThreadData *thread)
   for (int p = 0; p < num_cands; p++) {
     NAME(init_source_rank_ri)(&rank_ri, &try_ri[p]);
     for (int i = thread->begin; i < thread->end; i++) {
-      idx_state2_init(&is, segs[i], g_slice.sq, &try_ri[p]);
+      idx_state2_init(&is, segs[i], g_slice.sq, &try_ri[p], false);
       int j = 0, fill = 0, head = 0;
 
       for (; fill < NUM && j < seg_size;

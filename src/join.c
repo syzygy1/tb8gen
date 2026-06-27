@@ -604,9 +604,9 @@ void join_final_462(int type)
   }
 
   *p++ = 1; // version number
-  *p++ = g_slice.num;
-  for (int i = 2; i < g_slice.num; i++)
-    *p++ = (g_slice.pt[i] & 7) | ((g_slice.pt[i] & 8) << 4);
+  *p++ = g_pos.num;
+  for (int i = 2; i < g_pos.num; i++)
+    *p++ = (g_pos.pt[i] & 7) | ((g_pos.pt[i] & 8) << 4);
   *p++ = LT_PIECE_KK;
   if (type != WDL) {
     uint8_t dist_format = (has_stm[WHITE] && has_stm[BLACK]) ? TWO_SIDED : 0;
@@ -1044,9 +1044,9 @@ static void join_final_10(int type)
   }
 
   *p++ = 1; // version number
-  *p++ = g_slice.num;
-  for (int i = 2; i < g_slice.num; i++)
-    *p++ = (g_slice.pt[i] & 7) | ((g_slice.pt[i] & 8) << 4);
+  *p++ = g_pos.num;
+  for (int i = 2; i < g_pos.num; i++)
+    *p++ = (g_pos.pt[i] & 7) | ((g_pos.pt[i] & 8) << 4);
   *p++ = LT_PIECE_K;
   if (type != WDL) {
     uint8_t dist_format = (has_stm[WHITE] && has_stm[BLACK]) ? TWO_SIDED : 0;

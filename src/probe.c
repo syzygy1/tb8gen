@@ -1798,7 +1798,7 @@ INLINE int probe_table(Position *pos, int s, const int type)
       && (bool)(tb->dist_format & WIN_ONLY) != (s > 0))
     return CHANGE_STM;
 
-  uint8_t p[MAX_PIECES];
+  alignas(8) uint8_t p[MAX_PIECES];
   bool flip = !entry->symmetric ? (key != entry->key) != tb->flipped
                                 : pos->stm != WHITE;
   bool btm_side = (pos->stm == WHITE) == flip;
@@ -1901,7 +1901,7 @@ INLINE int probe_table(Position *pos, int s, const int type)
 
       // Normalize the single-pawn position.
       if (p[2] & 0x04)
-        for (int i = 0; i < entry->num; i++)
+        for (int i = 0; i < MAX_PIECES; i++)
           p[i] ^= 0x07;
 
       if (tb->layout == LT_PAWN_P) {
