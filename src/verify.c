@@ -30,99 +30,161 @@ static uint64_t sub_cnt[2][5];
 bool one_sided, wins_only;
 int one_sided_stm;
 
-INLINE void mark_king_unmoves(int stm, Bitboard occ, uint8_t *restrict sq)
+INLINE void mark_king_uncaptures(int stm, int k, Bitboard occ,
+    struct IdxState *is)
 {
-  uint8_t sq2[MAX_PIECES];
-  uint8_t tmp = sq[stm];
-  Bitboard b = king_attacks(sq[stm]) & ~(occ | king_attacks(sq[stm ^ 1]));
+  alignas(64) Bitboard bb[8];
+  uint8_t ksq[2] = { is->sq[0], is->sq[1] };
+
+  // The stm king uncaptures, so we need to place a piece where the king was.
+  is->bb[k + 1] |= bit(ksq[stm]);
+
+  Bitboard b = king_attacks(ksq[stm]) & ~king_attacks(ksq[stm ^ 1]) & ~occ;
   while (b) {
-    sq[stm] = pop_lsb(&b);
-    normalize2(sq, sq2);
-    int s2 = KKMap[sq2[0]][sq2[1]];
-    uint8_t *p = kslice_get_address(s2);
-    uint64_t idx = s2 < 441 ? sq_to_idx(sq2) : sq_to_idx_ref(sq2);
+    ksq[stm] = pop_lsb(&b);
+    is->bb[0] = bit(ksq[0]) | bit(ksq[1]);
+    int s = KKMap[ksq[0]][ksq[1]];
+    int t = KK_transform[ksq[0]][ksq[1]];
+    uint64_t idx;
+    if (!t) {
+      idx =  s < 441 ? rank_bb(is->bb, &ri) : rank_bb_ref(is->bb, &ri);
+    } else {
+      transform_set_bb(t, is->bb, bb);
+      idx =  s < 441 ? rank_bb(bb, &ri) : rank_bb_ref(bb, &ri);
+    }
+    uint8_t *p = kslice_get_address(s);
     kslice_bit_set_atomic(p, idx);
   }
-  sq[stm] = tmp;
+
+  // Restore the set occupancy bitboards.
+  is->bb[0] = is->occ[0];
+  is->bb[k + 1] ^= bit(is->sq[stm]);
 }
 
-INLINE void mark_unmoves(int k, uint8_t *restrict const p, Bitboard occ,
-    const uint8_t *restrict sq)
+// Uncapture a piece in set k by a piece in set j.
+INLINE void mark_uncaptures(int stm, const int pc, int k,
+    uint8_t *restrict const p, Bitboard occ, struct IdxState *is,
+    const bool ref)
 {
-  uint8_t sq2[MAX_PIECES];
-  Bitboard b = non_king_piece_moves(g_pos.pt[k], sq[k], occ);
-  while (b) {
-    memcpy(sq2, sq, sizeof sq2);
-    sq2[k] = pop_lsb(&b);
-    uint64_t idx = sq_to_idx(sq2);
-    kslice_bit_set_atomic(p, idx);
+  int j = g_piece_set[stm][pc];
+  if (j < 0) return;
+
+  uint64_t idx0 = 0;
+  int l;
+  if (!ref) {
+    l = min(j, k);
+    for (int i = 0; i < l; i++)
+      idx0 = idx0 * ri.factor[i] + is->sub[i];
+  }
+
+  Bitboard bb = is->bb[j + 1];
+  while (bb) {
+    Bitboard to_bb = bb & -bb;
+    is->bb[j + 1] ^= to_bb;
+    is->bb[k + 1] ^= to_bb;
+    bb ^= to_bb;
+    Bitboard b = piece_moves(pc, lsb(to_bb), occ);
+    while (b) {
+      Bitboard from_bb = b & -b;
+      is->bb[j + 1] ^= from_bb;
+      uint64_t idx = ref ? rank_bb_ref(is->bb, &ri)
+        : rank_bb_from(is->bb, idx0, l, is->occ[l], &ri);
+      kslice_bit_set_atomic(p, idx);
+      is->bb[j + 1] ^= from_bb;
+      b ^= from_bb;
+    }
+    is->bb[j + 1] ^= to_bb;
+    is->bb[k + 1] ^= to_bb;
   }
 }
 
-INLINE void mark_unmoves_ref(int k, uint8_t *restrict const p, Bitboard occ,
-    const uint8_t *restrict sq)
+// Uncapture stm^1 king by an stm piece being added to set k.
+INLINE void mark_uncapture_king(int stm, const int pc, int ksq,
+    uint8_t *restrict const p, Bitboard occ, struct IdxState *is,
+    const bool ref)
 {
-  uint8_t sq2[MAX_PIECES];
-  Bitboard b = non_king_piece_moves(g_pos.pt[k], sq[k], occ);
+  int k = g_piece_set[stm][pc];
+  if (k < 0) return;
+
+  uint64_t idx0 = 0;
+  if (!ref) {
+    for (int i = 0; i < k; i++)
+      idx0 = idx0 * ri.factor[i] + is->sub[i];
+  }
+
+  Bitboard b = piece_moves(pc, ksq, occ);
   while (b) {
-    memcpy(sq2, sq, sizeof sq2);
-    sq2[k] = pop_lsb(&b);
-    uint64_t idx = sq_to_idx_ref(sq2);
+    Bitboard from_bb = b & -b;
+    is->bb[k + 1] ^= from_bb;
+    uint64_t idx = ref ? rank_bb_ref(is->bb, &ri)
+      : rank_bb_from(is->bb, idx0, k, is->occ[k], &ri);
     kslice_bit_set_atomic(p, idx);
+    is->bb[k + 1] ^= from_bb;
+    b ^= from_bb;
   }
 }
 
 // Return true if one move hits a set bit.
-INLINE bool test_king_moves(int stm, Bitboard occ, uint8_t *restrict sq)
+INLINE bool test_king_moves(int stm, Bitboard occ, struct IdxState *is)
 {
-  uint8_t sq2[MAX_PIECES];
+  alignas(64) Bitboard bb[8];
+  uint8_t ksq[2] = { is->sq[0], is->sq[1] };
 
-  Bitboard b = king_attacks(sq[stm]) & ~king_attacks(sq[stm ^ 1]) & ~occ;
-
+  Bitboard b = king_attacks(ksq[stm]) & ~king_attacks(ksq[stm ^ 1]) & ~occ;
   while (b) {
-    sq[stm] = pop_lsb(&b);
-    normalize2(sq, sq2);
-    int s = KKMap[sq2[0]][sq2[1]];
-    uint64_t idx = s < 441 ? sq_to_idx(sq2) : sq_to_idx_ref(sq2);
+    ksq[stm] = pop_lsb(&b);
+    is->bb[0] = bit(ksq[0]) | bit(ksq[1]);
+    int s = KKMap[ksq[0]][ksq[1]];
+    int t = KK_transform[ksq[0]][ksq[1]];
+    uint64_t idx;
+    if (!t) {
+      idx =  s < 441 ? rank_bb(is->bb, &ri) : rank_bb_ref(is->bb, &ri);
+    } else {
+      transform_set_bb(t, is->bb, bb);
+      idx =  s < 441 ? rank_bb(bb, &ri) : rank_bb_ref(bb, &ri);
+    }
     uint8_t *p = kslice_get_address(s);
-    if (kslice_bit_test(p, idx))
+    if (kslice_bit_test(p, idx)) {
+      is->bb[0] = is->occ[0];
       return true;
-  } 
-
-  return false;
-}
-
-INLINE bool test_moves(int k, int s, uint8_t *restrict const p, Bitboard occ,
-    const uint8_t *restrict sq)
-{
-  uint8_t sq2[MAX_PIECES];
-
-  Bitboard b = non_king_piece_attacks(g_pos.pt[k], sq[k], occ) & ~occ;
-
-  while (b) {
-    memcpy(sq2, sq, sizeof sq2);
-    sq2[k] = pop_lsb(&b);
-    uint64_t idx = sq_to_idx(sq2);
-    if (kslice_bit_test(p, idx))
-      return true;
+    }
   }
 
+  is->bb[0] = is->occ[0];
   return false;
 }
 
-INLINE bool test_moves_ref(int k, int s, uint8_t *restrict const p,
-    Bitboard occ, const uint8_t *restrict sq)
+INLINE bool test_moves(int stm, const int pc, uint8_t *restrict const p,
+    Bitboard occ, struct IdxState *is, const bool ref)
 {
-  uint8_t sq2[MAX_PIECES];
+  int k = g_piece_set[stm][pc];
+  if (k < 0) return false;
 
-  Bitboard b = non_king_piece_attacks(g_pos.pt[k], sq[k], occ) & ~occ;
+  uint64_t idx0 = 0;
+  if (!ref) {
+    for (int i = 0; i < k; i++)
+      idx0 = idx0 * ri.factor[i] + is->sub[i];
+  }
 
-  while (b) {
-    memcpy(sq2, sq, sizeof sq2);
-    sq2[k] = pop_lsb(&b);
-    uint64_t idx = sq_to_idx_ref(sq2);
-    if (kslice_bit_test(p, idx))
-      return true;
+  Bitboard bb = is->bb[k + 1];
+  while (bb) {
+    Bitboard from_bb = bb & -bb;
+    is->bb[k + 1] ^= from_bb;
+    bb ^= from_bb;
+    Bitboard b = piece_moves(pc, lsb(from_bb), occ);
+    while (b) {
+      Bitboard to_bb = b & -b;
+      is->bb[k + 1] ^= to_bb;
+      uint64_t idx = ref ? rank_bb_ref(is->bb, &ri)
+        : rank_bb_from(is->bb, idx0, k, is->occ[k], &ri);
+      is->bb[k + 1] ^= to_bb;
+      if (kslice_bit_test(p, idx)) {
+        is->bb[k + 1] ^= from_bb;
+        return true;
+      }
+      b ^= to_bb;
+    }
+    is->bb[k + 1] ^= from_bb;
   }
 
   return false;
@@ -155,26 +217,33 @@ void init_verification_work(void)
 static void calc_sub_worker(struct ThreadData *thread)
 {
   struct IdxState is;
-  Position pos = g_pos;
   int k = work_set;
+  int stm = g_slice.stm;
+
+  Position pos = g_pos;
+  pos.sq[0] = g_slice.sq[0];
+  pos.sq[1] = g_slice.sq[1];
+  pos.stm = stm;
   int m = ri.last[k];
   int n = --pos.num;
-
   pos.pt[m] = pos.pt[n];
+
   uint8_t *restrict p[5];
   for (int i = 0; i < 5; i++)
     p[i] = kslice_sub_buf[i] + sub_offset[k];
 
-  idx_state_init(&is, thread->begin, pos.sq, &capt_ri[k]);
+  Bitboard occ = idx_state_init(&is, thread->begin, g_slice.sq, &capt_ri[k],
+      false);
   for (uint64_t idx = thread->begin, end = thread->end; idx < end;
-      idx++, idx_state_inc(&is, &capt_ri[k]))
+      idx++, occ = idx_state_inc(&is, &capt_ri[k]))
   {
-    pos.occ = idx_state_to_sq(&is, pos.sq, &capt_ri[k]);
+    if (!idx_state_legal(&is, stm, occ))
+      continue;
+    pos.occ = occ;
+    idx_state_to_sq(&is, pos.sq, &capt_ri[k]);
     pos.sq[m] = pos.sq[n];
-    if (!opp_king_attacked(&pos)) {
-      int v = probe_wdl(&pos, -2, 2);
-      kslice_bit_set(p[v + 2], idx);
-    }
+    int v = probe_wdl(&pos, -2, 2);
+    kslice_bit_set(p[v + 2], idx);
   }
 }
 
@@ -202,7 +271,7 @@ static void calc_sub_kslices(int stm)
     create_dir(-1, stm, name[i]);
   }
 
-  g_pos.stm = stm;
+  g_slice.stm = stm;
 
   for (int s = 0; s < 462; s++) {
     show_progress(phase, s, 462, false);
@@ -219,11 +288,11 @@ static void calc_sub_kslices(int stm)
       for (int t = 0; t < g_num_threads; t++)
         g_thread_data[t].cnt = 0;
 
-      g_pos.sq[0] = KKSquare[s][0];
-      g_pos.sq[1] = KKSquare[s][1];
+      g_slice.sq[0] = KKSquare[s][0];
+      g_slice.sq[1] = KKSquare[s][1];
 
       for (int k = 0; k < ri.numsets; k++) {
-        if ((g_pos.pt[ri.first[k]] >> 3) != stm)
+        if ((g_set_pt[k] >> 3) != stm)
           continue;
         work_set = k;
         run_threaded(calc_sub_worker, &work_capt_dynamic[k]);
@@ -235,11 +304,8 @@ static void calc_sub_kslices(int stm)
       }
     }
 
-    sub_cnt[stm][0] += c[0];
-    sub_cnt[stm][1] += c[1];
-    sub_cnt[stm][2] += c[2];
-    sub_cnt[stm][3] += c[3];
-    sub_cnt[stm][4] += c[4];
+    for (int i = 0; i < 5; i++)
+      sub_cnt[stm][i] += c[i];
   }
 
   F = file_open_write(done);
@@ -256,42 +322,47 @@ static void calc_sub_kslices(int stm)
 static void predecessors_sub_worker(struct ThreadData *thread)
 {
   struct IdxState is;
-  Position pos = g_pos;
-  int stm = pos.stm;
-  pos.stm ^= 1;
-  int n = --pos.num;
+  int stm = g_slice.stm;
   int k = work_set;
   int s = work_slice;
-
-  int m = ri.last[k];
-  pos.pt[m] = pos.pt[n];
 
   uint64_t *restrict p =
     (uint64_t *)kslice_sub_get_address(s, k) + (thread->begin >> 6);
   uint8_t *restrict const q = kslice_get_address(s);
 
   uint64_t last = thread->begin;
-  idx_state_init(&is, last, pos.sq, &capt_ri[k]);
-  idx_state_to_sq(&is, pos.sq, &capt_ri[k]);
+  idx_state_init(&is, last, g_slice.sq, &capt_ri[k], false);
 
-  for (uint64_t idx = last, end = thread->end; idx < end; idx += 64) {
-    uint64_t w = *p++;
-    while (w) {
-      uint64_t cur = idx + pop_lsb(&w);
-      idx_state_add(&is, cur - last, &capt_ri[k]);
-      last = cur;
-      Bitboard occ = idx_state_to_sq(&is, pos.sq, &capt_ri[k]);
-      // Uncapture by king.
-      pos.sq[m] = pos.sq[stm];
-      mark_king_unmoves(stm, occ, pos.sq);
-      // Uncapture by non-king pieces.
-      for (int i = 0; pos.pcs[stm][i] >= 0; i++) {
-        int j = pos.pcs[stm][i];
-        pos.sq[m] = pos.sq[j];
-        if (s < 441)
-          mark_unmoves(j, q, occ, pos.sq);
-        else
-          mark_unmoves_ref(j, q, occ, pos.sq);
+  if (s < 441) {
+    for (uint64_t idx = last, end = thread->end; idx < end; idx += 64) {
+      uint64_t w = *p++;
+      while (w) {
+        uint64_t cur = idx + pop_lsb(&w);
+        Bitboard occ = idx_state_add(&is, cur - last, &capt_ri[k]);
+        last = cur;
+        // Uncapture by king.
+        mark_king_uncaptures(stm, k, occ, &is);
+        // Uncapture by non-king pieces.
+        mark_uncaptures(stm, KNIGHT, k, q, occ, &is, false);
+        mark_uncaptures(stm, BISHOP, k, q, occ, &is, false);
+        mark_uncaptures(stm, ROOK  , k, q, occ, &is, false);
+        mark_uncaptures(stm, QUEEN , k, q, occ, &is, false);
+      }
+    }
+  } else {
+    for (uint64_t idx = last, end = thread->end; idx < end; idx += 64) {
+      uint64_t w = *p++;
+      while (w) {
+        uint64_t cur = idx + pop_lsb(&w);
+        Bitboard occ = idx_state_add(&is, cur - last, &capt_ri[k]);
+        last = cur;
+        // Uncapture by king.
+        mark_king_uncaptures(stm, k, occ, &is);
+        // Uncapture by non-king pieces.
+        mark_uncaptures(stm, KNIGHT, k, q, occ, &is, true);
+        mark_uncaptures(stm, BISHOP, k, q, occ, &is, true);
+        mark_uncaptures(stm, ROOK  , k, q, occ, &is, true);
+        mark_uncaptures(stm, QUEEN , k, q, occ, &is, true);
       }
     }
   }
@@ -302,14 +373,13 @@ static void predecessors_sub(int stm, int s)
 {
   work_slice = s;
 
-  g_pos.stm = stm;
-  g_pos.sq[0] = KKSquare[s][0];
-  g_pos.sq[1] = KKSquare[s][1];
+  g_slice.stm = stm;
+  g_slice.sq[0] = KKSquare[s][0];
+  g_slice.sq[1] = KKSquare[s][1];
 
   // Loop through the sets from which a piece is removed.
   for (int k = 0; k < ri.numsets; k++) {
-    int m = ri.last[k];
-    if ((g_pos.pt[m] >> 3) == stm)
+    if ((g_set_pt[k] >> 3) == stm)
       continue;
     work_set = k;
     run_threaded(predecessors_sub_worker, &work_capt_dynamic[k]);
@@ -388,48 +458,64 @@ finished:
   show_progress(phase, 462, 462, true);
 }
 
-static void calc_illegal_worker(struct ThreadData *thread)
+static void calc_illegal_worker_tmpl(struct ThreadData *thread, const int pc,
+    const bool ref)
 {
   struct IdxState is;
-  Position pos = g_pos;
-  int k = work_set;
-  int m = ri.last[k];
-  int stm = pos.stm;
-  int king_sq = pos.sq[stm ^ 1];
+  int stm = g_slice.stm;
+  int k = g_piece_set[stm][pc];
+  int ksq = g_slice.sq[stm ^ 1];
 
   uint8_t *restrict const p = kslice_buf[0];
 
-  idx_state_init(&is, thread->begin, pos.sq, &capt_ri[k]);
+  Bitboard occ = idx_state_init(&is, thread->begin, g_slice.sq, &capt_ri[k],
+      false);
 
   for (uint64_t idx = thread->begin, end = thread->end; idx < end;
-      idx++, idx_state_inc(&is, &capt_ri[k]))
+      idx++, occ = idx_state_inc(&is, &capt_ri[k]))
   {
-    Bitboard occ = idx_state_to_sq(&is, pos.sq, &capt_ri[k]);
-    pos.sq[m] = king_sq;
-    mark_unmoves(m, p, occ, pos.sq);
+    mark_uncapture_king(stm, pc, ksq, p, occ, &is, ref);
   }
 }
 
-static void calc_illegal_ref_worker(struct ThreadData *thread)
+static void calc_illegal_knight_worker(struct ThreadData *thread)
 {
-  struct IdxState is;
-  Position pos = g_pos;
-  int k = work_set;
-  int m = ri.last[k];
-  int stm = pos.stm;
-  int king_sq = pos.sq[stm ^ 1];
+  calc_illegal_worker_tmpl(thread, KNIGHT, false);
+}
 
-  uint8_t *restrict const p = kslice_buf[0];
+static void calc_illegal_bishop_worker(struct ThreadData *thread)
+{
+  calc_illegal_worker_tmpl(thread, BISHOP, false);
+}
 
-  idx_state_init(&is, thread->begin, pos.sq, &capt_ri[k]);
+static void calc_illegal_rook_worker(struct ThreadData *thread)
+{
+  calc_illegal_worker_tmpl(thread, ROOK, false);
+}
 
-  for (uint64_t idx = thread->begin, end = thread->end; idx < end;
-      idx++, idx_state_inc(&is, &capt_ri[k]))
-  {
-    Bitboard occ = idx_state_to_sq(&is, pos.sq, &capt_ri[k]);
-    pos.sq[m] = king_sq;
-    mark_unmoves_ref(m, p, occ, pos.sq);
-  }
+static void calc_illegal_queen_worker(struct ThreadData *thread)
+{
+  calc_illegal_worker_tmpl(thread, QUEEN, false);
+}
+
+static void calc_illegal_knight_ref_worker(struct ThreadData *thread)
+{
+  calc_illegal_worker_tmpl(thread, KNIGHT, true);
+}
+
+static void calc_illegal_bishop_ref_worker(struct ThreadData *thread)
+{
+  calc_illegal_worker_tmpl(thread, BISHOP, true);
+}
+
+static void calc_illegal_rook_ref_worker(struct ThreadData *thread)
+{
+  calc_illegal_worker_tmpl(thread, ROOK, true);
+}
+
+static void calc_illegal_queen_ref_worker(struct ThreadData *thread)
+{
+  calc_illegal_worker_tmpl(thread, QUEEN, true);
 }
 
 void calc_illegal(int stm)
@@ -438,7 +524,7 @@ void calc_illegal(int stm)
 
   create_dir(-1, stm, "illegal");
 
-  g_pos.stm = stm;
+  g_slice.stm = stm;
 
   char phase[64];
   snprintf(phase, sizeof phase, "calculating %s illegal positions",
@@ -454,19 +540,30 @@ void calc_illegal(int stm)
       continue;
     }
 
-    g_pos.sq[0] = KKSquare[s][0];
-    g_pos.sq[1] = KKSquare[s][1];
+    g_slice.sq[0] = KKSquare[s][0];
+    g_slice.sq[1] = KKSquare[s][1];
 
     kslice_clear_addr(kslice_buf[0], s);
 
-    for (int k = 0; k < ri.numsets; k++) {
-      if ((g_pos.pt[ri.first[k]] >> 3) != stm)
-        continue;
-      work_set = k;
-      if (s < 441)
-        run_threaded(calc_illegal_worker, &work_capt_dynamic[k]);
-      else
-        run_threaded(calc_illegal_ref_worker, &work_capt_dynamic[k]);
+    int k;
+    if (s < 441) {
+      if ((k = g_piece_set[stm][KNIGHT]) >= 0)
+        run_threaded(calc_illegal_knight_worker, &work_capt_dynamic[k]);
+      if ((k = g_piece_set[stm][BISHOP]) >= 0)
+        run_threaded(calc_illegal_bishop_worker, &work_capt_dynamic[k]);
+      if ((k = g_piece_set[stm][ROOK]) >= 0)
+        run_threaded(calc_illegal_rook_worker, &work_capt_dynamic[k]);
+      if ((k = g_piece_set[stm][QUEEN]) >= 0)
+        run_threaded(calc_illegal_queen_worker, &work_capt_dynamic[k]);
+    } else {
+      if ((k = g_piece_set[stm][KNIGHT]) >= 0)
+        run_threaded(calc_illegal_knight_ref_worker, &work_capt_dynamic[k]);
+      if ((k = g_piece_set[stm][BISHOP]) >= 0)
+        run_threaded(calc_illegal_bishop_ref_worker, &work_capt_dynamic[k]);
+      if ((k = g_piece_set[stm][ROOK]) >= 0)
+        run_threaded(calc_illegal_rook_ref_worker, &work_capt_dynamic[k]);
+      if ((k = g_piece_set[stm][QUEEN]) >= 0)
+        run_threaded(calc_illegal_queen_ref_worker, &work_capt_dynamic[k]);
     }
 
     cnt += num = kslice_count_addr(kslice_buf[0], s);
@@ -480,12 +577,19 @@ void calc_illegal(int stm)
 static mtx_t report_mutex;
 static int num_fails;
 
-static void report_fail(int s, uint64_t idx, Position *pos)
+static void report_fail(int s, uint64_t idx, Bitboard occ,
+    const struct IdxState *is)
 {
   mtx_lock(&report_mutex);
   char fenstr[64];
-  pos_to_fen(pos, fenstr, false);
-  int wdl = probe_wdl(pos, -2, 2);
+  Position pos = g_pos;
+  pos.sq[0] = g_slice.sq[0];
+  pos.sq[1] = g_slice.sq[1];
+  pos.stm = g_slice.stm;
+  pos.occ = occ;
+  idx_state_to_sq(is, pos.sq, &ri);
+  pos_to_fen(&pos, fenstr, false);
+  int wdl = probe_wdl(&pos, -2, 2);
   printf("\nslice = %d, idx = %lu, wdl = %d\n%s\n", s, idx, wdl, fenstr);
   num_fails++;
   if (num_fails == 10)
@@ -493,26 +597,32 @@ static void report_fail(int s, uint64_t idx, Position *pos)
   mtx_unlock(&report_mutex);
 }
 
-static bool check_dtz_W101(struct Position *pos)
+static bool check_dtz_W101(struct IdxState *is, Bitboard occ)
 {
+  Position pos = g_pos;
+  pos.sq[0] = g_slice.sq[0];
+  pos.sq[1] = g_slice.sq[1];
+  pos.stm = g_slice.stm;
+  pos.occ = occ;
+
   // First check that the position has dtz == 101.
-  if (probe_dtz(pos) != DRAW_RULE + 1)
+  if (probe_dtz(&pos) != DRAW_RULE + 1)
     return false;
 
   // Now check that the best quiet move reaches dtz == -100.
   bool pos_ok = false;
-  for (int i = 0; i < pos->num; i++) {
-    if ((pos->pt[i] >> 3) != pos->stm) continue;
-    int from = pos->sq[i];
-    Bitboard b = piece_moves(pos->pt[i], from, pos->occ);
+  for (int i = 0; i < pos.num; i++) {
+    if ((pos.pt[i] >> 3) != pos.stm) continue;
+    int from = pos.sq[i];
+    Bitboard b = piece_moves(pos.pt[i], from, pos.occ);
     while (b) {
       int to = pop_lsb(&b);
-      if (do_move(pos, from, to, i)) {
+      if (do_move(&pos, from, to, i)) {
         bool capture_is_best;
-        int dtz, wdl = probe_wdl_helper(pos, &capture_is_best);
+        int dtz, wdl = probe_wdl_helper(&pos, &capture_is_best);
         if (wdl == -2 && !capture_is_best)
-          dtz = probe_dtz_helper(pos, wdl);
-        undo_move(pos, from, to, i);
+          dtz = probe_dtz_helper(&pos, wdl);
+        undo_move(&pos, from, to, i);
         if (wdl == -2) {
           if (capture_is_best || dtz != -DRAW_RULE)
             return false;
@@ -524,28 +634,34 @@ static bool check_dtz_W101(struct Position *pos)
   return pos_ok;
 }
 
-static bool check_dtz_L101(struct Position *pos)
+static bool check_dtz_L101(struct IdxState *is, Bitboard occ)
 {
+  Position pos = g_pos;
+  pos.sq[0] = g_slice.sq[0];
+  pos.sq[1] = g_slice.sq[1];
+  pos.stm = g_slice.stm;
+  pos.occ = occ;
+
   // First check that the position has dtz == -101.
-  if (probe_dtz(pos) != -DRAW_RULE - 1)
+  if (probe_dtz(&pos) != -DRAW_RULE - 1)
     return false;
 
   // Now check that the best quiet move reaches dtz == 100.
   bool pos_ok = false;
-  for (int i = 0; i < pos->num; i++) {
-    if ((pos->pt[i] >> 3) != pos->stm) continue;
-    int from = pos->sq[i];
-    Bitboard b = piece_moves(pos->pt[i], from, pos->occ);
+  for (int i = 0; i < pos.num; i++) {
+    if ((pos.pt[i] >> 3) != pos.stm) continue;
+    int from = pos.sq[i];
+    Bitboard b = piece_moves(pos.pt[i], from, pos.occ);
     while (b) {
       int to = pop_lsb(&b);
-      if (do_move(pos, from, to, i)) {
+      if (do_move(&pos, from, to, i)) {
         bool capture_is_best;
-        int dtz, wdl = probe_wdl_helper(pos, &capture_is_best);
+        int dtz, wdl = probe_wdl_helper(&pos, &capture_is_best);
         if (wdl != 2)
           return false;
         if (!capture_is_best)
-          dtz = probe_dtz_helper(pos, wdl);
-        undo_move(pos, from, to, i);
+          dtz = probe_dtz_helper(&pos, wdl);
+        undo_move(&pos, from, to, i);
         if (dtz == DRAW_RULE)
           pos_ok = true;
       }
@@ -555,15 +671,15 @@ static bool check_dtz_L101(struct Position *pos)
 }
 
 
-enum { CZ_REGULAR, CZ_CWIN, CZ_LOSS };
+enum { CZ_REGULAR, CZ_CWIN };
 
 static int work_slice;
 
-INLINE void check_zero_worker_tmpl(struct ThreadData *thread, const int T)
+INLINE void check_zero_worker_tmpl(struct ThreadData *thread, const int T,
+    const bool ref)
 {
   struct IdxState is;
-  Position pos = g_pos;
-  int stm = pos.stm;
+  int stm = g_slice.stm;
   int s = work_slice;
 
   uint64_t *restrict p = (uint64_t *)kslice_get_address(-1);
@@ -571,87 +687,29 @@ INLINE void check_zero_worker_tmpl(struct ThreadData *thread, const int T)
 
   p += thread->begin >> 6;
   uint64_t last = thread->begin;
-  idx_state_init(&is, last, pos.sq, &ri);
-  idx_state_to_sq(&is, pos.sq, &ri);
+  idx_state_init(&is, last, g_slice.sq, &ri, ref);
   for (uint64_t idx = last, end = thread->end; idx < end; idx += 64, p++) {
     uint64_t w = *p;
     while (w) {
       uint64_t cur = idx + pop_lsb(&w);
-      idx_state_add(&is, cur - last, &ri);
+      Bitboard occ = ref ? unrank_bb_ref(cur, is.bb, &ri)
+        : idx_state_add(&is, cur - last, &ri);
       last = cur;
-      bool v = false;
-      Bitboard occ = pos.occ = idx_state_to_sq(&is, pos.sq, &ri);
-      for (int i = 0; pos.pcs[stm][i] >= 0; i++) {
-        int j = pos.pcs[stm][i];
-        v = test_moves(j, s, q, occ, pos.sq);
-        if (v) break;
-      }
-      if (!v) {
-        uint8_t tmp = pos.sq[stm];
-        v = test_king_moves(stm, occ, pos.sq);
-        pos.sq[stm] = tmp;
-      }
+
+      if (   !test_moves(stm, QUEEN , q, occ, &is, ref)
+          && !test_moves(stm, ROOK  , q, occ, &is, ref)
+          && !test_moves(stm, BISHOP, q, occ, &is, ref)
+          && !test_moves(stm, KNIGHT, q, occ, &is, ref)
+          && !test_king_moves(stm, occ, &is))
+        continue;
+
       switch (T) {
       case CZ_REGULAR:
-        if (v) report_fail(s, cur, &pos);
-        break;
-      case CZ_LOSS:
-        if (v || (   !my_king_attacked(&pos)
-                  && !has_legal_moves(&pos)
-                  && !has_legal_caps(&pos)))
-          report_fail(s, cur, &pos);
+        report_fail(s, cur, occ, &is);
         break;
       case CZ_CWIN:
-        if (v && !check_dtz_W101(&pos))
-          report_fail(s, cur, &pos);
-        break;
-      }
-    }
-  }
-}
-
-INLINE void check_zero_ref_worker_tmpl(struct ThreadData *thread, const int T)
-{
-  Position pos = g_pos;
-  int stm = pos.stm;
-  int s = work_slice;
-  Bitboard kings = bit(pos.sq[0]) | bit(pos.sq[1]);
-
-  uint64_t *restrict p = (uint64_t *)kslice_get_address(-1);
-  uint8_t *restrict const q = kslice_get_address(s);
-
-  p += thread->begin >> 6;
-  uint64_t last = thread->begin;
-  for (uint64_t idx = last, end = thread->end; idx < end; idx += 64, p++) {
-    uint64_t w = *p;
-    while (w) {
-      unsigned bt = pop_lsb(&w);
-      uint64_t cur = idx + bt;
-      bool v = false;
-      Bitboard occ = pos.occ = unrank_reflection(cur, pos.sq, kings, &ri);
-      for (int i = 0; pos.pcs[stm][i] >= 0; i++) {
-        int j = pos.pcs[stm][i];
-        v = test_moves_ref(j, s, q, occ, pos.sq);
-        if (v) break;
-      }
-      if (!v) {
-        uint8_t tmp = pos.sq[stm];
-        v = test_king_moves(stm, occ, pos.sq);
-        pos.sq[stm] = tmp;
-      }
-      switch (T) {
-      case CZ_REGULAR:
-        if (v) report_fail(s, cur, &pos);
-        break;
-      case CZ_LOSS:
-        if (v || (   !my_king_attacked(&pos)
-                  && !has_legal_moves(&pos)
-                  && !has_legal_caps(&pos)))
-          report_fail(s, cur, &pos);
-        break;
-      case CZ_CWIN:
-        if (v && !check_dtz_W101(&pos))
-          report_fail(s, cur, &pos);
+        if (!check_dtz_W101(&is, occ))
+          report_fail(s, cur, occ, &is);
         break;
       }
     }
@@ -660,40 +718,30 @@ INLINE void check_zero_ref_worker_tmpl(struct ThreadData *thread, const int T)
 
 static void check_zero_regular_worker(struct ThreadData *thread)
 {
-  check_zero_worker_tmpl(thread, CZ_REGULAR);
-}
-
-static void check_zero_loss_worker(struct ThreadData *thread)
-{
-  check_zero_worker_tmpl(thread, CZ_LOSS);
+  check_zero_worker_tmpl(thread, CZ_REGULAR, false);
 }
 
 static void check_zero_cwin_worker(struct ThreadData *thread)
 {
-  check_zero_worker_tmpl(thread, CZ_CWIN);
+  check_zero_worker_tmpl(thread, CZ_CWIN, false);
 }
 
 static void check_zero_ref_regular_worker(struct ThreadData *thread)
 {
-  check_zero_ref_worker_tmpl(thread, CZ_REGULAR);
-}
-
-static void check_zero_ref_loss_worker(struct ThreadData *thread)
-{
-  check_zero_ref_worker_tmpl(thread, CZ_LOSS);
+  check_zero_worker_tmpl(thread, CZ_REGULAR, true);
 }
 
 static void check_zero_ref_cwin_worker(struct ThreadData *thread)
 {
-  check_zero_ref_worker_tmpl(thread, CZ_CWIN);
+  check_zero_worker_tmpl(thread, CZ_CWIN, true);
 }
 
 static void check_zero(int stm, int s, const int T)
 {
   work_slice = s;
-  g_pos.stm = stm;
-  g_pos.sq[0] = KKSquare[s][0];
-  g_pos.sq[1] = KKSquare[s][1];
+  g_slice.stm = stm;
+  g_slice.sq[0] = KKSquare[s][0];
+  g_slice.sq[1] = KKSquare[s][1];
 
   switch (T) {
   case CZ_REGULAR:
@@ -701,12 +749,6 @@ static void check_zero(int stm, int s, const int T)
       run_threaded(check_zero_regular_worker, &work_g_dynamic[0]);
     else
       run_threaded(check_zero_ref_regular_worker, &work_g_dynamic[1]);
-    break;
-  case CZ_LOSS:
-    if (s < 441)
-      run_threaded(check_zero_loss_worker, &work_g_dynamic[0]);
-    else
-      run_threaded(check_zero_ref_loss_worker, &work_g_dynamic[1]);
     break;
   case CZ_CWIN:
     if (s < 441)
@@ -717,13 +759,13 @@ static void check_zero(int stm, int s, const int T)
   }
 }
 
-enum { CO_REGULAR, CO_DRAW, CO_BLOSS };
+enum { CO_REGULAR, CO_DRAW, CO_BLOSS, CO_LOSS };
 
-INLINE void check_one_worker_tmpl(struct ThreadData *thread, const int T)
+INLINE void check_one_worker_tmpl(struct ThreadData *thread, const int T,
+    const bool ref)
 {
   struct IdxState is;
-  Position pos = g_pos;
-  int stm = pos.stm;
+  int stm = g_slice.stm;
   int s = work_slice;
 
   uint64_t *restrict p = (uint64_t *)kslice_get_address(-1);
@@ -731,89 +773,38 @@ INLINE void check_one_worker_tmpl(struct ThreadData *thread, const int T)
 
   p += thread->begin >> 6;
   uint64_t last = thread->begin;
-  idx_state_init(&is, last, pos.sq, &ri);
-  idx_state_to_sq(&is, pos.sq, &ri);
+  idx_state_init(&is, last, g_slice.sq, &ri, ref);
   for (uint64_t idx = last, end = thread->end; idx < end; idx += 64, p++) {
     uint64_t w = *p;
     while (w) {
       uint64_t cur = idx + pop_lsb(&w);
-      idx_state_add(&is, cur - last, &ri);
+      Bitboard occ = ref ? unrank_bb_ref(cur, is.bb, &ri)
+          : idx_state_add(&is, cur - last, &ri);
       last = cur;
-      bool v = false;
-      Bitboard occ = idx_state_to_sq(&is, pos.sq, &ri);
-      for (int i = 0; pos.pcs[stm][i] >= 0; i++) {
-        int j = pos.pcs[stm][i];
-        v = test_moves(j, s, q, occ, pos.sq);
-        if (v) break;
-      }
-      if (!v) {
-        uint8_t tmp = pos.sq[stm];
-        v = test_king_moves(stm, occ, pos.sq);
-        pos.sq[stm] = tmp;
-      }
-      if (v) continue;
-      pos.occ = occ;
+
+      if (   test_moves(stm, QUEEN , q, occ, &is, ref)
+          || test_moves(stm, ROOK  , q, occ, &is, ref)
+          || test_moves(stm, BISHOP, q, occ, &is, ref)
+          || test_moves(stm, KNIGHT, q, occ, &is, ref)
+          || test_king_moves(stm, occ, &is))
+        continue;
+
       switch (T) {
       case CO_REGULAR:
-        report_fail(s, cur, &pos);
+        report_fail(s, cur, occ, &is);
         break;
       case CO_DRAW:
-        if (has_legal_moves(&pos))
-          report_fail(s, cur, &pos);
+        if (    idx_state_has_legal_moves(&is, stm, occ)
+            || !idx_state_legal(&is, stm ^ 1, occ))
+          report_fail(s, cur, occ, &is);
         break;
       case CO_BLOSS:
-        if (!check_dtz_L101(&pos))
-          report_fail(s, cur, &pos);
+        if (!check_dtz_L101(&is, occ))
+          report_fail(s, cur, occ, &is);
         break;
-      default:
-        abort();
-      }
-    }
-  }
-}
-
-INLINE void check_one_ref_worker_tmpl(struct ThreadData *thread, const int T)
-{
-  Position pos = g_pos;
-  int stm = pos.stm;
-  int s = work_slice;
-  Bitboard kings = bit(pos.sq[0]) | bit(pos.sq[1]);
-
-  uint64_t *restrict p = (uint64_t *)kslice_get_address(-1);
-  uint8_t *restrict const q = kslice_get_address(s);
-
-  p += thread->begin >> 6;
-  uint64_t last = thread->begin;
-  for (uint64_t idx = last, end = thread->end; idx < end; idx += 64, p++) {
-    uint64_t w = *p;
-    while (w) {
-      unsigned bt = pop_lsb(&w);
-      uint64_t cur = idx + bt;
-      bool v = false;
-      Bitboard occ = unrank_reflection(cur, pos.sq, kings, &ri);
-      for (int i = 0; pos.pcs[stm][i] >= 0; i++) {
-        int j = pos.pcs[stm][i];
-        v = test_moves_ref(j, s, q, occ, pos.sq);
-        if (v) break;
-      }
-      if (!v) {
-        uint8_t tmp = pos.sq[stm];
-        v = test_king_moves(stm, occ, pos.sq);
-        pos.sq[stm] = tmp;
-      }
-      if (v) continue;
-      pos.occ = occ;
-      switch (T) {
-      case CO_REGULAR:
-        report_fail(s, cur, &pos);
-        break;
-      case CO_DRAW:
-        if (has_legal_moves(&pos))
-          report_fail(s, cur, &pos);
-        break;
-      case CO_BLOSS:
-        if (!check_dtz_L101(&pos))
-          report_fail(s, cur, &pos);
+      case CO_LOSS:
+        if (idx_state_legal(&is, stm ^ 1, occ))
+          report_fail(s, cur, occ, &is);
         break;
       default:
         abort();
@@ -824,40 +815,50 @@ INLINE void check_one_ref_worker_tmpl(struct ThreadData *thread, const int T)
 
 static void check_one_regular_worker(struct ThreadData *thread)
 {
-  check_one_worker_tmpl(thread, CO_REGULAR);
+  check_one_worker_tmpl(thread, CO_REGULAR, false);
 }
 
 static void check_one_draw_worker(struct ThreadData *thread)
 {
-  check_one_worker_tmpl(thread, CO_DRAW);
+  check_one_worker_tmpl(thread, CO_DRAW, false);
 }
 
 static void check_one_bloss_worker(struct ThreadData *thread)
 {
-  check_one_worker_tmpl(thread, CO_BLOSS);
+  check_one_worker_tmpl(thread, CO_BLOSS, false);
+}
+
+static void check_one_loss_worker(struct ThreadData *thread)
+{
+  check_one_worker_tmpl(thread, CO_LOSS, false);
 }
 
 static void check_one_regular_ref_worker(struct ThreadData *thread)
 {
-  check_one_ref_worker_tmpl(thread, CO_REGULAR);
+  check_one_worker_tmpl(thread, CO_REGULAR, true);
 }
 
 static void check_one_draw_ref_worker(struct ThreadData *thread)
 {
-  check_one_ref_worker_tmpl(thread, CO_DRAW);
+  check_one_worker_tmpl(thread, CO_DRAW, true);
 }
 
 static void check_one_bloss_ref_worker(struct ThreadData *thread)
 {
-  check_one_ref_worker_tmpl(thread, CO_BLOSS);
+  check_one_worker_tmpl(thread, CO_BLOSS, true);
+}
+
+static void check_one_loss_ref_worker(struct ThreadData *thread)
+{
+  check_one_worker_tmpl(thread, CO_LOSS, true);
 }
 
 static void check_one(int stm, int s, const int T)
 {
   work_slice = s;
-  g_pos.stm = stm;
-  g_pos.sq[0] = KKSquare[s][0];
-  g_pos.sq[1] = KKSquare[s][1];
+  g_slice.stm = stm;
+  g_slice.sq[0] = KKSquare[s][0];
+  g_slice.sq[1] = KKSquare[s][1];
 
   switch (T) {
   case CO_REGULAR:
@@ -877,6 +878,12 @@ static void check_one(int stm, int s, const int T)
       run_threaded(check_one_bloss_worker, &work_g_dynamic[0]);
     else
       run_threaded(check_one_bloss_ref_worker, &work_g_dynamic[1]);
+    break;
+  case CO_LOSS:
+    if (s < 441)
+      run_threaded(check_one_loss_worker, &work_g_dynamic[0]);
+    else
+      run_threaded(check_one_loss_ref_worker, &work_g_dynamic[1]);
     break;
   default:
     abort();
@@ -986,7 +993,7 @@ static void check_bloss_loss(int stm)
   struct KSliceIterator iter;
 
   char phase[64];
-  snprintf(phase, sizeof phase, "check %s bloss+, loss", side[stm]);
+  snprintf(phase, sizeof phase, "check %s bloss+, loss-", side[stm]);
   int num_done = 0;
 
   kslice_iter_init(&iter, stm);
@@ -1006,7 +1013,32 @@ static void check_bloss_loss(int stm)
     check_one(stm, s, CO_BLOSS);
 
     kslice_read(-1, s, stm, "loss", -1);
-    check_zero(stm, s, CZ_LOSS);
+    check_zero(stm, s, CZ_REGULAR);
+
+    while (kslice_iter_out(&iter, &s));
+  }
+  show_progress(phase, 462, 462, true);
+}
+
+static void check_loss(int stm)
+{
+  struct KSliceIterator iter;
+
+  char phase[64];
+  snprintf(phase, sizeof phase, "check %s loss+", side[stm]);
+  int num_done = 0;
+
+  kslice_iter_init(&iter, stm);
+  int s, s1;
+  while (kslice_iter_next(&iter, &s)) {
+    show_progress(phase, num_done++, 462, false);
+
+    while (kslice_iter_in(&iter, &s1))
+      kslice_read(s1, s1, stm ^ 1, "win", -1);
+
+    kslice_read(-1, s, stm, "loss", -1);
+    kslice_read_andnot(-1, s, stm, "capt/loss", -1);
+    check_one(stm, s, CO_LOSS);
 
     while (kslice_iter_out(&iter, &s));
   }
@@ -1016,6 +1048,44 @@ static void check_bloss_loss(int stm)
 static uint8_t *tb_table, *dtz_table;
 static struct TbTable2 *table_info;
 static struct RankInfo tb_ri[2];
+
+static void init_perm_rank_ri(struct RankInfo *rank_ri,
+    const struct TbTable2 *table, const struct RankInfo *dst_ri)
+{
+  *rank_ri = *table->ri;
+  for (int k = 0; k < table->ri->numsets; k++) {
+    int j = 0;
+    for (; j < dst_ri->numsets; j++)
+      if (table->first[k] == dst_ri->first[j])
+        break;
+    assert(j < dst_ri->numsets);
+    rank_ri->perm[k] = j + 1;
+  }
+}
+
+static uint64_t depermute_462_idx(struct IdxState *is,
+    const struct RankInfo *rank_ri, int t)
+{
+  alignas(64) Bitboard bb[8];
+  const Bitboard *set_bb = is->bb;
+  if (t) {
+    transform_set_bb(t, is->bb, bb);
+    set_bb = bb;
+  }
+  return perm_rank_bb(set_bb, rank_ri);
+}
+
+static uint64_t depermute_462_ref_idx(struct IdxState *is,
+    const struct RankInfo *rank_ri, int t)
+{
+  alignas(64) Bitboard bb[8];
+  const Bitboard *set_bb = is->bb;
+  if (t) {
+    transform_set_bb(t, is->bb, bb);
+    set_bb = bb;
+  }
+  return perm_rank_bb_ref(set_bb, rank_ri);
+}
 
 INLINE void store_wdl(uint64_t idx, uint8_t *restrict tmp, int v)
 {
@@ -1046,40 +1116,33 @@ INLINE void store_wdl(uint64_t idx, uint8_t *restrict tmp, int v)
 static void depermute_wdl_462_worker(struct ThreadData *thread)
 {
   alignas(64) uint8_t tmp[64];
-  uint8_t sq[MAX_PIECES];
-  uint8_t sq2[MAX_PIECES];
   uint8_t *restrict src = tb_table;
-  struct TbTable2 *table = table_info;
-  struct RankInfo *dst_ri = &tb_ri[g_pos.stm];
+  const struct RankInfo *dst_ri = &tb_ri[g_slice.stm];
+  struct RankInfo rank_ri;
   struct IdxState is;
 
   uint64_t idx_dec_buf[NUM];
 
-  sq[0] = g_pos.sq[0];
-  sq[1] = g_pos.sq[1];
-
-  idx_state_init(&is, thread->begin, sq, dst_ri);
+  init_perm_rank_ri(&rank_ri, table_info, dst_ri);
+  int t = KK_transform[g_slice.sq[0]][g_slice.sq[1]];
+  idx_state_init(&is, thread->begin, g_slice.sq, dst_ri, false);
 
   uint64_t idx = thread->begin, end = thread->end;
   int fill = 0;
   int head = 0; // Next buffered element to consume.
 
   // Fill pipeline.
-  for (; fill < NUM && idx < end; fill++, idx++, idx_state_inc(&is, dst_ri)) {
-    idx_state_to_sq(&is, sq, dst_ri);
-    normalize2(sq, sq2);
-    Bitboard occ2 = bit(sq2[0]) | bit(sq2[1]);
-    uint64_t idx_dec = rank_trivial_from(sq2, 0, occ2, table->first, table->ri);
+  for (; fill < NUM && idx < end;
+      fill++, idx++, idx_state_inc(&is, dst_ri))
+  {
+    uint64_t idx_dec = depermute_462_idx(&is, &rank_ri, t);
     __builtin_prefetch(src + idx_dec, 0, 3);
     idx_dec_buf[fill] = idx_dec;
   }
 
   // Steady-state pipeline.
   for (; idx < end; idx++, idx_state_inc(&is, dst_ri)) {
-    idx_state_to_sq(&is, sq, dst_ri);
-    normalize2(sq, sq2);
-    Bitboard occ2 = bit(sq2[0]) | bit(sq2[1]);
-    uint64_t idx_dec = rank_trivial_from(sq2, 0, occ2, table->first, table->ri);
+    uint64_t idx_dec = depermute_462_idx(&is, &rank_ri, t);
     __builtin_prefetch(src + idx_dec, 0, 3);
     store_wdl(idx - NUM, tmp, src[idx_dec_buf[head]]);
     idx_dec_buf[head] = idx_dec;
@@ -1098,17 +1161,16 @@ static void depermute_wdl_462_worker(struct ThreadData *thread)
 static void depermute_wdl_462_ref_worker(struct ThreadData *thread)
 {
   alignas(64) uint8_t tmp[64];
-  uint8_t sq[MAX_PIECES];
-  uint8_t sq2[MAX_PIECES];
   uint8_t *restrict src = tb_table;
-  struct TbTable2 *table = table_info;
-  struct RankInfo *dst_ri = &tb_ri[g_pos.stm];
+  const struct RankInfo *dst_ri = &tb_ri[g_slice.stm];
+  struct RankInfo rank_ri;
+  struct IdxState is;
 
   uint64_t idx_dec_buf[NUM];
 
-  sq[0] = g_pos.sq[0];
-  sq[1] = g_pos.sq[1];
-  Bitboard occ = bit(sq[0]) | bit(sq[1]);
+  init_perm_rank_ri(&rank_ri, table_info, dst_ri);
+  int t = KK_transform[g_slice.sq[0]][g_slice.sq[1]];
+  is.bb[0] = bit(g_slice.sq[0]) | bit(g_slice.sq[1]);
 
   uint64_t idx = thread->begin, end = thread->end;
   int fill = 0;
@@ -1116,20 +1178,16 @@ static void depermute_wdl_462_ref_worker(struct ThreadData *thread)
 
   // Fill pipeline.
   for (; fill < NUM && idx < end; fill++, idx++) {
-    unrank_reflection(idx, sq, occ, dst_ri);
-    normalize2(sq, sq2);
-    Bitboard occ2 = bit(sq2[0]) | bit(sq2[1]);
-    uint64_t idx_dec = rank_reflection(sq2, occ2, table->first, table->ri);
+    unrank_bb_ref(idx, is.bb, dst_ri);
+    uint64_t idx_dec = depermute_462_ref_idx(&is, &rank_ri, t);
     __builtin_prefetch(src + idx_dec, 0, 3);
     idx_dec_buf[fill] = idx_dec;
   }
 
   // Steady-state pipeline.
   for (; idx < end; idx++) {
-    unrank_reflection(idx, sq, occ, dst_ri);
-    normalize2(sq, sq2);
-    Bitboard occ2 = bit(sq2[0]) | bit(sq2[1]);
-    uint64_t idx_dec = rank_reflection(sq2, occ2, table->first, table->ri);
+    unrank_bb_ref(idx, is.bb, dst_ri);
+    uint64_t idx_dec = depermute_462_ref_idx(&is, &rank_ri, t);
     __builtin_prefetch(src + idx_dec, 0, 3);
     store_wdl(idx - NUM, tmp, src[idx_dec_buf[head]]);
     idx_dec_buf[head] = idx_dec;
@@ -1161,7 +1219,7 @@ static void decompress_kslice_wdl_462(struct Tbase *tb, int stm, int s)
     return;
   }
 
-  int tsq = KKMap[g_pos.sq[0]][g_pos.sq[1]];
+  int tsq = KKMap[g_slice.sq[0]][g_slice.sq[1]];
   int t = !symmetric ? 2 * tsq + btm_side[stm] : tsq;
   if (!tb->table[t])
     tb->table[t] = init_new_table(tb, g_pos.num, WDL, t, tsq);
@@ -1209,34 +1267,71 @@ static void decompress_kslice_wdl_462(struct Tbase *tb, int stm, int s)
 
 static uint8_t Offset10[64];
 
-static uint64_t rank_10(uint8_t *restrict sq, Bitboard occ,
-    const struct TbTable2 *table, int k2sq)
+static void init_perm_rank_10(int8_t *restrict perm,
+    const struct TbTable2 *table, const struct RankInfo *dst_ri)
 {
-  struct RankInfo10 *ri = table->ri_10;
+  const struct RankInfo10 *ri = table->ri_10;
+  for (int k = 0; k < ri->numsets; k++) {
+    if (ri->mult[k] == 0) {
+      perm[k] = -1;
+      continue;
+    }
+    int j = 0;
+    for (; j < dst_ri->numsets; j++)
+      if (table->first[k] == dst_ri->first[j])
+        break;
+    assert(j < dst_ri->numsets);
+    perm[k] = j + 1;
+  }
+}
+
+static uint64_t rank_10_bb(const Bitboard *restrict set_bb,
+    const struct TbTable2 *table, const int8_t *restrict perm, int k2sq)
+{
+  const struct RankInfo10 *ri = table->ri_10;
+  Bitboard occ = set_bb[0];
   uint64_t idx = 0;
   for (int k = 0; k < ri->numsets; k++) {
     size_t s = 0;
-    if (ri->mult[k] == 0)
+    int m = ri->mult[k];
+    if (m == 0)
       s = Offset10[k2sq];
     else {
-      int m = table->first[k];
-      sort_squares(ri->mult[k], &sq[m]);
-      Bitboard occ2 = occ;
-      for (int i = 0; i < ri->mult[k]; i++, m++) {
-        int rank = rank_among_free(sq[m], occ);
-        occ2 |= bit(sq[m]);
-        s += Binomial[i + 1][rank];
-      }
-      occ = occ2;
+      Bitboard bb = set_bb[perm[k]];
+      Bitboard b = _pext_u64(bb, ~occ);
+      occ |= bb;
+      for (int j = 1; b; j++)
+        s += Binomial[j][pop_lsb(&b)];
     }
     idx = idx * ri->factor[k] + s;
   }
   return idx;
 }
 
+static void init_10_ksq(uint8_t *restrict sq)
+{
+  int s = KKMap[g_slice.sq[0]][g_slice.sq[1]];
+  sq[0] = KKSquare[s][0];
+  sq[1] = KKSquare[s][1];
+  if (flip[g_slice.stm] != btm_side[g_slice.stm])
+    Swap(sq[0], sq[1]);
+}
+
+static uint64_t depermute_10_idx(struct IdxState *is,
+    const struct TbTable2 *table, const int8_t *restrict perm, int t, int k2sq)
+{
+  alignas(64) Bitboard bb[8];
+  const Bitboard *set_bb = is->bb;
+  if (t) {
+    transform_set_bb(t, is->bb, bb);
+    set_bb = bb;
+  }
+  return rank_10_bb(set_bb, table, perm, k2sq);
+}
+
 INLINE int k2sq_10(void)
 {
-  return g_pos.sq[g_pos.stm ^ 1];
+  return g_slice.sq[g_slice.stm ^ 1];
 }
 
 // Do the inverse of permute10.c/_tmpl.c
@@ -1244,24 +1339,20 @@ static void depermute_wdl_10_worker(struct ThreadData *thread)
 {
   alignas(64) uint8_t tmp[64];
   uint8_t sq[MAX_PIECES];
-  uint8_t sq2[MAX_PIECES];
   const uint8_t *restrict src = tb_table;
   const struct TbTable2 *table = table_info;
-  const struct RankInfo *dst_ri = &tb_ri[g_pos.stm];
+  const struct RankInfo *dst_ri = &tb_ri[g_slice.stm];
   struct IdxState is;
+  int8_t perm[MAX_SETS + 1];
 
   uint64_t idx_dec_buf[NUM];
 
-  int s = KKMap[g_pos.sq[0]][g_pos.sq[1]];
-  sq[0] = KKSquare[s][0];
-  sq[1] = KKSquare[s][1];
-  if (flip[g_pos.stm])
-    Swap(sq[0], sq[1]);
-  if (btm_side[g_pos.stm])
-    Swap(sq[0], sq[1]);
+  init_10_ksq(sq);
+  init_perm_rank_10(perm, table, dst_ri);
+  int t = KK_transform[sq[0]][sq[1]];
   int k2sq = k2sq_10();
 
-  idx_state_init(&is, thread->begin, sq, dst_ri);
+  idx_state_init(&is, thread->begin, sq, dst_ri, false);
 
   uint64_t idx = thread->begin, end = thread->end;
   int fill = 0;
@@ -1271,22 +1362,18 @@ static void depermute_wdl_10_worker(struct ThreadData *thread)
   // So we'll need a separate function for depermute_wdl_10_ref_worker().
 
   // Fill pipeline.
-  for (; fill < NUM && idx < end; fill++, idx++, idx_state_inc(&is, dst_ri)) {
-    idx_state_to_sq(&is, sq, dst_ri);
-    normalize2(sq, sq2);
-    Bitboard occ2 = bit(sq2[0]) | bit(sq2[1]);
+  for (; fill < NUM && idx < end;
+      fill++, idx++, idx_state_inc(&is, dst_ri))
+  {
     // Now basically just probe the wdl_10 table slice.
-    uint64_t idx_dec = rank_10(sq2, occ2, table, k2sq);
+    uint64_t idx_dec = depermute_10_idx(&is, table, perm, t, k2sq);
     __builtin_prefetch(src + idx_dec, 0, 3);
     idx_dec_buf[fill] = idx_dec;
   }
 
   // Steady-state pipeline.
   for (; idx < end; idx++, idx_state_inc(&is, dst_ri)) {
-    idx_state_to_sq(&is, sq, dst_ri);
-    normalize2(sq, sq2);
-    Bitboard occ2 = bit(sq2[0]) | bit(sq2[1]);
-    uint64_t idx_dec = rank_10(sq2, occ2, table, k2sq);
+    uint64_t idx_dec = depermute_10_idx(&is, table, perm, t, k2sq);
     __builtin_prefetch(src + idx_dec, 0, 3);
     store_wdl(idx - NUM, tmp, src[idx_dec_buf[head]]);
     idx_dec_buf[head] = idx_dec;
@@ -1306,21 +1393,18 @@ static void depermute_wdl_10_ref_worker(struct ThreadData *thread)
 {
   alignas(64) uint8_t tmp[64];
   uint8_t sq[MAX_PIECES];
-  uint8_t sq2[MAX_PIECES];
   uint8_t *restrict src = tb_table;
-  struct TbTable2 *table = table_info;
-  struct RankInfo *dst_ri = &tb_ri[g_pos.stm];
+  const struct TbTable2 *table = table_info;
+  const struct RankInfo *dst_ri = &tb_ri[g_slice.stm];
+  struct IdxState is;
+  int8_t perm[MAX_SETS + 1];
 
   uint64_t idx_dec_buf[NUM];
 
-  int s = KKMap[g_pos.sq[0]][g_pos.sq[1]];
-  sq[0] = KKSquare[s][0];
-  sq[1] = KKSquare[s][1];
-  if (flip[g_pos.stm])
-    Swap(sq[0], sq[1]);
-  if (btm_side[g_pos.stm])
-    Swap(sq[0], sq[1]);
-  Bitboard occ = bit(sq[0]) | bit(sq[1]);
+  init_10_ksq(sq);
+  init_perm_rank_10(perm, table, dst_ri);
+  int t = KK_transform[sq[0]][sq[1]];
+  is.bb[0] = bit(sq[0]) | bit(sq[1]);
   int k2sq = k2sq_10();
 
   uint64_t idx = thread->begin, end = thread->end;
@@ -1329,20 +1413,16 @@ static void depermute_wdl_10_ref_worker(struct ThreadData *thread)
 
   // Fill pipeline.
   for (; fill < NUM && idx < end; fill++, idx++) {
-    unrank_reflection(idx, sq, occ, dst_ri);
-    normalize2(sq, sq2);
-    Bitboard occ2 = bit(sq2[0]) | bit(sq2[1]);
-    uint64_t idx_dec = rank_10(sq2, occ2, table, k2sq);
+    unrank_bb_ref(idx, is.bb, dst_ri);
+    uint64_t idx_dec = depermute_10_idx(&is, table, perm, t, k2sq);
     __builtin_prefetch(src + idx_dec, 0, 3);
     idx_dec_buf[fill] = idx_dec;
   }
 
   // Steady-state pipeline.
   for (; idx < end; idx++) {
-    unrank_reflection(idx, sq, occ, dst_ri);
-    normalize2(sq, sq2);
-    Bitboard occ2 = bit(sq2[0]) | bit(sq2[1]);
-    uint64_t idx_dec = rank_10(sq2, occ2, table, k2sq);
+    unrank_bb_ref(idx, is.bb, dst_ri);
+    uint64_t idx_dec = depermute_10_idx(&is, table, perm, t, k2sq);
     __builtin_prefetch(src + idx_dec, 0, 3);
     store_wdl(idx - NUM, tmp, src[idx_dec_buf[head]]);
     idx_dec_buf[head] = idx_dec;
@@ -1389,11 +1469,11 @@ static void decompress_kslice_wdl_10(struct Tbase *tb, int stm, int k)
     if (KKIdx[k][l] < 0)
       continue;
 
-    g_pos.sq[stm] = InvTriangle[k];
-    g_pos.sq[stm ^ 1] = l;
-    g_pos.stm = stm;
+    g_slice.sq[stm] = InvTriangle[k];
+    g_slice.sq[stm ^ 1] = l;
+    g_slice.stm = stm;
 
-    int s = KKMap[g_pos.sq[0]][g_pos.sq[1]];
+    int s = KKMap[g_slice.sq[0]][g_slice.sq[1]];
 
     if (const_value >= 0) {
       kslice_set_addr(kslice_buf[const_value], s);
@@ -1431,41 +1511,34 @@ static void decompress_kslice_wdl_10(struct Tbase *tb, int stm, int k)
 
 void depermute_dtz_462_worker(struct ThreadData *thread)
 {
-  uint8_t sq[MAX_PIECES];
-  uint8_t sq2[MAX_PIECES];
   uint8_t *restrict src = tb_table;
   uint8_t *restrict dst = dtz_table;
-  struct TbTable2 *table = table_info;
-  struct RankInfo *dst_ri = &tb_ri[g_pos.stm];
+  const struct RankInfo *dst_ri = &tb_ri[g_slice.stm];
+  struct RankInfo rank_ri;
   struct IdxState is;
 
   uint64_t idx_dec_buf[NUM];
 
-  sq[0] = g_pos.sq[0];
-  sq[1] = g_pos.sq[1];
-
-  idx_state_init(&is, thread->begin, sq, dst_ri);
+  init_perm_rank_ri(&rank_ri, table_info, dst_ri);
+  int t = KK_transform[g_slice.sq[0]][g_slice.sq[1]];
+  idx_state_init(&is, thread->begin, g_slice.sq, dst_ri, false);
 
   uint64_t idx = thread->begin, end = thread->end;
   int fill = 0;
   int head = 0; // Next buffered element to consume.
 
   // Fill pipeline.
-  for (; fill < NUM && idx < end; fill++, idx++, idx_state_inc(&is, dst_ri)) {
-    idx_state_to_sq(&is, sq, dst_ri);
-    normalize2(sq, sq2);
-    Bitboard occ2 = bit(sq2[0]) | bit(sq2[1]);
-    uint64_t idx_dec = rank_trivial_from(sq2, 0, occ2, table->first, table->ri);
+  for (; fill < NUM && idx < end;
+      fill++, idx++, idx_state_inc(&is, dst_ri))
+  {
+    uint64_t idx_dec = depermute_462_idx(&is, &rank_ri, t);
     __builtin_prefetch(src + idx_dec, 0, 3);
     idx_dec_buf[fill] = idx_dec;
   }
 
   // Steady-state pipeline.
   for (; idx < end; idx++, idx_state_inc(&is, dst_ri)) {
-    idx_state_to_sq(&is, sq, dst_ri);
-    normalize2(sq, sq2);
-    Bitboard occ2 = bit(sq2[0]) | bit(sq2[1]);
-    uint64_t idx_dec = rank_trivial_from(sq2, 0, occ2, table->first, table->ri);
+    uint64_t idx_dec = depermute_462_idx(&is, &rank_ri, t);
     __builtin_prefetch(src + idx_dec, 0, 3);
     dst[idx - NUM] = src[idx_dec_buf[head]];
     idx_dec_buf[head] = idx_dec;
@@ -1481,18 +1554,17 @@ void depermute_dtz_462_worker(struct ThreadData *thread)
 
 void depermute_dtz_462_ref_worker(struct ThreadData *thread)
 {
-  uint8_t sq[MAX_PIECES];
-  uint8_t sq2[MAX_PIECES];
   uint8_t *restrict src = tb_table;
   uint8_t *restrict dst = dtz_table;
-  struct TbTable2 *table = table_info;
-  struct RankInfo *dst_ri = &tb_ri[g_pos.stm];
+  const struct RankInfo *dst_ri = &tb_ri[g_slice.stm];
+  struct RankInfo rank_ri;
+  struct IdxState is;
 
   uint64_t idx_dec_buf[NUM];
 
-  sq[0] = g_pos.sq[0];
-  sq[1] = g_pos.sq[1];
-  Bitboard occ = bit(sq[0]) | bit(sq[1]);
+  init_perm_rank_ri(&rank_ri, table_info, dst_ri);
+  int t = KK_transform[g_slice.sq[0]][g_slice.sq[1]];
+  is.bb[0] = bit(g_slice.sq[0]) | bit(g_slice.sq[1]);
 
   uint64_t idx = thread->begin, end = thread->end;
   int fill = 0;
@@ -1500,20 +1572,16 @@ void depermute_dtz_462_ref_worker(struct ThreadData *thread)
 
   // Fill pipeline.
   for (; fill < NUM && idx < end; fill++, idx++) {
-    unrank_reflection(idx, sq, occ, dst_ri);
-    normalize2(sq, sq2);
-    Bitboard occ2 = bit(sq2[0]) | bit(sq2[1]);
-    uint64_t idx_dec = rank_reflection(sq2, occ2, table->first, table->ri);
+    unrank_bb_ref(idx, is.bb, dst_ri);
+    uint64_t idx_dec = depermute_462_ref_idx(&is, &rank_ri, t);
     __builtin_prefetch(src + idx_dec, 0, 3);
     idx_dec_buf[fill] = idx_dec;
   }
 
   // Steady-state pipeline.
   for (; idx < end; idx++) {
-    unrank_reflection(idx, sq, occ, dst_ri);
-    normalize2(sq, sq2);
-    Bitboard occ2 = bit(sq2[0]) | bit(sq2[1]);
-    uint64_t idx_dec = rank_reflection(sq2, occ2, table->first, table->ri);
+    unrank_bb_ref(idx, is.bb, dst_ri);
+    uint64_t idx_dec = depermute_462_ref_idx(&is, &rank_ri, t);
     __builtin_prefetch(src + idx_dec, 0, 3);
     dst[idx - NUM] = src[idx_dec_buf[head]];
     idx_dec_buf[head] = idx_dec;
@@ -1530,46 +1598,38 @@ void depermute_dtz_462_ref_worker(struct ThreadData *thread)
 void depermute_dtz_10_worker(struct ThreadData *thread)
 {
   uint8_t sq[MAX_PIECES];
-  uint8_t sq2[MAX_PIECES];
   const uint8_t *restrict src = tb_table;
   uint8_t *restrict dst = dtz_table;
   const struct TbTable2 *table = table_info;
-  const struct RankInfo *dst_ri = &tb_ri[g_pos.stm];
+  const struct RankInfo *dst_ri = &tb_ri[g_slice.stm];
   struct IdxState is;
+  int8_t perm[MAX_SETS + 1];
 
   uint64_t idx_dec_buf[NUM];
 
-  int s = KKMap[g_pos.sq[0]][g_pos.sq[1]];
-  sq[0] = KKSquare[s][0];
-  sq[1] = KKSquare[s][1];
-  if (flip[g_pos.stm])
-    Swap(sq[0], sq[1]);
-  if (btm_side[g_pos.stm])
-    Swap(sq[0], sq[1]);
+  init_10_ksq(sq);
+  init_perm_rank_10(perm, table, dst_ri);
+  int t = KK_transform[sq[0]][sq[1]];
   int k2sq = k2sq_10();
 
-  idx_state_init(&is, thread->begin, sq, dst_ri);
+  idx_state_init(&is, thread->begin, sq, dst_ri, false);
 
   uint64_t idx = thread->begin, end = thread->end;
   int fill = 0;
   int head = 0; // Next buffered element to consume.
 
   // Fill pipeline.
-  for (; fill < NUM && idx < end; fill++, idx++, idx_state_inc(&is, dst_ri)) {
-    idx_state_to_sq(&is, sq, dst_ri);
-    normalize2(sq, sq2);
-    Bitboard occ2 = bit(sq2[0]) | bit(sq2[1]);
-    uint64_t idx_dec = rank_10(sq2, occ2, table, k2sq);
+  for (; fill < NUM && idx < end;
+      fill++, idx++, idx_state_inc(&is, dst_ri))
+  {
+    uint64_t idx_dec = depermute_10_idx(&is, table, perm, t, k2sq);
     __builtin_prefetch(src + idx_dec, 0, 3);
     idx_dec_buf[fill] = idx_dec;
   }
 
   // Steady-state pipeline.
   for (; idx < end; idx++, idx_state_inc(&is, dst_ri)) {
-    idx_state_to_sq(&is, sq, dst_ri);
-    normalize2(sq, sq2);
-    Bitboard occ2 = bit(sq2[0]) | bit(sq2[1]);
-    uint64_t idx_dec = rank_10(sq2, occ2, table, k2sq);
+    uint64_t idx_dec = depermute_10_idx(&is, table, perm, t, k2sq);
     __builtin_prefetch(src + idx_dec, 0, 3);
     dst[idx - NUM] = src[idx_dec_buf[head]];
     idx_dec_buf[head] = idx_dec;
@@ -1586,22 +1646,19 @@ void depermute_dtz_10_worker(struct ThreadData *thread)
 void depermute_dtz_10_ref_worker(struct ThreadData *thread)
 {
   uint8_t sq[MAX_PIECES];
-  uint8_t sq2[MAX_PIECES];
   const uint8_t *restrict src = tb_table;
   uint8_t *restrict dst = dtz_table;
   const struct TbTable2 *table = table_info;
-  const struct RankInfo *dst_ri = &tb_ri[g_pos.stm];
+  const struct RankInfo *dst_ri = &tb_ri[g_slice.stm];
+  struct IdxState is;
+  int8_t perm[MAX_SETS + 1];
 
   uint64_t idx_dec_buf[NUM];
 
-  int s = KKMap[g_pos.sq[0]][g_pos.sq[1]];
-  sq[0] = KKSquare[s][0];
-  sq[1] = KKSquare[s][1];
-  if (flip[g_pos.stm])
-    Swap(sq[0], sq[1]);
-  if (btm_side[g_pos.stm])
-    Swap(sq[0], sq[1]);
-  Bitboard occ = bit(sq[0]) | bit(sq[1]);
+  init_10_ksq(sq);
+  init_perm_rank_10(perm, table, dst_ri);
+  int t = KK_transform[sq[0]][sq[1]];
+  is.bb[0] = bit(sq[0]) | bit(sq[1]);
   int k2sq = k2sq_10();
 
   uint64_t idx = thread->begin, end = thread->end;
@@ -1610,20 +1667,16 @@ void depermute_dtz_10_ref_worker(struct ThreadData *thread)
 
   // Fill pipeline.
   for (; fill < NUM && idx < end; fill++, idx++) {
-    unrank_reflection(idx, sq, occ, dst_ri);
-    normalize2(sq, sq2);
-    Bitboard occ2 = bit(sq2[0]) | bit(sq2[1]);
-    uint64_t idx_dec = rank_10(sq2, occ2, table, k2sq);
+    unrank_bb_ref(idx, is.bb, dst_ri);
+    uint64_t idx_dec = depermute_10_idx(&is, table, perm, t, k2sq);
     __builtin_prefetch(src + idx_dec, 0, 3);
     idx_dec_buf[fill] = idx_dec;
   }
 
   // Steady-state pipeline.
   for (; idx < end; idx++) {
-    unrank_reflection(idx, sq, occ, dst_ri);
-    normalize2(sq, sq2);
-    Bitboard occ2 = bit(sq2[0]) | bit(sq2[1]);
-    uint64_t idx_dec = rank_10(sq2, occ2, table, k2sq);
+    unrank_bb_ref(idx, is.bb, dst_ri);
+    uint64_t idx_dec = depermute_10_idx(&is, table, perm, t, k2sq);
     __builtin_prefetch(src + idx_dec, 0, 3);
     dst[idx - NUM] = src[idx_dec_buf[head]];
     idx_dec_buf[head] = idx_dec;
@@ -1646,7 +1699,7 @@ static struct DtzTable2 unmapped_dtz_table;
 void update_stats_worker(struct ThreadData *thread)
 {
   const uint16_t *restrict map = freq_map;
-  uint64_t *restrict freq = dtz_freq[thread->thread_id][g_pos.stm][win_loss];
+  uint64_t *restrict freq = dtz_freq[thread->thread_id][g_slice.stm][win_loss];
   const uint64_t *restrict p = (uint64_t *)kslice_buf[0];
   uint8_t *restrict q = dtz_table;
   p += thread->begin >> 6;
@@ -1715,12 +1768,10 @@ static void update_dtz_stats(struct DtzTable2 *table, int stm, int s)
 
 void decompress_kslice_dtz_462(struct Tbase *tb, int stm, int s)
 {
-  Position pos = g_pos;
-
-  int tsq = KKMap[pos.sq[0]][pos.sq[1]];
+  int tsq = KKMap[g_slice.sq[0]][g_slice.sq[1]];
   int t = (tb->dist_format & TWO_SIDED) ? 2 * tsq + btm_side[stm] : tsq;
   if (!tb->table[t])
-    tb->table[t] = init_new_table(tb, pos.num, DTZ, t, tsq);
+    tb->table[t] = init_new_table(tb, g_pos.num, DTZ, t, tsq);
   struct DtzTable2 *table = tb->table[t];
 
   if (!table->precomp) {
@@ -1769,11 +1820,11 @@ void decompress_kslice_dtz_10(struct Tbase *tb, int stm, int k)
     if (KKIdx[k][l] < 0)
       continue;
 
-    g_pos.sq[stm] = InvTriangle[k];
-    g_pos.sq[stm ^ 1] = l;
-    g_pos.stm = stm;
+    g_slice.sq[stm] = InvTriangle[k];
+    g_slice.sq[stm ^ 1] = l;
+    g_slice.stm = stm;
 
-    int s = KKMap[g_pos.sq[0]][g_pos.sq[1]];
+    int s = KKMap[g_slice.sq[0]][g_slice.sq[1]];
     if (const_value >= 0)
       memset(dtz_table, const_value, kslice_sizes[s >= 441]);
     else if (s < 441)
@@ -1825,6 +1876,9 @@ void verify(void)
   calc_capt(BLACK, 0);
   calc_capt(WHITE, -1);
   calc_capt(BLACK, -1);
+  calc_capt(WHITE, -2);
+  if (!symmetric)
+    calc_capt(BLACK, -2);
 
   // Release memory for K-slice bitmaps we don't need for now.
   for (int i = 7; i < 20; i++)
@@ -1851,12 +1905,12 @@ void verify(void)
     if (tb->layout == LT_PIECE_KK) {
 
       tb_ri[stm] = ri;
-      g_pos.stm = stm;
+      g_slice.stm = stm;
       flip[stm] = !symmetric ? !tb->flipped : stm != WHITE;
       btm_side[stm] = (stm == WHITE) == flip[stm];
 
       for (int k = 0; k < ri.numsets; k++) {
-        int pt = g_pos.pt[ri.first[k]] ^ (flip[stm] << 3);
+        int pt = g_set_pt[k] ^ (flip[stm] << 3);
         for (int j = 0; j < g_pos.num; j++)
           if (tb->pt[j] == pt) {
             tb_ri[stm].first[k] = j;
@@ -1867,11 +1921,11 @@ void verify(void)
       for (int s = 0; s < 462; s++) {
         show_progress(phase, s, 462, false);
 
-        g_pos.sq[0] = KKSquare[s][0];
-        g_pos.sq[1] = KKSquare[s][1];
+        g_slice.sq[0] = KKSquare[s][0];
+        g_slice.sq[1] = KKSquare[s][1];
 
         if (flip[stm])
-          Swap(g_pos.sq[0], g_pos.sq[1]);
+          Swap(g_slice.sq[0], g_slice.sq[1]);
 
         decompress_kslice_wdl_462(tb, stm, s);
       }
@@ -1880,12 +1934,12 @@ void verify(void)
     } else { /* tb_layout == LT_PIECE_K */
 
       tb_ri[stm] = ri;
-      g_pos.stm = stm;
+      g_slice.stm = stm;
       flip[stm] = !symmetric ? !tb->flipped : stm != WHITE;
       btm_side[stm] = (stm == WHITE) == flip[stm];
 
       for (int k = 0; k < ri.numsets; k++) {
-        int pt = g_pos.pt[ri.first[k]] ^ (flip[stm] << 3);
+        int pt = g_set_pt[k] ^ (flip[stm] << 3);
         for (int j = 0; j < g_pos.num; j++)
           if (tb->pt[j] == pt) {
             tb_ri[stm].first[k] = j;
@@ -1896,7 +1950,7 @@ void verify(void)
       for (int k = 0; k < 10; k++) {
         show_progress(phase, k, 10, false);
 
-        g_pos.sq[stm] = InvTriangle[k];
+        g_slice.sq[stm] = InvTriangle[k];
         decompress_kslice_wdl_10(tb, stm, k);
       }
       show_progress(phase, 10, 10, true);
@@ -1927,12 +1981,14 @@ void verify(void)
   check_cwin_draw(WHITE);
   check_draw_bloss(WHITE);
   check_bloss_loss(WHITE);
+  check_loss(WHITE);
 
   if (!symmetric) {
     check_win_cwin(BLACK);
     check_cwin_draw(BLACK);
     check_draw_bloss(BLACK);
     check_bloss_loss(BLACK);
+    check_loss(BLACK);
   }
 
   if (table_is_ok && num_fails == 0)
@@ -2001,12 +2057,12 @@ void verify(void)
 
     for (int stm = 0; stm < 2; stm++) {
       tb_ri[stm] = ri;
-      g_pos.stm = stm;
+      g_slice.stm = stm;
       flip[stm] = !symmetric ? !tb->flipped : stm != WHITE;
       btm_side[stm] = (stm == WHITE) == flip[stm];
 
       for (int k = 0; k < ri.numsets; k++) {
-        int pt = g_pos.pt[ri.first[k]] ^ (flip[stm] << 3);
+        int pt = g_set_pt[k] ^ (flip[stm] << 3);
         for (int j = 0; j < g_pos.num; j++)
           if (tb->pt[j] == pt) {
             tb_ri[stm].first[k] = j;
@@ -2021,12 +2077,12 @@ void verify(void)
       for (int stm = 0; stm < 2; stm++) {
         if (!has_stm[stm]) continue;
 
-        g_pos.sq[0] = KKSquare[s][0];
-        g_pos.sq[1] = KKSquare[s][1];
-        g_pos.stm = stm;
+        g_slice.sq[0] = KKSquare[s][0];
+        g_slice.sq[1] = KKSquare[s][1];
+        g_slice.stm = stm;
 
         if (flip[stm])
-          Swap(g_pos.sq[0], g_pos.sq[1]);
+          Swap(g_slice.sq[0], g_slice.sq[1]);
 
         decompress_kslice_dtz_462(tb, stm, s);
       }
@@ -2036,12 +2092,12 @@ void verify(void)
   else if (tb->layout == LT_PIECE_K) {
     for (int stm = 0; stm < 2; stm++) {
       tb_ri[stm] = ri;
-      g_pos.stm = stm;
+      g_slice.stm = stm;
       flip[stm] = !symmetric ? !tb->flipped : stm != WHITE;
       btm_side[stm] = (stm == WHITE) == flip[stm];
 
       for (int k = 0; k < ri.numsets; k++) {
-        int pt = g_pos.pt[ri.first[k]] ^ (flip[stm] << 3);
+        int pt = g_set_pt[k] ^ (flip[stm] << 3);
         for (int j = 0; j < g_pos.num; j++)
           if (tb->pt[j] == pt) {
             tb_ri[stm].first[k] = j;
@@ -2058,8 +2114,8 @@ void verify(void)
 
         show_progress("loading DTZ slices", num_done++, num_total, false);
 
-        g_pos.sq[stm] = InvTriangle[k];
-        g_pos.stm = stm;
+        g_slice.sq[stm] = InvTriangle[k];
+        g_slice.stm = stm;
 
         decompress_kslice_dtz_10(tb, stm, k);
       }

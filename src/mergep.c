@@ -45,7 +45,7 @@ static void find_position_worker(struct ThreadData *thread)
     return;
 
   uint64_t *restrict p =
-    (uint64_t *)kslice_get_address_scratch(g_pos.sq) + (thread->begin >> 6);
+    (uint64_t *)kslice_get_address_scratch(g_slice.sq) + (thread->begin >> 6);
 
   uint64_t idx, end;
   for (idx = thread->begin, end = thread->end; idx < end; idx += 64) {
@@ -69,10 +69,10 @@ static void find_position_worker(struct ThreadData *thread)
 static void find_position(int stm, int s, bool loss, bool cursed)
 {
   for (int r = 0; r < 16; r++) {
-    g_pos.sq[0] = KK16Square[s][r][0];
-    g_pos.sq[1] = KK16Square[s][r][1];
+    g_slice.sq[0] = KK16Square[s][r][0];
+    g_slice.sq[1] = KK16Square[s][r][1];
 
-    if (is_broken(&g_pos))
+    if (is_broken(&g_slice))
       continue;
 
     atomic_store_explicit(&found_idx, UINT64_MAX, memory_order_relaxed);
@@ -83,8 +83,11 @@ static void find_position(int stm, int s, bool loss, bool cursed)
 
     struct IdxState is;
     Position pos = g_pos;
+    pos.sq[0] = g_slice.sq[0];
+    pos.sq[1] = g_slice.sq[1];
+    pos.sq[2] = g_slice.sq[2];
     pos.stm = stm ^ loss;
-    idx_state_init(&is, idx, pos.sq, &ri);
+    idx_state_init(&is, idx, g_slice.sq, &ri, false);
     idx_state_to_sq(&is, pos.sq, &ri);
     pos_to_fen(&pos, mf.fen[stm][cursed], flipped);
     mf.found[stm][cursed] = true;

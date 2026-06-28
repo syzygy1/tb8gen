@@ -27,7 +27,7 @@
 struct MergeInfo mi;
 
 static void *merge_table, *merge_w;
-static int merge_n;
+static int merge_n, merge_r;
 static int work_set;
 static bool include_wins, include_losses;
 static struct Work work_g_merge_dynamic[2], work_g_merge_static[2];
@@ -109,15 +109,15 @@ static void find_position(int s, int stm, bool loss, bool cursed)
     return;
 
   Position pos = g_pos;
+  pos.sq[0] = g_slice.sq[0];
+  pos.sq[1] = g_slice.sq[1];
   pos.stm = stm ^ loss;
-  if (s < 441) {
-    struct IdxState is;
-    idx_state_init(&is, idx, pos.sq, &ri);
+  struct IdxState is;
+  idx_state_init(&is, idx, pos.sq, &ri, s >= 441);
+  if (s < 441)
     idx_state_to_sq(&is, pos.sq, &ri);
-  } else {
-    Bitboard occ = bit(pos.sq[0]) | bit(pos.sq[1]);
-    unrank_reflection(idx, pos.sq, occ, &ri);
-  }
+  else
+    unrank_bb_ref(idx, is.bb, &ri);
   pos_to_fen(&pos, mf.fen[stm][cursed], false);
   mf.found[stm][cursed] = true;
 
@@ -214,7 +214,7 @@ void merge(int stm)
 
   int special = 1 + (stats[1] != 0)
                   + (stats[DRAW_RULE + 3] != 0)
-                  + (stats[MAX_STATS / 2 + 1] != 0)
+                  + (sub_cnt[stm ^ 1][2] != 0)
                   + (stats[MAX_STATS / 2 + 2] != 0);
 
   int wins_red = (win_vals != 0) + (cwin_vals != 0);
@@ -234,7 +234,7 @@ void merge(int stm)
   if (!mi.wide) {
     // One byte suffices.
 
-    int n = init_merge_value_map_u8(stats);
+    int n = init_merge_value_map_u8(stats, stm);
     if (n > 255) {
       fprintf(stderr, "Internal error.\n");
       exit(EXIT_FAILURE);
@@ -255,7 +255,7 @@ void merge(int stm)
 
   } else {
 
-    init_merge_value_map_u16(stats);
+    init_merge_value_map_u16(stats, stm);
 
     merge_table = alloc_huge(sizeof(u16) * kslice_size);
     if (!merge_table)

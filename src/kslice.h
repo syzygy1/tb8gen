@@ -31,8 +31,6 @@ extern size_t kslice_sizes[2];
 #define kslice_size (kslice_sizes[0])
 extern size_t kslice_sub_sizes[2][MAX_SETS];
 #define kslice_sub_size (kslice_sub_sizes[0])
-//extern size_t total_kslice_size;
-//extern size_t reflection_offset;
 
 extern uint64_t kslice_read_cost;
 extern uint64_t kslice_read_count;
@@ -93,11 +91,11 @@ void kslice_cleanup(void);
 void kslice_free_buffers(void);
 void kslice_reserve(int s);
 void kslice_release(int s);
-void kslice_set(int s);
+void kslice_set(int s, int slice);
 void kslice_set_addr(void *p, int s);
-void kslice_clear(int s);
+void kslice_clear(int s, int slice);
 void kslice_clear_addr(void *p, int s);
-void kslice_not(int s);
+void kslice_not(int s, int slice);
 void kslice_not_addr(void *p, int s);
 void kslice_or(int s1, int s2);
 void kslice_or_addr(void *p, void *q, int s);
@@ -117,17 +115,20 @@ bool kslice_test(int slice, int stm, const char *name, int n);
 bool kslice_read(int s, int slice, int stm, const char *name, int n);
 bool kslice_read_addr(void *p, int slice, int stm, const char *name, int n);
 void kslice_read_or(int s, int slice, int stm, const char *name, int n);
+void kslice_read_and(int s, int slice, int stm, const char *name, int n);
 void kslice_read_andnot(int s, int slice, int stm, const char *name, int n);
 void kslice_read_andnot_addr(void *p, int slice, int stm, const char *name,
     int n);
 void kslice_delete(int slice, int stm, const char *name, int n);
 void kslice_sub_write_addr(void *p, int slice, int stm, const char *name,
     uint64_t cnt);
+void kslice_sub_link(int slice, int stm, const char *src, const char *dst);
 void kslice_sub_read(int s, int slice, int stm, const char *name);
+void kslice_sub_or_addr(void *p, void *q, int stm);
 void kslice_sub_andnot(int s1, int s2, int stm);
-void kslice_clear_tail(int s);
+void kslice_clear_tail(int s, int slice);
 void kslice_clear_tail_addr(void *p, int s);
-uint64_t kslice_count(int s);
+uint64_t kslice_count(int s, int slice);
 uint64_t kslice_count_addr(void *p, int s);
 uint64_t kslice_sub_count_addr(void *p, int stm);
 void kslice_sub_clear(int s, int stm);

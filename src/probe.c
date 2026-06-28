@@ -298,9 +298,65 @@ void init_tablebases(const char *path_list)
         }
       }
 
-//  printf("Found %d WDL and %d DTM tablebase files.\n", num_tbs, num_dtz);
-  printf("Found %d WDL %d DTZ tablebase files.\n", num_tbs, num_dtz);
+  printf("Found %d WDL and %d DTZ tablebase files.\n", num_tbs, num_dtz);
 }
+
+#define SORT2(a, b) do { \
+  if ((b) < (a))         \
+    Swap(a, b);          \
+} while (0)
+
+INLINE void sort3(uint8_t *x)
+{
+  SORT2(x[0], x[1]);
+  SORT2(x[1], x[2]);
+  SORT2(x[0], x[1]);
+}
+
+INLINE void sort4(uint8_t *x)
+{
+  SORT2(x[0], x[1]);
+  SORT2(x[2], x[3]);
+  SORT2(x[0], x[2]);
+  SORT2(x[1], x[3]);
+  SORT2(x[1], x[2]);
+}
+
+INLINE void sort_squares(int n, uint8_t *restrict x)
+{
+  assume(n <= MAX_PIECES - 2);
+  switch (n) {
+  case 0:
+  case 1:
+    break;
+
+  case 2:
+    SORT2(x[0], x[1]);
+    break;
+
+  case 3:
+    sort3(x);
+    break;
+
+  case 4:
+    sort4(x);
+    break;
+
+  default:
+    // insertion sort
+    for (int i = 1; i < n; i++) {
+      int v = x[i];
+      int j = i;
+      while (j > 0 && v < x[j - 1]) {
+        x[j] = x[j - 1];
+        j--;
+      }
+      x[j] = v;
+    }
+  }
+}
+
+#undef SORT2
 
 const int8_t OffDiag[64] = {
   0, -1, -1, -1, -1, -1, -1, -1,
@@ -497,6 +553,24 @@ INLINE void sort_squares_mapped(int n, uint8_t *p, const uint8_t *map)
     for (int j = i + 1; j < n; j++)
       if (map[p[i]] > map[p[j]])
         Swap(p[i], p[j]);
+}
+
+INLINE void normalize(uint8_t *sq)
+{
+  uint64_t v;
+  memcpy(&v, sq, 8);
+  v ^= MirrorMask[sq[0]];
+  if (FlipTest[sq[0]][sq[1]])
+    v = mirror_diagonal_u64(v);
+  memcpy(sq, &v, 8);
+}
+
+INLINE void normalize_quadrant(uint8_t *sq)
+{
+  uint64_t v;
+  memcpy(&v, sq, 8);
+  v ^= MirrorMask[sq[0]];
+  memcpy(sq, &v, 8);
 }
 
 INLINE size_t encode(uint8_t *p, struct EncInfo *ei, struct TbEntry *entry,
@@ -722,6 +796,53 @@ size_t set_dec_info(struct DecInfo *di, struct TbEntry *entry, uint8_t *pcs,
   di->fac_iter[di->ord_iter[k]] = f / di->factor[di->ord_iter[k]] + 1;
 
   return f;
+}
+
+INLINE Bitboard unrank_binomial(uint64_t idx, int n, uint8_t *restrict sq,
+    Bitboard occ)
+{
+  if (n == 0)
+    return occ;
+
+  assume(n > 0 && n <= MAX_MULT);
+
+  Bitboard b = ~occ;
+
+  if (n == 1) {
+    Bitboard b1 = _pdep_u64(bit(idx), b);
+    occ |= b1;
+    sq[0] = lsb(b1);
+  }
+  else if (n == 2) {
+    Bitboard b1 = _pdep_u64(Unrank2[idx], b);
+    occ |= b1;
+    sq[0] = pop_lsb(&b1);
+    sq[1] = lsb(b1);
+  }
+  else if (n == 3) {
+    Bitboard b1 = _pdep_u64(Unrank3[idx], b);
+    occ |= b1;
+    sq[0] = pop_lsb(&b1);
+    sq[1] = pop_lsb(&b1);
+    sq[2] = lsb(b1);
+  }
+  else {
+    Bitboard b1 = 0;
+    int r = popcnt(b) - 1;
+    for (int i = n - 1; i > 0; i--) {
+      while (idx < Binomial[i + 1][r])
+        r--;
+      idx -= Binomial[i + 1][r];
+      b1 |= bit(r);
+      r--;
+    }
+    b1 = _pdep_u64(b1 | bit(idx), b);
+    occ |= b1;
+    while (b1)
+      *sq++ = pop_lsb(&b1);
+  }
+
+  return occ;
 }
 
 static Bitboard unrank_binomial_mapped(uint64_t idx, int n, uint8_t *restrict sq,
@@ -1677,7 +1798,7 @@ INLINE int probe_table(Position *pos, int s, const int type)
       && (bool)(tb->dist_format & WIN_ONLY) != (s > 0))
     return CHANGE_STM;
 
-  uint8_t p[MAX_PIECES];
+  alignas(8) uint8_t p[MAX_PIECES];
   bool flip = !entry->symmetric ? (key != entry->key) != tb->flipped
                                 : pos->stm != WHITE;
   bool btm_side = (pos->stm == WHITE) == flip;
@@ -1780,7 +1901,7 @@ INLINE int probe_table(Position *pos, int s, const int type)
 
       // Normalize the single-pawn position.
       if (p[2] & 0x04)
-        for (int i = 0; i < entry->num; i++)
+        for (int i = 0; i < MAX_PIECES; i++)
           p[i] ^= 0x07;
 
       if (tb->layout == LT_PAWN_P) {

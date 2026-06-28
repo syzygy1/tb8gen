@@ -9,7 +9,6 @@
 #define NUM 16
 static void NAME(convert_data_piece)(struct ThreadData *thread)
 {
-  int n = tb_entry.num;
   uint8_t pos[MAX_PIECES];
   T *restrict src = convert_data.src;
   T *restrict dst = convert_data.dst;
@@ -28,7 +27,7 @@ static void NAME(convert_data_piece)(struct ThreadData *thread)
   int k = 0, l;
   for (idx = thread->begin; k < NUM && idx < end; idx++, k++) {
     decode_piece_iter(sub, pos, &di, &tb_entry);
-    uint64_t idx_dec = calc_idx_piece(pos, pidx, n);
+    uint64_t idx_dec = calc_idx_piece(pos, pidx);
     __builtin_prefetch(&src[idx_dec], 0, 3);
     idx_dec_buf[k] = idx_dec;
   }
@@ -40,7 +39,7 @@ static void NAME(convert_data_piece)(struct ThreadData *thread)
   for (; idx < end; idx++, k++) {
     k &= NUM - 1;
     decode_piece_iter(sub, pos, &di, &tb_entry);
-    uint64_t idx_dec = calc_idx_piece(pos, pidx, n);
+    uint64_t idx_dec = calc_idx_piece(pos, pidx);
     __builtin_prefetch(&src[idx_dec], 0, 3);
     dst[idx - NUM] = src[idx_dec_buf[k]];
     idx_dec_buf[k] = idx_dec;
@@ -63,7 +62,6 @@ static void NAME(convert_est_data_piece)(struct ThreadData *thread)
   uint32_t dsize = est_data.dsize;
   T *restrict dst = est_data.dst;
   uint64_t idx;
-  int n = tb_entry.num;
   uint8_t pos[MAX_PIECES];
   struct DecInfo di;
   uint32_t sub[MAX_PIECES];
@@ -87,7 +85,7 @@ static void NAME(convert_est_data_piece)(struct ThreadData *thread)
       decode_piece_iter(sub, pos, &di, &tb_entry);
       for (r = p; r < q; r++) {
 	l = trylist[r];
-        idx = calc_idx_piece(pos, pidx_list[l], n);
+        idx = calc_idx_piece(pos, pidx_list[l]);
 	__builtin_prefetch(&table[idx], 0, 3);
 	idx_cache[r] = idx;
       }
@@ -96,7 +94,7 @@ static void NAME(convert_est_data_piece)(struct ThreadData *thread)
         decode_piece_iter(sub, pos, &di, &tb_entry);
 	for (r = p; r < q; r++) {
 	  l = trylist[r];
-          idx = calc_idx_piece(pos, pidx_list[l], n);
+          idx = calc_idx_piece(pos, pidx_list[l]);
 	  __builtin_prefetch(&table[idx], 0, 3);
 	  dst[r * dsize + i * seg_size + j - 1] = table[idx_cache[r]];
 	  idx_cache[r] = idx;

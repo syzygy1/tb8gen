@@ -31,6 +31,9 @@
 #define WORKDIR "TB8DIR"
 
 Position g_pos;
+int8_t g_sets[2][8];
+int8_t g_piece_set[2][8];
+uint8_t g_set_pt[8];
 bool symmetric;
 bool g_cleanup;
 //bool one_sided, wins_only;
@@ -155,18 +158,6 @@ int main(int argc, char **argv)
   for (int i = 0; i < numpcs; i++)
     g_pos.pt[i] = pt[i];
 
-  k = 0;
-  for (int i = 2; i < numpcs; i++)
-    if (!(pt[i] & 0x08))
-      g_pos.pcs[WHITE][k++] = i;
-  g_pos.pcs[WHITE][k] = -1;
-
-  k = 0;
-  for (int i = 2; i < numpcs; i++)
-    if (pt[i] & 0x08)
-      g_pos.pcs[BLACK][k++] = i;
-  g_pos.pcs[BLACK][k] = -1;
-
   // Initialize main RankInfo struct.
   uint8_t mult[MAX_SETS] = { 0 };
   k = 0;
@@ -186,16 +177,23 @@ int main(int argc, char **argv)
   for (k = 0; k < ri.numsets; k++) {
     capt_ri[k] = ri;
     capt_ri[k].mult[k]--;
-    if (capt_ri[k].mult[k] == 0) {
-      for (int i = k + 1; i < ri.numsets; i++) {
-        capt_ri[k].first[i - 1] = capt_ri[k].first[i];
-        capt_ri[k].mult[i - 1] = capt_ri[k].mult[i];
-        capt_ri[k].last[i - 1] = capt_ri[k].last[i];
-      }
-      capt_ri[k].numsets--;
-    }
     calc_factors(&capt_ri[k], 62);
     kslice_sub_size[k] = capt_ri[k].sizes[0];
+  }
+
+  for (int i = 0; i < ri.numsets; i++)
+    g_set_pt[i] = g_pos.pt[ri.first[i]];
+
+  memset(g_piece_set, -1, sizeof g_piece_set);
+  for (int i = 0; i < ri.numsets; i++)
+    g_piece_set[g_set_pt[i] >> 3][g_set_pt[i] & 7] = i;
+
+  for (int stm = 0; stm < 2; stm++) {
+    int k = 0;
+    for (int i = 0; i < ri.numsets; i++)
+      if ((g_set_pt[i] >> 3) == stm)
+        g_sets[stm][k++] = i;
+    g_sets[stm][k] = -1;
   }
 
   kslice_setup();

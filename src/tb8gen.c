@@ -34,6 +34,9 @@
 #define WORKDIR "TB8DIR"
 
 Position g_pos;
+int8_t g_sets[2][8];
+int8_t g_piece_set[2][8];
+uint8_t g_set_pt[8];
 bool g_only_generate, g_use_rans, symmetric, used_rans = false;
 bool g_cleanup;
 bool one_sided, wins_only;
@@ -173,18 +176,6 @@ int main(int argc, char **argv)
   for (int i = 0; i < numpcs; i++)
     g_pos.pt[i] = pt[i];
 
-  k = 0;
-  for (int i = 2; i < numpcs; i++)
-    if (!(pt[i] & 0x08))
-      g_pos.pcs[WHITE][k++] = i;
-  g_pos.pcs[WHITE][k] = -1;
-
-  k = 0;
-  for (int i = 2; i < numpcs; i++)
-    if (pt[i] & 0x08)
-      g_pos.pcs[BLACK][k++] = i;
-  g_pos.pcs[BLACK][k] = -1;
-
   // Initialize main RankInfo struct.
   uint8_t mult[MAX_SETS] = { 0 };
   k = 0;
@@ -202,21 +193,21 @@ int main(int argc, char **argv)
 #if 0
   {
     // Test the perfect ranking functions.
-    uint8_t sq[MAX_PIECES];
-    sq[0] = 0;
-    sq[1] = 63;
-    Bitboard occ = bit(sq[0]) | bit(sq[1]);
+    Position pos;
+    pos.sq[0] = 0;
+    pos.sq[1] = 63;
     uint64_t size = ri.sizes[1];
+    struct IdxState is;
     printf("Testing perfecting indexing on %lu positions.\n", size);
     struct timespec start, end;
     timespec_get(&start, TIME_UTC);
+    is.sq[0] = pos.sq[0];
+    is.sq[1] = pos.sq[1];
+    is.occ[0] = is.bb[0] = bit(pos.sq[0]) | bit(pos.sq[1]);
     for (uint64_t idx = 0; idx < size; idx++) {
-      unrank_reflection(idx, sq, occ, &ri);
-      uint64_t rk = rank_reflection(sq, occ, ri.numsets, &ri);
+      unrank_bb_ref(idx, is.bb, &ri);
+      uint64_t rk = rank_bb_ref(is.bb, &ri);
       if (rk != idx) {
-        printf("%lu != %lu\n", idx, rk);
-        unrank_reflection(idx, sq, occ, &ri);
-        uint64_t rk = rank_reflection(sq, occ, ri.numsets, &ri);
         printf("%lu != %lu\n", idx, rk);
         exit(EXIT_FAILURE);
       }
@@ -236,16 +227,23 @@ int main(int argc, char **argv)
   for (k = 0; k < ri.numsets; k++) {
     capt_ri[k] = ri;
     capt_ri[k].mult[k]--;
-    if (capt_ri[k].mult[k] == 0) {
-      for (int i = k + 1; i < ri.numsets; i++) {
-        capt_ri[k].first[i - 1] = capt_ri[k].first[i];
-        capt_ri[k].mult[i - 1] = capt_ri[k].mult[i];
-        capt_ri[k].last[i - 1] = capt_ri[k].last[i];
-      }
-      capt_ri[k].numsets--;
-    }
     calc_factors(&capt_ri[k], 62);
     kslice_sub_size[k] = capt_ri[k].sizes[0];
+  }
+
+  for (int i = 0; i < ri.numsets; i++)
+    g_set_pt[i] = g_pos.pt[ri.first[i]];
+
+  memset(g_piece_set, -1, sizeof g_piece_set);
+  for (int i = 0; i < ri.numsets; i++)
+    g_piece_set[g_set_pt[i] >> 3][g_set_pt[i] & 7] = i;
+
+  for (int stm = 0; stm < 2; stm++) {
+    int k = 0;
+    for (int i = 0; i < ri.numsets; i++)
+      if ((g_set_pt[i] >> 3) == stm)
+        g_sets[stm][k++] = i;
+    g_sets[stm][k] = -1;
   }
 
   kslice_setup();
@@ -269,13 +267,6 @@ int main(int argc, char **argv)
 
   kslice_free_buffers(); // Free memory but keep slice "-1".
 
-#if 0
-  printf("\n########## %s ##########\n", g_tablename);
-  print_stats(WHITE);
-  print_stats(BLACK);
-#endif
-  printf("\n");
-
   // Estimate sizes of different DTZ formats.
   double ewh = entropy_one_sided(WHITE);
   double ebl = entropy_one_sided(BLACK);
@@ -286,14 +277,14 @@ int main(int argc, char **argv)
   double ewi_b = entropy_win_only(BLACK);
   double ewi = ewi_w + (symmetric ? 0.0 : ewi_b);
 
-  printf("entropy wtm  = %lf\n", ewh);
-  printf("entropy btm  = %lf\n", ebl);
+  printf("\nentropy wtm  = %.1lf\n", ewh);
+  printf("entropy btm  = %.1lf\n", ebl);
   if (!symmetric) {
-    printf("entropy loss = %lf (%lf + %lf)\n", elo, elo_w, elo_b);
-    printf("entropy win  = %lf (%lf + %lf)\n\n", ewi, ewi_w, ewi_b);
+    printf("entropy loss = %.1lf (%.1lf + %.1lf)\n", elo, elo_w, elo_b);
+    printf("entropy win  = %.1lf (%.1lf + %.1lf)\n\n", ewi, ewi_w, ewi_b);
   } else {
-    printf("entropy loss = %lf\n", elo);
-    printf("entropy win  = %lf\n\n", ewi);
+    printf("entropy loss = %.1lf\n", elo);
+    printf("entropy win  = %.1lf\n\n", ewi);
   }
 
   // Add 0.1% of overhead for having a table for each side.

@@ -12,7 +12,7 @@
 #include "defs.h"
 #include "types.h"
 
-extern uint64_t sub_cnt[2][5];
+extern uint64_t capt_cnt[2][5], sub_cnt[2][5];
 extern int max_iteration;
 
 INLINE int stats_n(int n)

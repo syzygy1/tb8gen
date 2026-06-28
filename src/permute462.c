@@ -38,8 +38,6 @@ static uint8_t set_perm_list[MAX_PERMS][MAX_SETS];
 
 static uint64_t compest[MAX_PERMS];
 
-static uint8_t set_pt[MAX_SETS];
-
 static int trylist[MAX_CANDS];
 static struct RankInfo try_ri[MAX_CANDS];
 static struct RankInfo best_ri;
@@ -116,9 +114,6 @@ void init_permute_piece_462(void)
 
   generate_set_perms(num_sets);
 
-  for (int i = 0; i < num_sets; i++)
-    set_pt[i] = g_pos.pt[ri.first[i]];
-
   generate_test_list(kslice_size, g_pos.num - 2);
   work_convert = create_work(g_total_work, kslice_size, 0);
   slice_size = kslice_size;
@@ -180,7 +175,7 @@ static void estimate_compression_piece(void *table, int num_cands, bool wide,
     printf(";");
     for (int i = 0; i < num_sets; i++) {
       int k = set_perm_list[trylist[p]][i];
-      printf(" %c", PieceChar[set_pt[k]]);
+      printf(" %c", PieceChar[g_set_pt[k]]);
     }
     printf("; %"PRIu64"\n", csize);
     compest[trylist[p]] = csize;
@@ -277,7 +272,7 @@ static int64_t estimate_compression(void *table, int *bestp, bool wide,
 void permute_piece_462(void *tb_table, void *table, uint8_t *best, int type, 
     bool wide)
 {
-  int s = KKMap[g_pos.sq[0]][g_pos.sq[1]];
+  int s = KKMap[g_slice.sq[0]][g_slice.sq[1]];
   bool reflection = s >= 441;
   uint64_t size = kslice_sizes[reflection];
 
@@ -306,7 +301,7 @@ void permute_piece_462(void *tb_table, void *table, uint8_t *best, int type,
   printf("\nbest permutation: ");
   for (int i = 0; i < num_sets; i++) {
     for (int j = 0; j < best_ri.mult[i]; j++)
-      printf("%c", PieceChar[set_pt[best[i]]]);
+      printf("%c", PieceChar[g_set_pt[best[i]]]);
   }
   printf("\n");
 

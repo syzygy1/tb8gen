@@ -117,24 +117,34 @@ static void generate_test_list(uint64_t size, int n)
     segs[i] += i * seg_size;
 }
 
-INLINE uint64_t calc_idx_piece(uint8_t *restrict sq, uint8_t *restrict pidx,
-    int n)
+INLINE uint64_t calc_idx_piece(const uint8_t *restrict sq,
+    const uint8_t *restrict pidx)
 {
-  uint8_t sq2[MAX_PIECES];
-  for (int i = 0; i < n; i++)
-    sq2[i] = sq[pidx[i]];
-  int s = KKMap[sq2[0]][sq2[1]];
+  alignas(64) Bitboard bb[8] = { 0 };
+
+  int wk = sq[pidx[0]];
+  int bk = sq[pidx[1]];
+  int s = KKMap[wk][bk];
   if (s < 0)
     return 462 * kslice_size;
     // table[462 * kslice_size] is set to the don't care value.
-  else if (s < 441) {
-    normalize(sq2);
-    return (unsigned)s * kslice_size + sq_to_idx(sq2);
+
+  bb[0] = bit(wk) | bit(bk);
+  for (int k = 0; k < ri.numsets; k++) {
+    for (int i = ri.first[k]; i <= ri.last[k]; i++)
+      bb[k + 1] |= bit(sq[pidx[i]]);
   }
-  else {
-    normalize_quadrant(sq2);
-    return (unsigned)s * kslice_size + sq_to_idx_ref(sq2);
+
+  int t = KK_transform[wk][bk];
+  if (t) {
+    alignas(64) Bitboard bb2[8];
+    transform_set_bb(t, bb, bb2);
+    return  (unsigned)s * kslice_size
+          + (s < 441 ? rank_bb(bb2, &ri) : rank_bb_ref(bb2, &ri));
   }
+
+  return  (unsigned)s * kslice_size
+        + (s < 441 ? rank_bb(bb, &ri) : rank_bb_ref(bb, &ri));
 }
 
 void init_permute_piece(uint8_t *pcs, uint8_t *pt)

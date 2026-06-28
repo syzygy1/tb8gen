@@ -133,42 +133,44 @@ static void NAME(merge_capt_bloss_worker)(struct ThreadData *thread)
 }
 
 INLINE void NAME(merge_mark_unmoves)(int k, T *restrict const p, Bitboard occ,
-    uint8_t *restrict sq)
+    struct IdxState *is)
 {
-  uint8_t sq2[MAX_PIECES];
-  Bitboard b = non_king_piece_moves(g_pos.pt[k], sq[k], occ);
+  uint64_t idx0 = 0;
+  for (int i = 0; i < k; i++)
+    idx0 = idx0 * ri.factor[i] + is->sub[i];
+
+  Bitboard b = non_king_piece_moves(g_set_pt[k], g_slice.sq[g_slice.stm ^ 1],
+      occ);
   while (b) {
-    memcpy(sq2, sq, sizeof sq2);
-    sq2[k] = pop_lsb(&b);
-    p[sq_to_idx(sq2)] = 0;
+    Bitboard from_bb = b & -b;
+    is->bb[k + 1] ^= from_bb;
+    uint64_t idx = rank_bb_from(is->bb, idx0, k, is->occ[k], &ri);
+    is->bb[k + 1] ^= from_bb;
+    p[idx] = 0;
+    b ^= from_bb;
   }
 }
 
 static void NAME(merge_illegal_worker)(struct ThreadData *thread)
 {
   struct IdxState is;
-  Position pos = g_pos;
   int k = work_set;
-  int m = ri.last[k];
-  int stm = pos.stm;
-  int king_sq = pos.sq[stm ^ 1];
 
-  T *restrict const p = (T *)merge_table + 8 * k16offset(g_pos.sq);
+  T *restrict const p = (T *)merge_table + 8 * k16offset(g_slice.sq);
 
-  idx_state_init(&is, thread->begin, pos.sq, &capt_ri[k]);
+  Bitboard occ = idx_state_init(&is, thread->begin, g_slice.sq, &capt_ri[k],
+      false);
 
   for (uint64_t idx = thread->begin, end = thread->end; idx < end;
-      idx++, idx_state_inc(&is, &capt_ri[k]))
+      idx++, occ = idx_state_inc(&is, &capt_ri[k]))
   {
-    Bitboard occ = idx_state_to_sq(&is, pos.sq, &capt_ri[k]);
-    pos.sq[m] = king_sq;
-    NAME(merge_mark_unmoves)(m, p, occ, pos.sq);
+    NAME(merge_mark_unmoves)(k, p, occ, &is);
   }
 }
 
 static void NAME(merge_set_illegal_worker)(struct ThreadData *thread)
 {
-  T *restrict const p = (T *)merge_table + 8 * k16offset(g_pos.sq);
+  T *restrict const p = (T *)merge_table + 8 * k16offset(g_slice.sq);
 
   for (uint64_t idx = thread->begin, end = thread->end; idx < end; idx++)
     p[idx] = 0;
@@ -178,7 +180,7 @@ static void NAME(merge_statistics_worker)(struct ThreadData *thread)
 {
   int t = thread->thread_id;
 
-  T *restrict const p = (T *)merge_table + 8 * k16offset(g_pos.sq);
+  T *restrict const p = (T *)merge_table + 8 * k16offset(g_slice.sq);
 
   for (uint64_t idx = thread->begin, end = thread->end; idx < end; idx++)
     thread_stats[t][NAME(mi.v_inv)[p[idx]]]++;
@@ -209,7 +211,7 @@ static void NAME(merge_bitmaps)(int stm, int s)
 
   uint64_t stats[16][MAX_STATS] = { 0 };
 
-  g_pos.stm = stm;
+  g_slice.stm = stm;
 
   // DRAW
   run_threaded(NAME(merge_draw_worker), work_g16);
@@ -284,19 +286,19 @@ static void NAME(merge_bitmaps)(int stm, int s)
 
   // ILLEGAL
   for (int r = 0; r < 16; r++) {
-    g_pos.sq[0] = KK16Square[s][r][0];
-    g_pos.sq[1] = KK16Square[s][r][1];
+    g_slice.sq[0] = KK16Square[s][r][0];
+    g_slice.sq[1] = KK16Square[s][r][1];
 
-    if (    is_broken(&g_pos)
+    if (    is_broken(&g_slice)
         || (    stm == BLACK
-            && (pawn_attacks(BLACK, g_pos.sq[2]) & bit(g_pos.sq[0]))))
+            && (pawn_attacks(BLACK, g_slice.sq[2]) & bit(g_slice.sq[0]))))
     {
       run_threaded(NAME(merge_set_illegal_worker), work_g);
       continue;
     }
 
     for (int k = 0; k < ri.numsets; k++) {
-      if ((g_pos.pt[ri.first[k]] >> 3) != stm)
+      if ((g_set_pt[k] >> 3) != stm)
         continue;
       work_set = k;
       run_threaded(NAME(merge_illegal_worker), work_capt[k]);
@@ -307,10 +309,10 @@ static void NAME(merge_bitmaps)(int stm, int s)
 
   // Calculate and save stats for each of the 16 K-slices.
   for (int r = 0; r < 16; r++) {
-    g_pos.sq[0] = KK16Square[s][r][0];
-    g_pos.sq[1] = KK16Square[s][r][1];
+    g_slice.sq[0] = KK16Square[s][r][0];
+    g_slice.sq[1] = KK16Square[s][r][1];
 
-    if (is_broken(&g_pos))
+    if (is_broken(&g_slice))
       continue;
 
     for (int t = 0; t < g_num_threads; t++)
@@ -366,10 +368,10 @@ static void NAME(merge_bitmaps)(int stm, int s)
         z[NAME(mi.v)[MAX_STATS - 1 - i]] = NAME(mi.v)[MAX_STATS - 1 - i];
 
     for (int r = 0; r < 16; r++) {
-      g_pos.sq[0] = KK16Square[s][r][0];
-      g_pos.sq[1] = KK16Square[s][r][1];
+      g_slice.sq[0] = KK16Square[s][r][0];
+      g_slice.sq[1] = KK16Square[s][r][1];
 
-      if (is_broken(&g_pos))
+      if (is_broken(&g_slice))
         continue;
 
       create_name_r(str, s, r, stm, "merged/dtz", -1);
@@ -410,10 +412,10 @@ static void NAME(merge_bitmaps)(int stm, int s)
   }
 
   for (int r = 0; r < 16; r++) {
-    g_pos.sq[0] = KK16Square[s][r][0];
-    g_pos.sq[1] = KK16Square[s][r][1];
+    g_slice.sq[0] = KK16Square[s][r][0];
+    g_slice.sq[1] = KK16Square[s][r][1];
 
-    if (is_broken(&g_pos))
+    if (is_broken(&g_slice))
       continue;
 
     create_name_r(str, s, r, stm, "merged/wdl", -1);

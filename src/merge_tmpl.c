@@ -6,7 +6,7 @@
 
 #define NAME(f) EVALUATOR(f,T)
 
-static int NAME(init_merge_value_map)(uint64_t *stats)
+static int NAME(init_merge_value_map)(uint64_t *stats, int stm)
 {
   int n = 0;
   NAME(mi.v)[0] = n;
@@ -39,7 +39,7 @@ static int NAME(init_merge_value_map)(uint64_t *stats)
     for (int i = DRAW_RULE + 5; i < MAX_STATS / 2 + 1; i++)
       NAME(mi.v)[i] = n;
   }
-  n += (stats[MAX_STATS / 2 + 1] != 0);
+  n += (sub_cnt[stm ^ 1][2] != 0);
   NAME(mi.v)[MAX_STATS / 2 + 1] = n;
   n += (stats[MAX_STATS / 2 + 2] != 0);
   NAME(mi.v)[MAX_STATS / 2 + 2] = n;
@@ -94,6 +94,24 @@ static void NAME(merge_worker)(struct ThreadData *thread)
   }
 }
 
+static void NAME(merge_repl_worker)(struct ThreadData *thread)
+{
+  T r = NAME(mi.v)[merge_r];
+  T n = NAME(mi.v)[merge_n];
+
+  const uint64_t *restrict p = (uint64_t *)kslice_get_address(-1);
+  T *restrict const q = merge_table;
+  p += thread->begin >> 6;
+  for (uint64_t idx = thread->begin, end = thread->end; idx < end; idx += 64) {
+    uint64_t w = *p++;
+    while (w) {
+      unsigned bt = pop_lsb(&w);
+      if (q[idx + bt] == r)
+        q[idx + bt] = n;
+    }
+  }
+}
+
 static void NAME(merge_capt_bloss_worker)(struct ThreadData *thread)
 {
   bool found = false;
@@ -114,71 +132,60 @@ static void NAME(merge_capt_bloss_worker)(struct ThreadData *thread)
     atomic_store_explicit(&found_capt_bloss, true, memory_order_relaxed);
 }
 
-INLINE void NAME(merge_mark_unmoves)(int k, T *restrict const p, Bitboard occ,
-    const uint8_t *restrict sq)
+INLINE void NAME(merge_mark_uncapture)(int k, int ksq, T *restrict const p,
+    Bitboard occ, struct IdxState *is, const bool ref)
 {
-  uint8_t sq2[MAX_PIECES];
-  Bitboard b = non_king_piece_moves(g_pos.pt[k], sq[k], occ);
-  while (b) {
-    memcpy(sq2, sq, sizeof sq2);
-    sq2[k] = pop_lsb(&b);
-    p[sq_to_idx(sq2)] = 0;
+  uint64_t idx0 = 0;
+  if (!ref) {
+    for (int i = 0; i < k; i++)
+      idx0 = idx0 * ri.factor[i] + is->sub[i];
   }
-}
 
-INLINE void NAME(merge_mark_ref_unmoves)(int k, T *restrict const p,
-    Bitboard occ, const uint8_t *restrict sq)
-{
-  uint8_t sq2[MAX_PIECES];
-  Bitboard b = non_king_piece_moves(g_pos.pt[k], sq[k], occ);
+  Bitboard b = non_king_piece_moves(g_set_pt[k], ksq, occ);
   while (b) {
-    memcpy(sq2, sq, sizeof sq2);
-    sq2[k] = pop_lsb(&b);
-    p[sq_to_idx_ref(sq2)] = 0;
+    Bitboard from_bb = b & -b;
+    is->bb[k + 1] ^= from_bb;
+    uint64_t idx = ref ? rank_bb_ref(is->bb, &ri)
+      : rank_bb_from(is->bb, idx0, k, is->occ[k], &ri);
+    p[idx] = 0;
+    is->bb[k + 1] ^= from_bb;
+    b ^= from_bb;
   }
 }
 
 static void NAME(merge_illegal_worker)(struct ThreadData *thread)
 {
   struct IdxState is;
-  Position pos = g_pos;
   int k = work_set;
-  int m = ri.last[k];
-  int stm = pos.stm;
-  int king_sq = pos.sq[stm ^ 1];
+  int ksq = g_slice.sq[g_slice.stm ^ 1];
 
   T *restrict const p = merge_table;
 
-  idx_state_init(&is, thread->begin, pos.sq, &capt_ri[k]);
+  Bitboard occ = idx_state_init(&is, thread->begin, g_slice.sq, &capt_ri[k],
+      false);
 
   for (uint64_t idx = thread->begin, end = thread->end; idx < end;
-      idx++, idx_state_inc(&is, &capt_ri[k]))
+      idx++, occ = idx_state_inc(&is, &capt_ri[k]))
   {
-    Bitboard occ = idx_state_to_sq(&is, pos.sq, &capt_ri[k]);
-    pos.sq[m] = king_sq;
-    NAME(merge_mark_unmoves)(m, p, occ, pos.sq);
+    NAME(merge_mark_uncapture)(k, ksq, p, occ, &is, false);
   }
 }
 
 static void NAME(merge_illegal_ref_worker)(struct ThreadData *thread)
 {
   struct IdxState is;
-  Position pos = g_pos;
   int k = work_set;
-  int m = ri.last[k];
-  int stm = pos.stm;
-  int king_sq = pos.sq[stm ^ 1];
+  int ksq = g_slice.sq[g_slice.stm ^ 1];
 
   T *restrict const p = merge_table;
 
-  idx_state_init(&is, thread->begin, pos.sq, &capt_ri[k]);
+  Bitboard occ = idx_state_init(&is, thread->begin, g_slice.sq, &capt_ri[k],
+      false);
 
   for (uint64_t idx = thread->begin, end = thread->end; idx < end;
-      idx++, idx_state_inc(&is, &capt_ri[k]))
+      idx++, occ = idx_state_inc(&is, &capt_ri[k]))
   {
-    Bitboard occ = idx_state_to_sq(&is, pos.sq, &capt_ri[k]);
-    pos.sq[m] = king_sq;
-    NAME(merge_mark_ref_unmoves)(m, p, occ, pos.sq);
+    NAME(merge_mark_uncapture)(k, ksq, p, occ, &is, true);
   }
 }
 
@@ -218,20 +225,9 @@ static void NAME(merge_bitmaps)(int stm, int s)
   // DRAW
   run_threaded(NAME(merge_draw_worker), &work_g_merge_static[s >= 441]);
 
-  g_pos.stm = stm;
-  g_pos.sq[0] = KKSquare[s][0];
-  g_pos.sq[1] = KKSquare[s][1];
-
-  // ILLEGAL
-  for (int k = 0; k < ri.numsets; k++) {
-    if ((g_pos.pt[ri.first[k]] >> 3) != stm)
-      continue;
-    work_set = k;
-    if (s < 441)
-      run_threaded(NAME(merge_illegal_worker), &work_capt_merge_dynamic[k]);
-    else
-      run_threaded(NAME(merge_illegal_ref_worker), &work_capt_merge_dynamic[k]);
-  }
+  g_slice.stm = stm;
+  g_slice.sq[0] = KKSquare[s][0];
+  g_slice.sq[1] = KKSquare[s][1];
 
   // losses
   for (int n = 0; n < max_iteration; n++)
@@ -262,24 +258,35 @@ static void NAME(merge_bitmaps)(int stm, int s)
     }
 
   // CAPT_WIN
-  if (sub_cnt[stm ^ 1][0]) {
-    kslice_read(-1, s, stm, "capt/win", -1);
+  if (g_stats[stm][1] && kslice_read(-1, s, stm, "capt/win", -1)) {
+    merge_r = 3;
     merge_n = 1;
-    run_threaded(NAME(merge_worker), &work_g_merge_dynamic[s >= 441]);
+    run_threaded(NAME(merge_repl_worker), &work_g_merge_dynamic[s >= 441]);
   }
 
   // CAPT_CWIN
-  if (sub_cnt[stm ^ 1][1]) {
-    kslice_read(-1, s, stm, "capt/cwin", -1);
+  if (g_stats[stm][DRAW_RULE + 3] && kslice_read(-1, s, stm, "capt/cwin", -1)) {
+    merge_r = DRAW_RULE + 5;
     merge_n = DRAW_RULE + 3;
-    run_threaded(NAME(merge_worker), &work_g_merge_dynamic[s >= 441]);
+    run_threaded(NAME(merge_repl_worker), &work_g_merge_dynamic[s >= 441]);
   }
 
   // CAPT_DRAW
-  if (sub_cnt[stm ^ 1][2]) {
-    kslice_read(-1, s, stm, "capt/draw", -1);
+  if (sub_cnt[stm ^ 1][2] && kslice_read(-1, s, stm, "nobloss", -1)) {
+    merge_r = MAX_STATS / 2 + 2;
     merge_n = MAX_STATS / 2 + 1;
-    run_threaded(NAME(merge_worker), &work_g_merge_dynamic[s >= 441]);
+    run_threaded(NAME(merge_repl_worker), &work_g_merge_dynamic[s >= 441]);
+  }
+
+  // ILLEGAL
+  for (int k = 0; k < ri.numsets; k++) {
+    if ((g_set_pt[k] >> 3) != stm)
+      continue;
+    work_set = k;
+    if (s < 441)
+      run_threaded(NAME(merge_illegal_worker), &work_capt_merge_dynamic[k]);
+    else
+      run_threaded(NAME(merge_illegal_ref_worker), &work_capt_merge_dynamic[k]);
   }
 
   // CAPT_BLOSS to be added to produce WDL files

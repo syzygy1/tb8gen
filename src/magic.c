@@ -159,7 +159,7 @@ static void init_magics(struct MagicInit *magic_init, struct Magic *magic,
     magic[sq].magic = magic_init[sq].magic;
     magic[sq].data = &AttacksTable[magic_init[sq].index];
 
-    // Calculate mask
+    // Calculate mask.
     Bitboard mask = 0;
     for (int i = 0; i < 4; i++) {
       if (!valid(sq, delta[i])) continue;
@@ -168,7 +168,7 @@ static void init_magics(struct MagicInit *magic_init, struct Magic *magic,
     }
     magic[sq].mask = mask;
 
-    // Use Carry-Ripple trick
+    // Use Carry-Ripple trick.
     Bitboard b  = 0;
     do {
       Bitboard attacks = 0;

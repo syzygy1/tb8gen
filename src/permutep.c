@@ -37,6 +37,7 @@ struct PIdxInfo {
 struct PIdxState {
   uint32_t sub[MAX_SETS + 2];
   Bitboard occ[MAX_SETS + 2];
+  alignas(64) Bitboard bb[8];
   int n;
 };
 
@@ -63,7 +64,7 @@ static struct PIdxInfo best_ii;
 
 static uint8_t perm_tmp[MAX_SETS];
 
-void p_idx_state_init(struct PIdxState *is, uint64_t idx, uint8_t *restrict sq,
+void p_idx_state_init(struct PIdxState *is, uint64_t idx,
     const struct PIdxInfo *ii)
 {
   for (int k = ii->numsets - 1; k > 0; k--) {
@@ -72,7 +73,8 @@ void p_idx_state_init(struct PIdxState *is, uint64_t idx, uint8_t *restrict sq,
   }
   is->sub[0] = idx;
   is->n = 0;
-  is->occ[0] = bit(sq[2]);
+  is->bb[0] = bit(g_slice.sq[2]);
+  is->occ[0] = is->bb[0];
 }
 
 INLINE void p_idx_state_inc(struct PIdxState *is, const struct PIdxInfo *ii)
@@ -84,25 +86,52 @@ INLINE void p_idx_state_inc(struct PIdxState *is, const struct PIdxInfo *ii)
   is->n = i;
 }
 
-void p_idx_state_to_sq(struct PIdxState *is, uint8_t *restrict sq,
-    const struct PIdxInfo *ii)
+void p_idx_state_to_bb(struct PIdxState *is, const struct PIdxInfo *ii)
 {
   int i = is->n;
   Bitboard occ = is->occ[i];
   for (; i < ii->numsets; i++) {
     is->occ[i] = occ;
-    occ = unrank_binomial(is->sub[i], ii->mult[i], sq + ii->first[i], occ);
+    is->bb[i + 1] = unrank_binomial2(is->sub[i], ii->mult[i], occ);
+    occ |= is->bb[i + 1];
   }
 }
 
-uint64_t p_sq_to_idx(uint8_t *restrict sq)
+static void init_source_rank_ri_p(struct RankInfo *rank_ri,
+    int8_t king_perm[2], const struct PIdxInfo *perm_ii)
 {
-  Bitboard occ = bit(sq[0]) | bit(sq[1]) | bit(sq[2]);
+  *rank_ri = ri;
+  king_perm[0] = king_perm[1] = -1;
+  for (int j = 0; j < perm_ii->numsets; j++) {
+    if (perm_ii->first[j] == 0)
+      king_perm[0] = j + 1;
+    else if (perm_ii->first[j] == 1)
+      king_perm[1] = j + 1;
+  }
+  assert(king_perm[0] >= 0 && king_perm[1] >= 0);
 
-  int s0 = (sq[0] > sq[2]);
-  int s1 = (sq[1] > sq[2]) + (sq[1] > sq[0]);
-  uint64_t idx = (sq[0] - s0) * 62 + (sq[1] - s1);
-  return sq_to_idx_helper(sq, idx, occ, &ri);
+  for (int k = 0; k < ri.numsets; k++) {
+    int j = 0;
+    for (; j < perm_ii->numsets; j++)
+      if (ri.first[k] == perm_ii->first[j])
+        break;
+    assert(j < perm_ii->numsets);
+    rank_ri->perm[k] = j + 1;
+  }
+}
+
+uint64_t p_bb_to_idx(const struct PIdxState *is,
+    const struct RankInfo *rank_ri, const int8_t king_perm[2])
+{
+  int sq0 = lsb(is->bb[king_perm[0]]);
+  int sq1 = lsb(is->bb[king_perm[1]]);
+  int psq = g_slice.sq[2];
+  Bitboard occ = bit(sq0) | bit(sq1) | bit(psq);
+
+  int s0 = (sq0 > psq);
+  int s1 = (sq1 > psq) + (sq1 > sq0);
+  uint64_t idx = (sq0 - s0) * 62 + (sq1 - s1);
+  return perm_rank_bb_from(is->bb, idx, 0, occ, rank_ri);
 }
 
 static void generate_set_perms_helper(int n, int k)
@@ -172,7 +201,7 @@ static void generate_test_list(uint64_t size, int n)
 void init_permute_pawn_p(void)
 {
   assume(ri.numsets + 2 <= MAX_SETS);
-  //int stm = g_pos.stm;
+  //int stm = g_slice.stm;
   p_ii.numsets = ri.numsets + 2;
   p_ii.first[0] = 0; // stm ?
   p_ii.mult[0] = 1;

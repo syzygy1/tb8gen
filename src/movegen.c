@@ -9,10 +9,10 @@
 #include "movegen.h"
 #include "types.h"
 
-Bitboard Bit[64];
 Bitboard KnightAttacks[64], KingAttacks[64];
 Bitboard PawnAttacks[2][64];
 Bitboard KingMask[64];
+Bitboard BetweenBB[64][64];
 
 static signed char PawnDelta[2][2][2] = {
   { {  7,  15 }, {  9,  17 } },
@@ -45,7 +45,8 @@ INLINE bool valid(int sq, signed char delta[2])
 
 #include "magic.c"
 //#include "hyper.c"
-//#include "bmi2.c"
+#include "bmi2-plain.c"
+#include "bmi2-fancy.c"
 
 const char PieceChar[] = " PNBRQK  pnbrqk ";
 
@@ -62,9 +63,6 @@ static Bitboard calc_attacks(int sq, signed char delta[][2], int num)
 
 void init_movegen(void)
 {
-  for (int sq = 0; sq < 64; sq++)
-    Bit[sq] = 1ULL << sq;
-
   for (int sq = 0; sq < 64; sq++) {
     PawnAttacks[WHITE][sq] = calc_attacks(sq, PawnDelta[WHITE], 2);
     PawnAttacks[BLACK][sq] = calc_attacks(sq, PawnDelta[BLACK], 2);
@@ -74,6 +72,16 @@ void init_movegen(void)
   }
 
   init_sliding_attacks();
+
+  for (int s1 = 0; s1 < 64; s1++)
+    for (int s2 = 0; s2 < 64; s2++) {
+      Bitboard b = bit(s2);
+      if (bishop_attacks(s1, 0) & bit(s2))
+        b |= bishop_attacks(s1, bit(s2)) & bishop_attacks(s2, bit(s1));
+      if (rook_attacks(s1, 0) & bit(s2))
+        b |= rook_attacks(s1, bit(s2)) & rook_attacks(s2, bit(s1));
+      BetweenBB[s1][s2] = b;
+    }
 }
 
 bool has_legal_moves(Position *pos)

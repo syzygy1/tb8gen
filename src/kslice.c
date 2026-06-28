@@ -12,6 +12,7 @@
 #include <string.h>
 #include <stdlib.h>
 #include <sys/stat.h>
+#include <unistd.h>
 
 #include "defs.h"
 #include "index.h"
@@ -156,7 +157,7 @@ void kslice_setup(void)
   work_cl[1]->schedule = WORK_STATIC;
   sub_size[0] = sub_size[1] = 0;
   for (int i = 0; i < ri.numsets; i++) {
-    int stm = g_pos.pt[ri.first[i]] >> 3;
+    int stm = g_set_pt[i] >> 3;
     sub_offset[i] = sub_size[stm];
     sub_size[stm] += bits_to_aligned(kslice_sub_size[i]);
   }
@@ -233,10 +234,10 @@ void kslice_set_addr(void *p, int s)
   run_cl(set_worker, s);
 }
 
-void kslice_set(int s)
+void kslice_set(int s, int slice)
 {
   work_p = kslice_get_address(s);
-  run_cl(set_worker, s);
+  run_cl(set_worker, slice);
 }
 
 void kslice_clear_addr(void *p, int s)
@@ -245,10 +246,10 @@ void kslice_clear_addr(void *p, int s)
   run_cl(clear_worker, s);
 }
 
-void kslice_clear(int s)
+void kslice_clear(int s, int slice)
 {
   work_p = kslice_get_address(s);
-  run_cl(clear_worker, s);
+  run_cl(clear_worker, slice);
 }
 
 void kslice_not_addr(void *p, int s)
@@ -257,10 +258,10 @@ void kslice_not_addr(void *p, int s)
   run_cl(not_worker, s);
 }
 
-void kslice_not(int s)
+void kslice_not(int s, int slice)
 {
   work_p = kslice_get_address(s);
-  run_cl(not_worker, s);
+  run_cl(not_worker, slice);
 }
 
 void kslice_or(int s1, int s2)
@@ -441,8 +442,37 @@ void kslice_read_or(int s, int slice, int stm, const char *name, int n)
     kslice_read_cost += st.st_size;
     read_data_or(F, kslice_get_address(s),
         kslice_cache_lines[slice >= 441] << 6);
-    kslice_clear_tail(s);
+    kslice_clear_tail(s, slice);
   }
+  fclose(F);
+}
+
+void kslice_read_and(int s, int slice, int stm, const char *name, int n)
+{
+  char str[64];
+  create_name(str, slice, stm, name, n);
+
+  FILE *F = fopen(str, "rb");
+  if (!F && errno != ENOENT) {
+    fprintf(stderr, "Could not open %s for reading.\n", str);
+    exit(EXIT_FAILURE);
+  }
+  if (!F) {
+    kslice_clear(s, slice);
+    return;
+  }
+  struct stat st;
+  fstat(fileno(F), &st);
+  if (st.st_size > 0) {
+    uint64_t num;
+    file_read(&num, sizeof(uint64_t), F);
+//    kslice_read_count += num;
+    kslice_read_cost += st.st_size;
+    read_data_and(F, kslice_get_address(s),
+        kslice_cache_lines[slice >= 441] << 6);
+    kslice_clear_tail(s, slice);
+  } else
+    kslice_clear(s, slice);
   fclose(F);
 }
 
@@ -511,6 +541,18 @@ void kslice_sub_write_addr(void *p, int slice, int stm, const char *name,
   file_rename(str);
 }
 
+void kslice_sub_link(int slice, int stm, const char *src, const char *dst)
+{
+  char src_name[64], dst_name[64];
+  create_name(src_name, slice, stm, src, -1);
+  create_name(dst_name, slice, stm, dst, -1);
+  unlink(dst_name);
+  if (link(src_name, dst_name) < 0) {
+    fprintf(stderr, "Could not link %s to %s.\n", dst_name, src_name);
+    exit(EXIT_FAILURE);
+  }
+}
+
 void kslice_sub_read(int s, int slice, int stm, const char *name)
 {
   char str[64];
@@ -560,6 +602,14 @@ uint64_t kslice_size_count(int s, int stm, const char *name, int n,
   return st.st_size;
 }
 
+void kslice_sub_or_addr(void *p, void *q, int stm)
+{
+  work_p = p;
+  work_q = q;
+
+  run_sub_cl(or_worker, stm);
+}
+
 void kslice_sub_andnot(int s1, int s2, int stm)
 {
   work_p = kslice_sub_get_base(s1);
@@ -575,9 +625,9 @@ void kslice_clear_tail_addr(void *p, int s)
   clear_tail(q, kslice_sizes[s >= 441], kslice_cache_lines[s >= 441] << 3);
 }
 
-void kslice_clear_tail(int s)
+void kslice_clear_tail(int s, int slice)
 {
-  kslice_clear_tail_addr(kslice_get_address(s), s);
+  kslice_clear_tail_addr(kslice_get_address(s), slice);
 }
 
 uint64_t kslice_count_addr(void *p, int s)
@@ -598,9 +648,9 @@ uint64_t kslice_count_addr(void *p, int s)
   return cnt;
 }
 
-uint64_t kslice_count(int s)
+uint64_t kslice_count(int s, int slice)
 {
-  return kslice_count_addr(kslice_get_address(s), s);
+  return kslice_count_addr(kslice_get_address(s), slice);
 }
 
 uint64_t kslice_sub_count_addr(void *p, int stm)
