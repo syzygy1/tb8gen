@@ -305,9 +305,6 @@ static void calc_sub_kslices(int stm)
       for (int i = 0; i < 5; i++)
         k16slice_sub_clear_addr(k16slice_sub_buf[i], stm);
 
-      for (int t = 0; t < g_num_threads; t++)
-        g_thread_data[t].cnt = 0;
-
       for (int r = 0; r < 16; r++) {
         g_slice.sq[0] = KK16Square[s][r][0];
         g_slice.sq[1] = KK16Square[s][r][1];
@@ -334,6 +331,7 @@ static void calc_sub_kslices(int stm)
       k16slice_sub_write_addr(k16slice_sub_buf[0], s, stm, name[5],
           c[0] + c[1] + c[2]);
 
+      // TODO: skip this is c[3] == 0.
       k16slice_sub_or_addr(k16slice_sub_buf[0], k16slice_sub_buf[3], stm);
       k16slice_sub_write_addr(k16slice_sub_buf[0], s, stm, name[6],
           c[0] + c[1] + c[2] + c[3]);
@@ -1639,8 +1637,6 @@ static bool calc_W(int stm, int n, bool more_w)
     return g_stats[stm][stats_n(n)] != 0;
   }
 
-  char phase[64];
-
   struct K16SliceIterator iter;
   uint64_t cnt = 0, cnt_w = 0, cnt_pw = 0, num[16];
   int num_done = 0;
@@ -1650,6 +1646,7 @@ static bool calc_W(int stm, int n, bool more_w)
   create_dir(n, stm, "W");
   create_dir(n, stm, "wins");
 
+  char phase[64];
   snprintf(phase, sizeof phase, "\x1b[%sm%d/W/%c\x1b[0m",
       clr_W[(2 * n + stm) & 3], n, "wb"[stm]);
 
@@ -1669,6 +1666,7 @@ static bool calc_W(int stm, int n, bool more_w)
             // Add any wins by capture or pawn push.
             k16slice_read(s1, s1, stm, "capt/win", -1);
             // Remove illegal positions to count wins by capture.
+            // FIXME: should probable do k16slice_read_andnot()
             k16slice_read(-1, s1, stm, "wins", 0);
             k16slice_andnot(s1, -1);
             cnt_w += k16slice_count(s1, num);
@@ -1685,6 +1683,7 @@ static bool calc_W(int stm, int n, bool more_w)
               k16slice_read(-1, s1, stm, "pawn/cwin", -1);
               k16slice_or(s1, -1);
             }
+            // FIXME: this might be wrong ("wins", 0)
             k16slice_read(-1, s1, stm, "wins", 0);
             k16slice_andnot(s1, -1);
             cnt_w += k16slice_count(s1, num);
@@ -1781,14 +1780,15 @@ void generate(void)
     }
   }
 
-  memset(pawn_cnt, 0, sizeof pawn_cnt);
-  memset(psub_cnt, 0, sizeof psub_cnt);
-  memset(sub_cnt, 0, sizeof sub_cnt);
-  memset(pcapt_cnt, 0, sizeof pcapt_cnt);
-  memset(capt_cnt, 0, sizeof capt_cnt);
+  memset(&pawn_cnt, 0, sizeof pawn_cnt);
+  memset(&psub_cnt, 0, sizeof psub_cnt);
+  memset(&sub_cnt, 0, sizeof sub_cnt);
+  memset(&pcapt_cnt, 0, sizeof pcapt_cnt);
+  memset(&capt_cnt, 0, sizeof capt_cnt);
 
-  memset(wins_full, 0, sizeof wins_full);
-  memset(wins_checked, 0, sizeof wins_checked);
+  memset(&wins_full, 0, sizeof wins_full);
+  memset(&wins_checked, 0, sizeof wins_checked);
+  memset(&replay_cost, 0, sizeof replay_cost);
 
   calc_illegal_and_mate_and_pawn_push();
 

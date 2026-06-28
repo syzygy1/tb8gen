@@ -267,7 +267,7 @@ static size_t cmprs_idx;
 static void *cmprs_v;
 static int cmprs_type;
 
-enum { COPY, U8U8, U16U16, U16U8, COPY_U16U8, U8_OR, U8_ANDNOT };
+enum { COPY, U8U8, U16U16, U16U8, COPY_U16U8, U8_OR, U8_AND, U8_ANDNOT };
 
 struct CompressFrame {
   size_t cmprs_chunk;
@@ -515,7 +515,7 @@ static void decompress_logical(struct CompressState *state, uint8_t *dst,
 
 #endif
 
-    } else {
+    } else if (op == U8_ANDNOT) {
 
 #ifdef __AVX512F__
 
@@ -558,6 +558,45 @@ static void decompress_logical(struct CompressState *state, uint8_t *dst,
 
         uint64_t *p = (uint64_t *)(dst + off);
         *p &= ~d;
+      }
+
+#endif
+
+    } else {
+
+#ifdef __AVX512F__
+
+      for (size_t off = 0; off < out.pos; off += 64) {
+        __m512i d = _mm512_load_si512((__m512i *)(buf + off));
+
+        uint8_t *p = dst + off;
+
+        __m512i old = _mm512_load_si512((__m512i *)p);
+        _mm512_store_si512((__m512i *)p, _mm512_and_si512(old, d));
+      }
+
+#elifdef __AVX2__
+
+      for (size_t off = 0; off < out.pos; off += 64) {
+        __m256i d0 = _mm256_load_si256((__m256i *)(buf + off));
+        __m256i d1 = _mm256_load_si256((__m256i *)(buf + off + 32));
+
+        uint8_t *p = dst + off;
+
+        __m256i old0 = _mm256_load_si256((__m256i *)(p));
+        __m256i old1 = _mm256_load_si256((__m256i *)(p + 32));
+
+        _mm256_store_si256((__m256i *)(p), _mm256_and_si256(old0, d0));
+        _mm256_store_si256((__m256i *)(p + 32), _mm256_and_si256(old1, d1));
+      }
+
+#else
+
+      for (size_t off = 0; off < out.pos; off += 8) {
+        uint64_t d = *(uint64_t *)(buf + off);
+
+        uint64_t *p = (uint64_t *)(dst + off);
+        *p &= d;
       }
 
 #endif
@@ -737,7 +776,7 @@ static void read_data_worker(int t)
     cmprs_size -= chunk;
     UNLOCK(cmprs_mutex);
     size_t idx = state->frame->idx;
-    if (cmprs_type == U8_OR || cmprs_type == U8_ANDNOT) {
+    if (cmprs_type == U8_OR || cmprs_type == U8_AND || cmprs_type == U8_ANDNOT) {
       decompress_logical(state, dst + idx, cmprs_chunk, cmprs_type);
       continue;
     }
@@ -824,6 +863,17 @@ void read_data_or(FILE *F, void *dst, uint64_t size)
   cmprs_ptr = dst;
   cmprs_size = size;
   cmprs_type = U8_OR;
+  run_compression(read_data_worker);
+}
+
+void read_data_and(FILE *F, void *dst, uint64_t size)
+{
+  init();
+
+  cmprs_F = F;
+  cmprs_ptr = dst;
+  cmprs_size = size;
+  cmprs_type = U8_AND;
   run_compression(read_data_worker);
 }
 
