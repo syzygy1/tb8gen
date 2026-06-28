@@ -20,6 +20,7 @@
 #include "movegen.h"
 #include "permutep.h"
 #include "permutepk.h"
+#include "stats.h"
 #include "tb8gen.h"
 #include "threads.h"
 #include "types.h"
@@ -516,6 +517,15 @@ void join_final_pk(int type)
   uint8_t *p = buf;
   write_le_u32(p, magic2[type]);
   p += 4;
+
+  if (type == WDL) {
+    memcpy(p, &wdl_checksum, sizeof wdl_checksum);
+    p += sizeof wdl_checksum;
+  } else if (type == DTZ) {
+    memcpy(p, &dtz_checksum, sizeof dtz_checksum);
+    p += sizeof dtz_checksum;
+  }
+
   *p++ = 1; // version number
   *p++ = g_pos.num;
   for (int i = 2; i < g_pos.num; i++)
@@ -973,6 +983,15 @@ static void join_final_p(int type)
   uint8_t *p = buf;
   write_le_u32(p, magic2[type]);
   p += 4;
+
+  if (type == WDL) {
+    memcpy(p, &wdl_checksum, sizeof wdl_checksum);
+    p += sizeof wdl_checksum;
+  } else if (type == DTZ) {
+    memcpy(p, &dtz_checksum, sizeof dtz_checksum);
+    p += sizeof dtz_checksum;
+  }
+
   *p++ = 1; // version number
   *p++ = g_pos.num;
   for (int i = 2; i < g_pos.num; i++)
