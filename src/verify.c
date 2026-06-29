@@ -426,7 +426,7 @@ static void calc_capt(int stm, int wdl)
           cnt += num;
         } else {
           done = false;
-          kslice_clear(s1);
+          kslice_clear(s1, s1);
         }
       }
 
@@ -438,7 +438,7 @@ static void calc_capt(int stm, int wdl)
 
     while (kslice_iter_out(&iter, &s)) {
       if (!partial || !kslice_test_count(s, stm, capt_name, -1, &num)) {
-        cnt += num = kslice_count(s);
+        cnt += num = kslice_count(s, s);
         kslice_write(s, s, stm, capt_name, -1, num);
       }
     }
@@ -601,6 +601,7 @@ static bool check_dtz_W101(struct IdxState *is, Bitboard occ)
   pos.sq[1] = g_slice.sq[1];
   pos.stm = g_slice.stm;
   pos.occ = occ;
+  idx_state_to_sq(is, pos.sq, &ri);
 
   // First check that the position has dtz == 101.
   if (probe_dtz(&pos) != DRAW_RULE + 1)
@@ -638,6 +639,7 @@ static bool check_dtz_L101(struct IdxState *is, Bitboard occ)
   pos.sq[1] = g_slice.sq[1];
   pos.stm = g_slice.stm;
   pos.occ = occ;
+  idx_state_to_sq(is, pos.sq, &ri);
 
   // First check that the position has dtz == -101.
   if (probe_dtz(&pos) != -DRAW_RULE - 1)
@@ -666,7 +668,6 @@ static bool check_dtz_L101(struct IdxState *is, Bitboard occ)
   }
   return pos_ok;
 }
-
 
 enum { CZ_REGULAR, CZ_CWIN };
 
@@ -1002,7 +1003,7 @@ static void check_bloss_loss(int stm)
     while (kslice_iter_in(&iter, &s1)) {
       kslice_read(s1, s1, stm ^ 1, "win", -1);
       kslice_read_or(s1, s1, stm ^ 1, "illegal", -1);
-      kslice_not(s1);
+      kslice_not(s1, s1);
     }
 
     kslice_read(-1, s, stm, "bloss", -1);
