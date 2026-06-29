@@ -19,7 +19,7 @@
 #include "types.h"
 #include "util.h"
 
-const char *wdl_name[7] = {
+const char wdl_name[7][8] = {
   "loss", "bloss", "draw", "cwin", "win", "nobloss", "noloss"
 };
 
@@ -221,7 +221,7 @@ static int work_set, work_r, work_lower, work_upper;
 
 static struct Work work_g_dynamic, work_g_static, work_capt_dynamic[MAX_SETS];
 
-static constexpr uint64_t GENERATE_MIN_DYNAMIC_CHUNK = 1ULL << 18;
+static constexpr uint64_t GENERATE_MIN_DYNAMIC_CHUNK = 1ULL << 9;
 static constexpr int GENERATE_DYNAMIC_FACTOR = 4;
 
 void init_generation_work(void)
@@ -247,9 +247,11 @@ static void calc_sub_worker(struct ThreadData *thread)
   pos.sq[1] = g_slice.sq[1];
   pos.sq[2] = g_slice.sq[2];
   pos.stm = stm;
+
   int n = --pos.num;
   int m = ri.last[k];
   pos.pt[m] = pos.pt[n];
+
   uint8_t *restrict p[5];
   for (int i = 0; i < 5; i++)
     p[i] = k16slice_sub_buf[i] + sub_offset[k] + r * kslice_sub_alloc_size[k];
@@ -1570,7 +1572,7 @@ static bool calc_L(int stm, int n, bool more_l)
           k16slice_delete(s, stm, "pawn/bloss", -1);
       }
   }
-  show_progress(phase, 240, 240, false);
+  show_progress(phase, 240, 240, true);
 
   create_dir(n, stm, "L");
   partial = false;

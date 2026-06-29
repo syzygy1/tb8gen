@@ -60,7 +60,7 @@ extern struct Slice g_slice;
 
 extern struct RankInfo ri, capt_ri[MAX_SETS];
 extern int pc_to_set[MAX_PIECES];
-extern Bitboard Unrank2[62 * 61 / 2], Unrank3[62 * 61 * 60 / 6];
+extern Bitboard Unrank2[63 * 62 / 2], Unrank3[63 * 62 * 61 / 6];
 extern uint32_t Binomial[8][64];
 extern uint64_t MirrorMask[64];
 extern bool FlipTest[64][64];

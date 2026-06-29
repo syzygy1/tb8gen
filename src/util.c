@@ -1011,6 +1011,7 @@ static void fmt_duration(char buf[32], double t)
 void show_progress(const char *phase, int k, int total, bool final)
 {
   static double t_init, t0, last = 0.0;
+  static int first_k;
   static bool init = true, first = true, disable = false;
 
   if (disable)
@@ -1020,6 +1021,7 @@ void show_progress(const char *phase, int k, int total, bool final)
 
   if (first) {
     t0 = t;
+    first_k = k;
     first = false;
     if (init) {
       if (!isatty(STDERR_FILENO))
@@ -1037,12 +1039,13 @@ void show_progress(const char *phase, int k, int total, bool final)
   fmt_duration(ebuf, t - t_init);
 
   if (!final) {
-    double frac = (double)k / total;
     char etabuf[32];
-    if (k > 0)
-      fmt_duration(etabuf, (t - t0) * (1.0 - frac) / frac);
+    int done = k - first_k;
+    int remaining = total - k;
+    if (done > 0 && remaining > 0)
+      fmt_duration(etabuf, (t - t0) * remaining / done);
     fprintf(stderr, "\r\033[K%s  %s  %3u/%u  [%s left]", ebuf, phase, k, total,
-        k > 0 ? etabuf : "--");
+        done > 0 && remaining > 0 ? etabuf : "--");
   }
   else {
     fprintf(stderr, "\r\033[k%s  %s\033[K\n", ebuf, phase);

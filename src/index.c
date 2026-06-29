@@ -15,7 +15,7 @@
 struct Slice g_slice;
 struct RankInfo ri, capt_ri[MAX_SETS];
 int pc_to_set[MAX_PIECES];
-Bitboard Unrank2[62 * 61 / 2], Unrank3[62 * 61 * 60 / 6];
+Bitboard Unrank2[63 * 62 / 2], Unrank3[63 * 62 * 61 / 6];
 uint32_t Binomial[8][64];
 uint64_t MirrorMask[64];
 bool FlipTest[64][64];
@@ -327,12 +327,12 @@ void init_ranking(void)
       Binomial[i][j] = Binomial[i - 1][j - 1] + Binomial[i][j - 1];
 
   int idx = 0;
-  for (int s1 = 1; s1 < 62; s1++)
+  for (int s1 = 1; s1 < 63; s1++)
     for (int s0 = 0; s0 < s1; s0++)
       Unrank2[idx++] = bit(s0) | bit(s1);
 
   idx = 0;
-  for (int s2 = 2; s2 < 62; s2++)
+  for (int s2 = 2; s2 < 63; s2++)
     for (int s1 = 1; s1 < s2; s1++)
       for (int s0 = 0; s0 < s1; s0++)
         Unrank3[idx++] = bit(s0) | bit(s1) | bit(s2);

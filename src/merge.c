@@ -35,7 +35,7 @@ static struct Work work_capt_merge_dynamic[MAX_SETS];
 static int merge_num_active_threads;
 static int merge_active_threads[MAX_THREADS];
 
-static constexpr uint64_t MERGE_MIN_DYNAMIC_CHUNK = 1ULL << 18;
+static constexpr uint64_t MERGE_MIN_DYNAMIC_CHUNK = 1ULL << 9;
 static constexpr int MERGE_DYNAMIC_FACTOR = 4;
 
 alignas(64) static uint64_t thread_stats[MAX_THREADS][MAX_STATS];

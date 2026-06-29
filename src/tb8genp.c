@@ -42,6 +42,7 @@ bool g_only_generate, g_use_rans, symmetric, used_rans = false;
 bool g_cleanup;
 bool one_sided, wins_only;
 int one_sided_stm;
+int g_num_pawns = 1;
 char *g_tablename;
 char *g_output_dir;
 struct Work *work_g, *work_g16, *work_capt[MAX_SETS];
@@ -360,12 +361,16 @@ int main(int argc, char **argv)
 
     if (!g_cleanup) continue;
 
-    if (g_slice.sq[2] >= 16 && g_slice.sq[2] < 40)
-      rmdir(pawnstr[q - 1]);
-    else {
-      rmdir(pawnstr[q - 2]);
-      rmdir(pawnstr[q - 1]);
-      rmdir(pawnstr[q]);
+    if (g_slice.sq[2] >= 16 && g_slice.sq[2] < 40) {
+      if (q >= 1)
+        rmdir(pawnstr[q - 1]);
+    } else {
+      if (q >= 2)
+        rmdir(pawnstr[q - 2]);
+      if (q >= 1)
+        rmdir(pawnstr[q - 1]);
+      if (q < 24)
+        rmdir(pawnstr[q]);
     }
   }
 

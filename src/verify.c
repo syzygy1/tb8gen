@@ -285,9 +285,6 @@ static void calc_sub_kslices(int stm)
       for (int i = 0; i < 5; i++)
         kslice_sub_clear_addr(kslice_sub_buf[i], stm);
 
-      for (int t = 0; t < g_num_threads; t++)
-        g_thread_data[t].cnt = 0;
-
       g_slice.sq[0] = KKSquare[s][0];
       g_slice.sq[1] = KKSquare[s][1];
 

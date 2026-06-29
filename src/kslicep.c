@@ -375,13 +375,13 @@ uint64_t k16slice_write_addr(void *p, int slice, int stm, const char *name,
       cnt += num[r];
     if (cnt > 0) {
       file_write(num, 16 * 8, F);
-      write_data(F, p, k16slice_cache_lines << 6);
+      write_data_cache_aligned(F, p, k16slice_cache_lines << 6);
     }
   }
   else {
     uint64_t tmp[16] = { 0 };
     file_write(tmp, 16 * 8, F);
-    write_data(F, p, k16slice_cache_lines << 6);
+    write_data_cache_aligned(F, p, k16slice_cache_lines << 6);
   }
   uint64_t bytes = ftell(F);
   fclose(F);
