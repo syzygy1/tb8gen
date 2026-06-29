@@ -512,7 +512,7 @@ void k16slice_sub_write_addr(void *p, int slice, int stm, const char *name,
   FILE *F = file_open_write(str);
   if (num > 0) {
     file_write(&num, sizeof num, F);
-    write_data(F, p, sub_size[stm]);
+    write_data_cache_aligned(F, p, sub_size[stm]);
   }
   fclose(F);
   file_rename(str);
