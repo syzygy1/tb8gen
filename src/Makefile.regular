@@ -4,6 +4,7 @@ CLEAN = clean
 BUILD = build
 
 TBGENP = tb8genp
+TBVERP = tb8verp
 CLEANP = cleanp
 PBUILD = buildp
 

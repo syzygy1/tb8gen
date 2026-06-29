@@ -1510,7 +1510,7 @@ NOINLINE struct TbTable2 *init_new_table(struct Tbase *tb, int num, int type,
   }
   else if (tb->layout == LT_PAWN_P) {
     assert(k + 2 <= MAX_SETS);
-    uint8_t m[MAX_SETS];
+    uint8_t m[MAX_SETS] = { 0 };
     for (int i = 0; i < k + 1; i++) {
       table->first[i] = data[i] < 2 ? data[i] : first[data[i] - 1];
       m[i] = data[i] < 2 ? 1 : mult[data[i] - 1];
@@ -1521,7 +1521,7 @@ NOINLINE struct TbTable2 *init_new_table(struct Tbase *tb, int num, int type,
   }
   else if (tb->layout == LT_PAWN_PK) {
     assert(k + 1 <= MAX_SETS);
-    uint8_t m[MAX_SETS];
+    uint8_t m[MAX_SETS] = { 0 };
     for (int i = 0; i < k; i++) {
       table->first[i] = data[i] == 0 ? 1 : first[data[i]];
       m[i] = data[i] == 0 ? 1 : mult[data[i]];

@@ -53,6 +53,136 @@ const char *typename[3] = { "wdl", "dtm", "dtz" };
 
 char pawnstr[24][3];
 
+static void determine_dtz_format(int q, bool print)
+{
+  double ewh, ebl, elo, ewi;
+  ewh = entropy_one_sided(WHITE);
+  ebl = entropy_one_sided(BLACK);
+  elo = entropy_loss_only(WHITE) + (symmetric ? 0.0 : entropy_loss_only(BLACK));
+  ewi = entropy_win_only(WHITE) + (symmetric ? 0.0 : entropy_win_only(BLACK));
+
+  if (print) {
+    printf("\nentropy wtm  = %lf\n", ewh);
+    printf("entropy btm  = %lf\n", ebl);
+    printf("entropy loss = %lf\n", elo);
+    printf("entropy win  = %lf\n\n", ewi);
+  }
+
+  // Add 0.1% of overhead for having a table for each side.
+  // Perhaps this should be higher?
+  if (!symmetric) {
+    elo *= 1.001;
+    ewi *= 1.001;
+  }
+
+  // Determine the DTZ format to use.
+  one_sided = !symmetric && min(ewh, ebl) <= min(elo, ewi);
+//    one_sided = true;
+  wins_only = ewi <= elo;
+  one_sided_stm = ewh <= ebl ? WHITE : BLACK;
+
+  if (print) {
+    printf("DTZ format: %s only.\n\n",
+        one_sided ? one_sided_stm == WHITE ? "white" : "black"
+        : wins_only ? "wins" : "losses");
+  }
+
+  dtz_format[q] = (struct DtzFormat){
+    .one_sided = one_sided, .wins_only = wins_only,
+    .one_sided_stm = one_sided_stm
+  };
+}
+
+static bool read_slice_stats(int q)
+{
+  char str[64];
+  sprintf(str, "../stats/%s", pawnstr[q]);
+  if (!file_exists(str))
+    return false;
+
+  FILE *F = file_open_read(str);
+  read_data(F, g_stats, sizeof g_stats);
+  fclose(F);
+  return true;
+}
+
+static void update_global_maxfens(void)
+{
+  for (int stm = 0; stm < 2; stm++)
+    for (int i = 0; i < 2; i++)
+      if (mf.dtz[stm][i] > mmf.dtz[stm][i]) {
+        mmf.dtz[stm][i] = mf.dtz[stm][i];
+        strcpy(mmf.fen[stm][i], mf.fen[stm][i]);
+      }
+}
+
+static bool compressed_slice_side_exists(int q, int layout, int type, int stm)
+{
+  char str[64], name[16];
+  int psq = InvPawnFlip[0][q];
+
+  snprintf(name, sizeof name, "../%s", typename[type]);
+
+  switch (layout) {
+  case 1:
+    create_name_p(str, psq, stm, name);
+    return file_exists(str);
+  case 2:
+    for (int k1 = 0; k1 < 64; k1++) {
+      if (k1 == psq)
+        continue;
+      create_name_sq(str, psq, k1, stm, name, -1);
+      if (!file_exists(str))
+        return false;
+    }
+    return true;
+  default:
+    return false;
+  }
+}
+
+static bool completed_slice_outputs_exist(int q, int layout)
+{
+  int sides = symmetric ? 1 : 2;
+
+  for (int stm = 0; stm < sides; stm++)
+    if (!compressed_slice_side_exists(q, layout, WDL, stm))
+      return false;
+
+  for (int stm = 0; stm < sides; stm++) {
+    bool has_dtz = !dtz_format[q].one_sided
+        || dtz_format[q].one_sided_stm == stm;
+    if (has_dtz && !compressed_slice_side_exists(q, layout, DTZ, stm))
+      return false;
+  }
+
+  return true;
+}
+
+static bool resume_completed_slice(int q, int layout)
+{
+  if (!read_slice_stats(q))
+    return false;
+
+  determine_dtz_format(q, false);
+
+  if (!completed_slice_outputs_exist(q, layout))
+    return false;
+
+  determine_dtz_format(q, true);
+
+  memset(&mf, 0, sizeof mf);
+  if (file_exists("maxfens")) {
+    FILE *F = file_open_read("maxfens");
+    file_read(&mf, sizeof mf, F);
+    fclose(F);
+    update_global_maxfens();
+  }
+
+  printf("Table for pawn slice %s was already compressed.\n\n", pawnstr[q]);
+  return true;
+}
+
 static struct option options[] = {
   { "threads", 1, nullptr, 't' },
   { "stats", 0, nullptr, 's' },
@@ -248,6 +378,14 @@ int main(int argc, char **argv)
     make_dir(pawnstr[q]);
     change_dir(pawnstr[q]);
 
+    if (resume_completed_slice(q, layout)) {
+      change_dir("..");
+      continue;
+    }
+
+    bool have_saved_slice_stats = file_exists("generate_info")
+        && read_slice_stats(q);
+
     memset(g_stats, 0, sizeof g_stats);
 
     generate();
@@ -255,38 +393,7 @@ int main(int argc, char **argv)
     delete_intermediate_slices();
 
     // Estimate sizes of different DTZ formats.
-    double ewh, ebl, elo, ewi;
-    ewh = entropy_one_sided(WHITE);
-    ebl = entropy_one_sided(BLACK);
-    elo = entropy_loss_only(WHITE) + (symmetric? 0.0 : entropy_loss_only(BLACK));
-    ewi = entropy_win_only(WHITE) + (symmetric ? 0.0 : entropy_win_only(BLACK));
-
-    printf("\nentropy wtm  = %lf\n", ewh);
-    printf("entropy btm  = %lf\n", ebl);
-    printf("entropy loss = %lf\n", elo);
-    printf("entropy win  = %lf\n\n", ewi);
-
-    // Add 0.1% of overhead for having a table for each side.
-    // Perhaps this should be higher?
-    if (!symmetric) {
-      elo *= 1.001;
-      ewi *= 1.001;
-    }
-
-    // Determine the DTZ format to use.
-    one_sided = !symmetric && min(ewh, ebl) <= min(elo, ewi);
-//    one_sided = true;
-    wins_only = ewi <= elo;
-    one_sided_stm = ewh <= ebl ? WHITE : BLACK;
-
-    printf("DTZ format: %s only.\n\n",
-        one_sided ? one_sided_stm == WHITE ? "white" : "black"
-        : wins_only ? "wins" : "losses");
-
-    dtz_format[q] = (struct DtzFormat){
-      .one_sided = one_sided, .wins_only = wins_only,
-      .one_sided_stm = one_sided_stm
-    };
+    determine_dtz_format(q, true);
 
     memset(&mf, 0, sizeof mf);
 
@@ -319,9 +426,15 @@ int main(int argc, char **argv)
 
     cleanup_generation();
 
-    // Read out the files in "stats".
-    collect_stats(WHITE);
-    collect_stats(BLACK);
+    if (have_saved_slice_stats) {
+      printf("Using saved aggregate stats for pawn slice %s.\n\n",
+          pawnstr[q]);
+      read_slice_stats(q);
+    } else {
+      // Read out the files in "stats".
+      collect_stats(WHITE);
+      collect_stats(BLACK);
+    }
 
     fprintf(stdout, "\n########## %s - %s ##########\n", g_tablename,
         pawnstr[q]);
@@ -331,12 +444,7 @@ int main(int argc, char **argv)
     print_max_fens(stdout, &mf);
 
     // Keep track of max DTZ and corresponding FENs across pawn slices.
-    for (int stm = 0; stm < 2; stm++)
-      for (int i = 0; i < 2; i++)
-        if (mf.dtz[stm][i] > mmf.dtz[stm][i]) {
-          mmf.dtz[stm][i] = mf.dtz[stm][i];
-          strcpy(mmf.fen[stm][i], mf.fen[stm][i]);
-        }
+    update_global_maxfens();
 
     char str[64];
     sprintf(str, "../stats/%s", pawnstr[q]);

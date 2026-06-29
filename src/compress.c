@@ -139,7 +139,7 @@ static int compress_static_work_units;
 static int compress_num_active_threads;
 static int compress_active_threads[MAX_THREADS];
 
-static constexpr uint64_t COMPRESS_MIN_CHUNK = 1ULL << 16;
+static constexpr uint64_t COMPRESS_MIN_CHUNK = 1ULL << 12;
 
 static void fill_compress_work(uint64_t size, int factor)
 {
