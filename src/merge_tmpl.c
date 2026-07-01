@@ -258,14 +258,13 @@ static void NAME(merge_bitmaps)(int stm, int s)
     }
 
   // CAPT_WIN
-  if (g_stats[stm][1] && kslice_read(-1, s, stm, "capt/win", -1)) {
-    merge_r = 3;
+  if (capt_cnt[stm][4] && kslice_read(-1, s, stm, "capt/win", -1)) {
     merge_n = 1;
-    run_threaded(NAME(merge_repl_worker), &work_g_merge_dynamic[s >= 441]);
+    run_threaded(NAME(merge_worker), &work_g_merge_dynamic[s >= 441]);
   }
 
   // CAPT_CWIN
-  if (g_stats[stm][DRAW_RULE + 3] && kslice_read(-1, s, stm, "capt/cwin", -1)) {
+  if (capt_cnt[stm][3] && kslice_read(-1, s, stm, "capt/cwin", -1)) {
     merge_r = DRAW_RULE + 5;
     merge_n = DRAW_RULE + 3;
     run_threaded(NAME(merge_repl_worker), &work_g_merge_dynamic[s >= 441]);

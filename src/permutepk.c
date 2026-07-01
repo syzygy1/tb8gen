@@ -92,7 +92,7 @@ void pk_idx_state_to_bb(struct PKIdxState *is, const struct PKIdxInfo *ii)
   Bitboard occ = is->occ[i];
   for (; i < ii->numsets; i++) {
     is->occ[i] = occ;
-    is->bb[i + 1] = unrank_binomial2(is->sub[i], ii->mult[i], occ);
+    is->bb[i + 1] = unrank_binomial(is->sub[i], ii->mult[i], occ);
     occ |= is->bb[i + 1];
   }
 }

@@ -56,6 +56,14 @@ struct Slice {
   int stm;
 };
 
+#ifdef HAS_PAWNS
+INLINE bool is_broken(struct Slice *s)
+{
+  return   (king_mask(s->sq[0]) & bit(s->sq[1]))
+        || s->sq[0] == s->sq[2] || s->sq[1] == s->sq[2];
+}
+#endif
+
 extern struct Slice g_slice;
 
 extern struct RankInfo ri, capt_ri[MAX_SETS];
@@ -117,7 +125,7 @@ INLINE __m512i rotate180_8xbb(__m512i x)
   return x;
 }
 
-INLINE Bitboard unrank_binomial2(uint64_t idx, int n, Bitboard occ)
+INLINE Bitboard unrank_binomial(uint64_t idx, int n, Bitboard occ)
 {
   if (n == 0)
     return 0;
@@ -141,6 +149,16 @@ INLINE Bitboard unrank_binomial2(uint64_t idx, int n, Bitboard occ)
     r--;
   }
   return _pdep_u64(b1 | bit(idx), b);
+}
+
+INLINE uint64_t rank_combination(Bitboard subset, Bitboard universe)
+{
+  uint64_t dense = _pext_u64(subset, universe);
+
+  uint64_t r = 0;
+  for (int j = 1; dense; j++)
+    r += Binomial[j][pop_lsb(&dense)];
+  return r;
 }
 
 // Valid if x <= 2^N, d-1 <= 2^L and N + L <= 64.
@@ -203,7 +221,7 @@ INLINE Bitboard idx_state_inc(struct IdxState *is, const struct RankInfo *ri)
 
   Bitboard occ = is->occ[i];
   for (; i < ri->numsets; i++) {
-    occ |= is->bb[i + 1] = unrank_binomial2(is->sub[i], ri->mult[i], occ);
+    occ |= is->bb[i + 1] = unrank_binomial(is->sub[i], ri->mult[i], occ);
     is->occ[i + 1] = occ;
   }
   return occ;
@@ -231,11 +249,60 @@ INLINE Bitboard idx_state_add(struct IdxState *is, uint64_t v,
 
   Bitboard occ = is->occ[i];
   for (; i < ri->numsets; i++) {
-    occ |= is->bb[i + 1] = unrank_binomial2(is->sub[i], ri->mult[i], occ);
+    occ |= is->bb[i + 1] = unrank_binomial(is->sub[i], ri->mult[i], occ);
     is->occ[i + 1] = occ;
   }
   return occ;
 }
+
+#ifdef HAS_PAWNS
+struct PawnIdxState {
+  uint32_t sub[MAX_SETS];
+  Bitboard inv_diff_bb;
+};
+
+INLINE Bitboard idx_state_pawn_add(struct IdxState *is, uint64_t v,
+    struct PawnIdxState *restrict pis8, struct PawnIdxState *restrict pis16,
+    const struct RankInfo *ri)
+{
+  uint32_t *const restrict sub = is->sub;
+  int i = ri->numsets;
+
+  for (;;) {
+    uint64_t s = (uint64_t)sub[--i] + v;
+    uint32_t f = ri->factor[i];
+
+    if (s < f) {
+      sub[i] = s;
+      break;
+    }
+    if (i == 0)
+      return 0;
+
+    v = divmod_recip(s, f, ri->recip[i], &sub[i]);
+  }
+
+  Bitboard occ = is->occ[i];
+  for (; i < ri->numsets; i++) {
+    occ |= is->bb[i + 1] = unrank_binomial(is->sub[i], ri->mult[i], occ);
+    is->occ[i + 1] = occ;
+    pis8->sub[i] =
+      rank_combination(is->bb[i + 1], is->occ[i] ^ pis8->inv_diff_bb);
+    if (pis16)
+      pis16->sub[i] =
+        rank_combination(is->bb[i + 1], is->occ[i] ^ pis16->inv_diff_bb);
+  }
+  return occ;
+}
+
+INLINE uint64_t pawn_idx(struct PawnIdxState *pis, const struct RankInfo *ri)
+{
+  uint64_t idx = 0;
+  for (int i = 0; i < ri->numsets; i++)
+    idx = idx * ri->factor[i] + pis->sub[i];
+  return idx;
+}
+#endif
 
 INLINE bool idx_state_legal(const struct IdxState *is, int stm, Bitboard occ)
 {
@@ -280,6 +347,10 @@ Bitboard idx_state_init(struct IdxState *is, uint64_t idx,
     const  uint8_t *restrict sq, const struct RankInfo *ri, const bool ref);
 bool idx_state_mate(struct IdxState *is, int stm, Bitboard occ);
 bool idx_state_has_legal_moves(struct IdxState *is, int stm, Bitboard occ);
+#ifdef HAS_PAWNS
+void pawn_idx_init(struct PawnIdxState *pis, Bitboard diff_bb,
+    const struct IdxState *is, const struct RankInfo *ri);
+#endif
 
 void calc_factors(struct RankInfo *ri, int n);
 

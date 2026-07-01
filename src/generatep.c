@@ -701,6 +701,35 @@ static void read_wins(int s, int slice, int stm, int n)
   replay_cost[stm][slice] += k16slice_read_cost;
 }
 
+static void read_wins_andnot(int s, int slice, int stm, int n)
+{
+  if (n < 0)
+    for (n = MAX_STATS / 2 - 4; n > 0; n--)
+      if (g_stats[stm][stats_n(n)])
+        break;
+
+  if (wins_checked[stm][slice] < n) {
+    int i;
+    for (i = n; i > wins_checked[stm][slice]; i--)
+      if (k16slice_test(slice, stm, "wins", i))
+        break;
+    if (i > wins_checked[stm][slice]) {
+      for (int j = i - 1; j >= wins_full[stm][slice]; j--)
+        k16slice_delete(slice, stm, "wins", j);
+      wins_full[stm][slice] = i;
+    }
+    wins_checked[stm][slice] = n;
+  }
+
+  k16slice_read_andnot(s, slice, stm, "wins", wins_full[stm][slice]);
+  write_cost[stm][slice] = k16slice_read_cost;
+  k16slice_read_cost = 0;
+  for (int i = wins_full[stm][slice] + 1; i <= n; i++)
+    if (g_stats[stm][stats_n(i)])
+      k16slice_read_andnot(s, slice, stm, "W", i);
+  replay_cost[stm][slice] += k16slice_read_cost;
+}
+
 static void calc_capt(int stm, int wdl)
 {
   char capt_name[32], pcapt_name[32], sub_name[32], psub_name[32];
@@ -759,6 +788,9 @@ static void calc_capt(int stm, int wdl)
 
     while (k16slice_iter_out(&iter, &s))
       if (!partial || !k16slice_test_count(s, stm, capt_name, -1, num)) {
+        // Remove illegal positions and faster wins from capt/win and capt/cwin.
+        if (wdl > 0)
+          read_wins_andnot(s, s, stm, wdl == 2 ? 0 : DRAW_RULE);
         cnt += k16slice_count(s, num);
         k16slice_write(s, s, stm, capt_name, -1, num);
       }
@@ -1003,7 +1035,8 @@ static int merged_to_wdl[9] = {
   4, 3, 2, 1, 0, 3, 2, 1, 0
 };
 
-INLINE uint64_t pawn_push_idx(struct IdxState *is, int from, int to)
+#ifndef NDEBUG
+INLINE uint64_t pawn_push_idx_check(struct IdxState *is, int from, int to)
 {
   Bitboard bb0 = is->bb[0];
   is->bb[0] = bb0 ^ bit(from) ^ bit(to);
@@ -1011,10 +1044,12 @@ INLINE uint64_t pawn_push_idx(struct IdxState *is, int from, int to)
   is->bb[0] = bb0;
   return idx;
 }
+#endif
 
 static void calc_pawn_push_worker(struct ThreadData *thread)
 {
   struct IdxState is;
+  struct PawnIdxState pis;
   int s = g_slice.sq[2];
 
   uint8_t *restrict ilg = k16slice_buf[1] + k16offset(g_slice.sq);
@@ -1024,19 +1059,18 @@ static void calc_pawn_push_worker(struct ThreadData *thread)
 
   uint64_t last = thread->begin;
   idx_state_init(&is, last, g_slice.sq, &ri, false);
+  pawn_idx_init(&pis, bit(s) ^ bit(s - 8), &is, &ri);
   for (uint64_t idx = last, end = thread->end; idx < end; idx++) {
     if (kslice_bit_test(ilg, idx))
       continue;
-    Bitboard occ = idx_state_add(&is, idx - last, &ri);
+    Bitboard occ = idx_state_pawn_add(&is, idx - last, &pis, nullptr, &ri);
     last = idx;
-    if (!(occ & bit(s - 8))) {
-      Bitboard occ2 = occ ^ bit(s) ^ bit(s - 8);
-      if (idx_state_legal(&is, WHITE, occ2)) {
-        uint64_t idx2 = pawn_push_idx(&is, s, s - 8);
-        int v = merged_to_wdl[merged_table[idx2]];
-        kslice_bit_set(p[v], idx);
-      }
-    }
+    if (occ & bit(s - 8)) continue;
+    if (!idx_state_legal(&is, WHITE, occ ^ bit(s) ^ bit(s - 8))) continue;
+    uint64_t idx2 = pawn_idx(&pis, &ri);
+    assert(idx2 == pawn_push_idx_check(&is, s, s - 8));
+    int v = merged_to_wdl[merged_table[idx2]];
+    kslice_bit_set(p[v], idx);
   }
 }
 
@@ -1072,6 +1106,7 @@ static void calc_pawn_push(void)
 static void calc_pawn_double_push_worker(struct ThreadData *thread)
 {
   struct IdxState is;
+  struct PawnIdxState pis8, pis16;
   int s = g_slice.sq[2];
 
   uint8_t *restrict ilg = k16slice_buf[1] + k16offset(g_slice.sq);
@@ -1081,28 +1116,31 @@ static void calc_pawn_double_push_worker(struct ThreadData *thread)
 
   uint64_t last = thread->begin;
   idx_state_init(&is, last, g_slice.sq, &ri, false);
+  pawn_idx_init(&pis8, bit(s) ^ bit(s - 8), &is, &ri);
+  pawn_idx_init(&pis16, bit(s) ^ bit(s - 16), &is, &ri);
   for (uint64_t idx = last, end = thread->end; idx < end; idx++) {
     if (kslice_bit_test(ilg, idx))
       continue;
-    Bitboard occ = idx_state_add(&is, idx - last, &ri);
+    Bitboard occ = idx_state_pawn_add(&is, idx - last, &pis8, &pis16, &ri);
     last = idx;
-    if (!(occ & bit(s - 8))) {
-      int v = -1;
-      Bitboard occ8 = occ ^ bit(s) ^ bit(s - 8);
-      if (idx_state_legal(&is, WHITE, occ8)) {
-        uint64_t idx2 = pawn_push_idx(&is, s, s - 8);
-        v = merged_to_wdl[merged_table[idx2]];
-      }
-      if (!(occ8 & bit(s - 16))) {
-        Bitboard occ16 = occ ^ bit(s) ^ bit(s - 16);
-        if (idx_state_legal(&is, WHITE, occ16)) {
-          uint64_t idx2 = pawn_push_idx(&is, s, s - 16);
-          v = max(v, merged_to_wdl[merged_table2[idx2]]);
-        }
-      }
-      if (v >= 0)
-        kslice_bit_set(p[v], idx);
+    if (occ & bit(s - 8)) continue;
+    int v = -1;
+    Bitboard occ8 = occ ^ bit(s) ^ bit(s - 8);
+    if (idx_state_legal(&is, WHITE, occ8)) {
+      uint64_t idx2 = pawn_idx(&pis8, &ri);
+      assert(idx2 == pawn_push_idx_check(&is, s, s - 8));
+      v = merged_to_wdl[merged_table[idx2]];
     }
+    if (!(occ & bit(s - 16))) {
+      Bitboard occ16 = occ ^ bit(s) ^ bit(s - 16);
+      if (idx_state_legal(&is, WHITE, occ16)) {
+        uint64_t idx2 = pawn_idx(&pis16, &ri);
+        assert(idx2 == pawn_push_idx_check(&is, s, s - 16));
+        v = max(v, merged_to_wdl[merged_table2[idx2]]);
+      }
+    }
+    if (v >= 0)
+      kslice_bit_set(p[v], idx);
   }
 }
 
@@ -1627,20 +1665,19 @@ static bool calc_W(int stm, int n, bool more_w)
   sprintf(str, "%d/W/%c/done", n, "wb"[stm]);
   FILE *F = fopen(str, "rb");
   if (F) {
-    if (n == 1) {
-      file_read(&g_stats[stm][1], 8, F);
-      if (stm == BLACK)
+    if (stm == BLACK) {
+      if (n == 1)
         file_read(&g_stats[stm][2], 8, F);
+      else if (n == DRAW_RULE + 1)
+        file_read(&g_stats[stm][DRAW_RULE + 4], 8, F);
     }
-    else if (n == DRAW_RULE + 1)
-      file_read(&g_stats[stm][DRAW_RULE + 3], 8, F);
     file_read(&g_stats[stm][stats_n(n)], 8, F);
     fclose(F);
     return g_stats[stm][stats_n(n)] != 0;
   }
 
   struct K16SliceIterator iter;
-  uint64_t cnt = 0, cnt_w = 0, cnt_pw = 0, num[16];
+  uint64_t cnt = 0, cnt_cpw = 0, num[16];
   int num_done = 0;
 
   bool partial = dir_exists(n, stm, "W"), done = partial;
@@ -1664,34 +1701,7 @@ static bool calc_W(int stm, int n, bool more_w)
       while (k16slice_iter_in(&iter, &s1))
         if (!partial || !k16slice_test_count(s1, stm, "W", n, num)) {
           done = false;
-          if (n == 1) {
-            // Add any wins by capture or pawn push.
-            k16slice_read(s1, s1, stm, "capt/win", -1);
-            // Remove illegal positions to count wins by capture.
-            // FIXME: should probable do k16slice_read_andnot()
-            k16slice_read(-1, s1, stm, "wins", 0);
-            k16slice_andnot(s1, -1);
-            cnt_w += k16slice_count(s1, num);
-            if (stm == BLACK) {
-              // Count wins by pawn push. These are all legal already.
-              k16slice_read(-1, s1, stm, "pawn/win", -1);
-              k16slice_or(s1, -1);
-              cnt_pw += k16slice_count(s1, num);
-            }
-          }
-          else if (n == DRAW_RULE + 1) {
-            k16slice_read(s1, s1, stm, "capt/cwin", -1);
-            if (stm == BLACK) {
-              k16slice_read(-1, s1, stm, "pawn/cwin", -1);
-              k16slice_or(s1, -1);
-            }
-            // FIXME: this might be wrong ("wins", 0)
-            k16slice_read(-1, s1, stm, "wins", 0);
-            k16slice_andnot(s1, -1);
-            cnt_w += k16slice_count(s1, num);
-          }
-          else
-            k16slice_clear(s1);
+          k16slice_clear(s1);
         }
 
       if (pred && !done) {
@@ -1702,7 +1712,28 @@ static bool calc_W(int stm, int n, bool more_w)
 
     while (k16slice_iter_out(&iter, &s))
       if (!partial || !k16slice_test_count(s, stm, "W", n, num)) {
-        // Remove illegal positions and known faster wins.
+        if (n == 1 && (capt_cnt[stm][4] || (stm == BLACK && pawn_cnt[4]))) {
+          if (stm == WHITE) {
+            k16slice_read_or(s, s, stm, "capt/win", -1);
+          } else {
+            k16slice_read(-1, s, stm, "capt/win", -1);
+            k16slice_read_or(-1, s, stm, "pawn/win", -1);
+            cnt_cpw += k16slice_count(-1, num);
+            k16slice_or(s, -1);
+          }
+        }
+        else if (    n == DRAW_RULE + 1
+                 && (capt_cnt[stm][3] || (stm == BLACK && pawn_cnt[3])))
+        {
+          if (stm == WHITE) {
+            k16slice_read_or(s, s, stm, "capt/cwin", -1);
+          } else {
+            k16slice_read(-1, s, stm, "capt/cwin", -1);
+            k16slice_read_or(-1, s, stm, "pawn/cwin", -1);
+            cnt_cpw += k16slice_count(-1, num);
+            k16slice_or(s, -1);
+          }
+        }
         read_wins(-1, s, stm, n - 1);
         k16slice_andnot(s, -1);
         cnt += k16slice_count(s, num);
@@ -1713,24 +1744,42 @@ static bool calc_W(int stm, int n, bool more_w)
 //        list_positions(s, k16slice_get_address(s));
 //        printf("s = %d, cnt = %lu\n", s, cnt);
         }
+      } else {
+        cnt += sum16(num);
+        // For now we just recalculate cnt_cpw.
+        if (stm == BLACK && n == 1 &&
+            (sub_cnt[stm ^ 1][0] || pawn_cnt[4])) {
+          if (sub_cnt[stm ^ 1][0])
+            k16slice_read(-1, s, stm, "capt/win", -1);
+          else
+            k16slice_clear(-1);
+          if (pawn_cnt[4])
+            k16slice_read_or(-1, s, stm, "pawn/win", -1);
+          cnt_cpw += k16slice_count(-1, num);
+        }
+        else if (stm == BLACK && n == DRAW_RULE + 1 &&
+            (sub_cnt[stm ^ 1][1] || pawn_cnt[3])) {
+          if (sub_cnt[stm ^ 1][1])
+            k16slice_read(-1, s, stm, "capt/cwin", -1);
+          else
+            k16slice_clear(-1);
+          if (pawn_cnt[3])
+            k16slice_read_or(-1, s, stm, "pawn/cwin", -1);
+          cnt_cpw += k16slice_count(-1, num);
+        }
       }
   }
 
   F = file_open_write(str);
-  if (n == 1) {
-//    printf("capt_win_%c = %lu\n", "wb"[stm], cnt_w);
-    g_stats[stm][1] = cnt_w;
-    file_write(&g_stats[stm][1], 8, F);
-    if (stm == BLACK) {
-      g_stats[stm][2] = cnt_pw - cnt_w;
+  if (stm == BLACK) {
+    // Store the number of positions won by pawn moves.
+    if (n == 1) {
+      g_stats[stm][2] = cnt_cpw - capt_cnt[stm][4];
       file_write(&g_stats[stm][2], 8, F);
-//      printf("pawn_win_%c = %lu\n", "wb"[stm], cnt_pw - cnt_w);
+    } else if (n == DRAW_RULE + 1) {
+      g_stats[stm][DRAW_RULE + 4] = cnt_cpw - capt_cnt[stm][3];
+      file_write(&g_stats[stm][DRAW_RULE + 4], 8, F);
     }
-  }
-  else if (n == DRAW_RULE + 1) {
-    g_stats[stm][DRAW_RULE + 3] = cnt_w;
-    file_write(&g_stats[stm][DRAW_RULE + 3], 8, F);
-//    printf("capt/pawn_cwin_%c = %lu\n", "wb"[stm], cnt_w);
   }
   g_stats[stm][stats_n(n)] = cnt;
   file_write(&g_stats[stm][stats_n(n)], 8, F);
@@ -1817,7 +1866,8 @@ void generate(void)
   calc_capt(BLACK, 2);
 
   // Calculate positions with losing captures.
-  // (Only used to find loss-in-1 positions.)
+  // (Only used to find loss-in-1 positions. We can't easily do that
+  // inside calc_L() because of the many types of captures.)
   calc_capt(WHITE, -2);
   calc_capt(BLACK, -2);
 
@@ -1874,11 +1924,6 @@ void generate(void)
     more_ww = more_ww_next;
   }
 
-  // Calculate positions with a drawing capture.
-  // During WDL merging, these positions are set to partial don't care.
-  calc_capt(WHITE, 0);
-  calc_capt(BLACK, 0);
-
   max_iteration = n;
 
   uint64_t num_kslices = 0;
@@ -1890,10 +1935,13 @@ void generate(void)
     }
 
   for (int stm = 0; stm < 2; stm++) {
-    // Remove some double counting.
+    // Correct the capt/win, pawn/win, etc. counts.
+    g_stats[stm][1] = capt_cnt[stm][4];
     g_stats[stm][3] -= g_stats[stm][1] + g_stats[stm][2];
+    g_stats[stm][DRAW_RULE + 3] = capt_cnt[stm][3];
     g_stats[stm][DRAW_RULE + 5] -=
-      g_stats[stm][DRAW_RULE + 3] - g_stats[stm][DRAW_RULE + 4];
+      g_stats[stm][DRAW_RULE + 3] + g_stats[stm][DRAW_RULE + 4];
+    // Count number of draws.
     uint64_t total = 0;
     for (int i = 0; i < MAX_STATS; i++)
       total += g_stats[stm][i];

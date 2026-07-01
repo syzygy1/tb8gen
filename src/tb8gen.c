@@ -302,6 +302,10 @@ int main(int argc, char **argv)
   printf("DTZ format: %s only.\n\n",
         one_sided ? one_sided_stm == WHITE ? "white" : "black"
       : wins_only ? "wins" : "losses");
+  printf("\n########## %s ##########\n", g_tablename);
+  print_stats(stdout, WHITE);
+  print_stats(stdout, BLACK);
+  printf("\n");
 
   if (file_exists("maxfens")) {
     FILE *F = file_open_read("maxfens");

@@ -481,6 +481,31 @@ void k16slice_read_or(int s, int slice, int stm, const char *name, int n)
   fclose(F);
 }
 
+void k16slice_read_andnot(int s, int slice, int stm, const char *name, int n)
+{
+  char str[64];
+  create_name(str, slice, stm, name, n);
+
+  FILE *F = fopen(str, "rb");
+  if (!F && errno != ENOENT) {
+    fprintf(stderr, "Could not open %s for reading.\n", str);
+    exit(EXIT_FAILURE);
+  }
+  if (!F)
+    return;
+  struct stat st;
+  fstat(fileno(F), &st);
+  if (st.st_size > 0) {
+    if (fseek(F, 16 * 8, SEEK_SET) != 0) {
+      fprintf(stderr, "fseek() failed.\n");
+      exit(EXIT_FAILURE);
+    }
+    k16slice_read_cost += st.st_size;
+    read_data_andnot(F, k16slice_get_address(s), k16slice_cache_lines << 6);
+  }
+  fclose(F);
+}
+
 void k16slice_delete(int slice, int stm, const char *name, int n)
 {
   char str[64];

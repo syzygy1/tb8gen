@@ -115,7 +115,7 @@ void p10_idx_state_to_bb(struct P10IdxState *is, const struct P10IdxInfo *ii,
       is->bb[i + 1] = 0;
       continue;
     }
-    is->bb[i + 1] = unrank_binomial2(is->sub[i], ii->mult[i], occ);
+    is->bb[i + 1] = unrank_binomial(is->sub[i], ii->mult[i], occ);
     occ |= is->bb[i + 1];
   }
 }

@@ -627,6 +627,35 @@ static void read_wins(int s, int slice, int stm, int n)
   replay_cost[stm][slice] += kslice_read_cost;
 }
 
+static void read_wins_andnot(int s, int slice, int stm, int n)
+{
+  if (n < 0)
+    for (n = MAX_STATS / 2 - 4; n > 0; n--)
+      if (g_stats[stm][stats_n(n)])
+        break;
+
+  if (wins_checked[stm][slice] < n) {
+    int i;
+    for (i = n; i > wins_checked[stm][slice]; i--)
+      if (kslice_test(slice, stm, "wins", i))
+        break;
+    if (i > wins_checked[stm][slice]) {
+      for (int j = i - 1; j >= wins_full[stm][slice]; j--)
+        kslice_delete(slice, stm, "wins", j);
+      wins_full[stm][slice] = i;
+    }
+    wins_checked[stm][slice] = n;
+  }
+
+  kslice_read_andnot(s, slice, stm, "wins", wins_full[stm][slice]);
+  write_cost[stm][slice] = kslice_read_cost;
+  kslice_read_cost = 0;
+  for (int i = wins_full[stm][slice] + 1; i <= n; i++)
+    if (g_stats[stm][stats_n(i)])
+      kslice_read_andnot(s, slice, stm, "W", i);
+  replay_cost[stm][slice] += kslice_read_cost;
+}
+
 static void read_losses(int s, int slice, int stm, int n)
 {
   for (int i = 0; i <= n; i++)
@@ -693,6 +722,9 @@ static void calc_capt(int stm, int wdl)
 
     while (kslice_iter_out(&iter, &s)) {
       if (!partial || !kslice_test_count(s, stm, capt_name, -1, &num)) {
+        // Remove illegal positions and faster wins from capt/win and capt/cwin.
+        if (wdl > 0)
+          read_wins_andnot(s, s, stm, wdl == 2 ? 0 : DRAW_RULE);
         cnt += num = kslice_count(s, s);
         kslice_write(s, s, stm, capt_name, -1, num);
       }
@@ -1521,10 +1553,6 @@ static bool calc_W(int stm, int n, bool more_w)
   sprintf(str, "%d/W/%c/done", n, "wb"[stm]);
   FILE *F = fopen(str, "rb");
   if (F) {
-    if (n == 1)
-      file_read(&g_stats[stm][1], 8, F);
-    else if (n == DRAW_RULE)
-      file_read(&g_stats[stm][DRAW_RULE + 3], 8, F);
     file_read(&g_stats[stm][stats_n(n)], 8, F);
     fclose(F);
     return g_stats[stm][stats_n(n)] != 0;
@@ -1537,7 +1565,7 @@ static bool calc_W(int stm, int n, bool more_w)
   char phase[64];
 
   struct KSliceIterator iter;
-  uint64_t cnt = 0, cnt_w = 0, num;
+  uint64_t cnt = 0, num;
   int num_done = 0;
 
   bool partial = dir_exists(n, stm, "W"), done = partial;
@@ -1562,21 +1590,7 @@ static bool calc_W(int stm, int n, bool more_w)
       while (kslice_iter_in(&iter, &s1))
         if (!partial || !kslice_test_count(s1, stm, "W", n, &num)) {
           done = false;
-          if (n == 1 && sub_cnt[stm ^ 1][0]) {
-            // Wins by capture.
-            kslice_read(s1, s1, stm, "capt/win", -1);
-            // Remove illegal positions to count wins by capture.
-            kslice_read_andnot(s1, s1, stm, "wins", 0);
-            cnt_w += kslice_count(s1, s1);
-          }
-          else if (n == DRAW_RULE + 1 && sub_cnt[stm ^ 1][1]) {
-            kslice_read(s1, s1, stm, "capt/cwin", -1);
-            read_wins(-1, s1, stm, n - 1);
-            kslice_andnot(s1, -1);
-            cnt_w += kslice_count(s1, s1);
-          }
-          else
-            kslice_clear(s1, s1);
+          kslice_clear(s1, s1);
         }
 
       if (pred && !done) {
@@ -1587,26 +1601,23 @@ static bool calc_W(int stm, int n, bool more_w)
 
     while (kslice_iter_out(&iter, &s)) {
       if (!partial || !kslice_test_count(s, stm, "W", n, &num)) {
+        // Add capt/win or capt/cwin positions.
+        if (n == 1 && sub_cnt[stm ^ 1][0])
+          kslice_read_or(s, s, stm, "capt/win", -1);
+        else if (n == DRAW_RULE + 1 && sub_cnt[stm ^ 1][1])
+          kslice_read_or(s, s, stm, "capt/cwin", -1);
         // Remove illegal positions and known faster wins.
         read_wins(-1, s, stm, n - 1);
         kslice_andnot(s, -1);
-        num = kslice_count(s, s);
+        cnt += num = kslice_count(s, s);
         uint64_t cost = kslice_write(s, s, stm, "W", n, num);
         add_wins(s, stm, n, cost);
+      } else
         cnt += num;
-      }
     }
   }
 
   F = file_open_write(str);
-  if (n == 1) {
-    g_stats[stm][1] = cnt_w;
-    file_write(&g_stats[stm][1], 8, F);
-  }
-  else if (n == DRAW_RULE + 1) {
-    g_stats[stm][DRAW_RULE + 3] = cnt_w;
-    file_write(&g_stats[stm][DRAW_RULE + 3], 8, F);
-  }
   g_stats[stm][stats_n(n)] = cnt;
   file_write(&g_stats[stm][stats_n(n)], 8, F);
   fclose(F);
@@ -1705,10 +1716,13 @@ void generate(void)
 
   max_iteration = n;
 
-  // Remove some double counting.
   for (int stm = 0; stm < 2; stm++) {
+    // Correct the capt/win and capt/cwin counts.
+    g_stats[stm][1] = capt_cnt[stm][4];
     g_stats[stm][3] -= g_stats[stm][1];
+    g_stats[stm][DRAW_RULE + 3] = capt_cnt[stm][3];
     g_stats[stm][DRAW_RULE + 5] -= g_stats[stm][DRAW_RULE + 3];
+    // Count number of draws.
     uint64_t total = 0;
     for (int i = 0; i < MAX_STATS; i++)
       total += g_stats[stm][i];

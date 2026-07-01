@@ -278,7 +278,7 @@ static void NAME(merge_bitmaps)(int stm, int s)
   }
 
   // CAPT_DRAW
-  if (capt_cnt[stm][2] && k16slice_read(-1, s, stm, "capt/draw", -1)) {
+  if (capt_cnt[stm][2] && k16slice_read(-1, s, stm, "nobloss", -1)) {
     merge_r = MAX_STATS / 2 + 2;
     merge_n = MAX_STATS / 2 + 1;
     run_threaded(NAME(merge_repl_worker), work_g16);

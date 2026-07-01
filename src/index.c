@@ -602,11 +602,21 @@ Bitboard idx_state_init(struct IdxState *is, uint64_t idx,
   for (int k = ri->numsets - 1; k >= 0; k--)
     idx = divmod_recip(idx, ri->factor[k], ri->recip[k], &is->sub[k]);
   for (int i = 0; i < ri->numsets; i++) {
-    is->bb[i + 1] = unrank_binomial2(is->sub[i], ri->mult[i], is->occ[i]);
+    is->bb[i + 1] = unrank_binomial(is->sub[i], ri->mult[i], is->occ[i]);
     is->occ[i + 1] = is->occ[i] | is->bb[i + 1];
   }
   return is->occ[ri->numsets];
 }
+
+#ifdef HAS_PAWNS
+void pawn_idx_init(struct PawnIdxState *pis, Bitboard diff_bb,
+    const struct IdxState *is, const struct RankInfo *ri)
+{
+  pis->inv_diff_bb = ~diff_bb;
+  for (int i = 0; i < ri->numsets; i++)
+    pis->sub[i] = rank_combination(is->bb[i + 1], is->occ[i] ^ ~diff_bb);
+}
+#endif
 
 static bool sq_attacked_by(struct IdxState *is, int sq, int stm, Bitboard occ)
 {
@@ -694,6 +704,7 @@ bool idx_state_mate(struct IdxState *is, int stm, Bitboard occ)
   if (has_pawns && stm == WHITE)
     checkers |= bit(is->sq[2]) & pawn_attacks(WHITE, ksq);
 
+  // Verify the assumption that the stm is in check.
   assert(checkers);
 
   // If more than one, then mate.
@@ -776,16 +787,6 @@ bool idx_state_has_legal_moves(struct IdxState *is, int stm, Bitboard occ)
 
 static constexpr Bitboard LOWER_DIAG_MASK = UINT64_C(0x0080c0e0f0f8fcfe);
 static constexpr Bitboard MAIN_DIAG_MASK = UINT64_C(0x8040201008040201);
-
-static uint64_t rank_combination(Bitboard subset, Bitboard universe)
-{
-  uint64_t dense = _pext_u64(subset, universe);
-
-  uint64_t r = 0;
-  for (int j = 1; dense; j++)
-    r += Binomial[j][pop_lsb(&dense)];
-  return r;
-}
 
 uint64_t rank_trivial_from(const uint8_t *restrict sq, int k, Bitboard occ,
     const uint8_t *restrict first, const struct RankInfo *ri)
@@ -1071,7 +1072,7 @@ Bitboard unrank_bb_ref_tmpl(uint64_t idx, Bitboard *set_bb,
     for (int i = ri->numsets - 1; i > k; i--)
       idx = divmod_recip(idx, ri->factor[i], ri->recip[i], &sub[i]);
     for (k++; k < ri->numsets; k++)
-      occ |= set_bb[k + 1] = unrank_binomial2(sub[k], ri->mult[k], occ);
+      occ |= set_bb[k + 1] = unrank_binomial(sub[k], ri->mult[k], occ);
     return occ;
   }
   return occ;

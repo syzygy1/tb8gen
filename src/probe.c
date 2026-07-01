@@ -798,7 +798,7 @@ size_t set_dec_info(struct DecInfo *di, struct TbEntry *entry, uint8_t *pcs,
   return f;
 }
 
-INLINE Bitboard unrank_binomial(uint64_t idx, int n, uint8_t *restrict sq,
+INLINE Bitboard unrank_binomial_sq(uint64_t idx, int n, uint8_t *restrict sq,
     Bitboard occ)
 {
   if (n == 0)
@@ -984,7 +984,7 @@ INLINE void decode_helper(uint32_t *sub, uint8_t *restrict p,
 
   for (; i < entry->num;) {
     q = sub[i];
-    occ = unrank_binomial(q, di->norm[i], p + i, occ);
+    occ = unrank_binomial_sq(q, di->norm[i], p + i, occ);
     i += di->norm[i];
   }
 }
