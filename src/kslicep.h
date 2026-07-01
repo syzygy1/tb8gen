@@ -157,6 +157,7 @@ bool k16slice_test_count(int slice, int stm, const char *name, int n,
     uint64_t num[16]);
 bool k16slice_read(int s, int slice, int stm, const char *name, int n);
 void k16slice_read_or(int s, int slice, int stm, const char *name, int n);
+void k16slice_read_and(int s, int slice, int stm, const char *name, int n);
 void k16slice_read_andnot(int s, int slice, int stm, const char *name, int n);
 void k16slice_delete(int slice, int stm, const char *name, int n);
 void k16slice_sub_write_addr(void *p, int slice, int stm, const char *name,

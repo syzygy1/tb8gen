@@ -788,7 +788,7 @@ static void calc_capt(int stm, int wdl)
 
     while (k16slice_iter_out(&iter, &s))
       if (!partial || !k16slice_test_count(s, stm, capt_name, -1, num)) {
-        // Remove illegal positions and faster wins from capt/win and capt/cwin.
+        // Remove illegals and faster wins from capt/win and capt/cwin.
         if (wdl > 0)
           read_wins_andnot(s, s, stm, wdl == 2 ? 0 : DRAW_RULE);
         cnt += k16slice_count(s, num);
@@ -1659,6 +1659,27 @@ skip_X:
   return cnt != 0;
 }
 
+static void write_cpw(int s, int n, uint64_t cpw)
+{
+  char str[64];
+  create_name(str, s, BLACK, "cpw", n);
+  FILE *F = file_open_write(str);
+  file_write(&cpw, 8, F);
+  fclose(F);
+  file_rename(str);
+}
+
+static uint64_t read_cpw(int s, int n)
+{
+  char str[64];
+  create_name(str, s, BLACK, "cpw", n);
+  FILE *F = file_open_read(str);
+  uint64_t cpw;
+  file_read(&cpw, 8, F);
+  fclose(F);
+  return cpw;
+}
+
 static bool calc_W(int stm, int n, bool more_w)
 {
   char str[64];
@@ -1684,6 +1705,9 @@ static bool calc_W(int stm, int n, bool more_w)
 
   create_dir(n, stm, "W");
   create_dir(n, stm, "wins");
+  if (    stm == BLACK
+      && ((n == 1 && pawn_cnt[4]) || (n == DRAW_RULE + 1 && pawn_cnt[3])))
+    create_dir(n, stm, "cpw");
 
   char phase[64];
   snprintf(phase, sizeof phase, "\x1b[%sm%d/W/%c\x1b[0m",
@@ -1712,25 +1736,30 @@ static bool calc_W(int stm, int n, bool more_w)
 
     while (k16slice_iter_out(&iter, &s))
       if (!partial || !k16slice_test_count(s, stm, "W", n, num)) {
+        uint64_t cpw;
         if (n == 1 && (capt_cnt[stm][4] || (stm == BLACK && pawn_cnt[4]))) {
-          if (stm == WHITE) {
+          if (stm == WHITE || !pawn_cnt[4]) {
             k16slice_read_or(s, s, stm, "capt/win", -1);
           } else {
             k16slice_read(-1, s, stm, "capt/win", -1);
             k16slice_read_or(-1, s, stm, "pawn/win", -1);
-            cnt_cpw += k16slice_count(-1, num);
+            cnt_cpw += cpw = k16slice_count(-1, num);
+            write_cpw(s, n, cpw);
             k16slice_or(s, -1);
           }
         }
         else if (    n == DRAW_RULE + 1
                  && (capt_cnt[stm][3] || (stm == BLACK && pawn_cnt[3])))
         {
-          if (stm == WHITE) {
+          if (stm == WHITE || !pawn_cnt[3]) {
             k16slice_read_or(s, s, stm, "capt/cwin", -1);
           } else {
             k16slice_read(-1, s, stm, "capt/cwin", -1);
             k16slice_read_or(-1, s, stm, "pawn/cwin", -1);
-            cnt_cpw += k16slice_count(-1, num);
+            // Remove faster wins contained in pawn/cwin.
+            read_wins_andnot(-1, s, stm, n - 1);
+            cnt_cpw += cpw = k16slice_count(-1, num);
+            write_cpw(s, n, cpw);
             k16slice_or(s, -1);
           }
         }
@@ -1739,33 +1768,16 @@ static bool calc_W(int stm, int n, bool more_w)
         cnt += k16slice_count(s, num);
         uint64_t cost = k16slice_write(s, s, stm, "W", n, num);
         add_wins(s, stm, n, cost);
-
         if (0 && stm == WHITE && n == 1) {
 //        list_positions(s, k16slice_get_address(s));
 //        printf("s = %d, cnt = %lu\n", s, cnt);
         }
       } else {
         cnt += sum16(num);
-        // For now we just recalculate cnt_cpw.
-        if (stm == BLACK && n == 1 &&
-            (sub_cnt[stm ^ 1][0] || pawn_cnt[4])) {
-          if (sub_cnt[stm ^ 1][0])
-            k16slice_read(-1, s, stm, "capt/win", -1);
-          else
-            k16slice_clear(-1);
-          if (pawn_cnt[4])
-            k16slice_read_or(-1, s, stm, "pawn/win", -1);
-          cnt_cpw += k16slice_count(-1, num);
-        }
-        else if (stm == BLACK && n == DRAW_RULE + 1 &&
-            (sub_cnt[stm ^ 1][1] || pawn_cnt[3])) {
-          if (sub_cnt[stm ^ 1][1])
-            k16slice_read(-1, s, stm, "capt/cwin", -1);
-          else
-            k16slice_clear(-1);
-          if (pawn_cnt[3])
-            k16slice_read_or(-1, s, stm, "pawn/cwin", -1);
-          cnt_cpw += k16slice_count(-1, num);
+        if (stm == BLACK) {
+          if (   (n == 1 && (capt_cnt[stm][4] || pawn_cnt[4]))
+              || (n == DRAW_RULE + 1 && (capt_cnt[stm][3] || pawn_cnt[3])))
+            cnt_cpw += read_cpw(s, n);
         }
       }
   }
