@@ -1936,6 +1936,12 @@ void generate(void)
     more_ww = more_ww_next;
   }
 
+  // Calculate positions with a drawing capture.
+  // During WDL merging, these positions are set to partial don't care.
+  // We cannot use nobloss here, because nobloss includes pawn draws.
+  calc_capt(WHITE, 0);
+  calc_capt(BLACK, 0);
+
   max_iteration = n;
 
   uint64_t num_kslices = 0;
