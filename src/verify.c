@@ -906,6 +906,7 @@ static void check_win_cwin(int stm)
 
     kslice_read(-1, s, stm, "wins", -1);
     kslice_read_andnot(-1, s, stm, "capt/win", -1);
+
     check_one(stm, s, CO_REGULAR);
 
     kslice_read(-1, s, stm, "cwin", -1);
@@ -1747,18 +1748,18 @@ static void update_dtz_stats(struct DtzTable2 *table, int stm, int s)
     win_loss = i > 2 ? 0 : 1;
     memset(freq_map, 0, sizeof freq_map);
     switch (table->mapped) {
-      case 0:
-        for (int j = 0; j < MAX_VAL; j++)
-          freq_map[j] = offset[m] + j;
-        break;
-      case 1:
-        for (int j = 0; j < bound[m]; j++)
-          freq_map[j] = offset[m] + table->map_dtz[table->map_dtz_idx[m] + j];
-        break;
-      case 2:
-        for (int j = 0; j < bound[m]; j++)
-          freq_map[j] = offset[m] + table->map_dtz16[table->map_dtz_idx[m] + j];
-        break;
+    case 0:
+      for (int j = 0; j < MAX_VAL; j++)
+        freq_map[j] = offset[m] + j;
+      break;
+    case 1:
+      for (int j = 0; j < bound[m]; j++)
+        freq_map[j] = offset[m] + table->map_dtz[table->map_dtz_idx[m] + j];
+      break;
+    case 2:
+      for (int j = 0; j < bound[m]; j++)
+        freq_map[j] = offset[m] + table->map_dtz16[table->map_dtz_idx[m] + j];
+      break;
     }
     run_threaded(update_stats_worker, &work_g_static[s >= 441]);
   }

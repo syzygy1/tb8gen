@@ -34,6 +34,7 @@ static uint8_t *merged_table, *merged_table2;
 
 static void k16slice_read_addr(void *p, int slice, int stm, const char *name,
     int n);
+static void k16slice_read_path_addr(void *p, const char *str);
 
 INLINE uint64_t sum16(uint64_t *num)
 {
@@ -881,11 +882,15 @@ static void load_pawn_successors(uint8_t *table, int psq)
   size_t offset = k16offset(sq);
   int s = kk_to_slice[_pext_u32(sq[0] + (sq[1] << 8),
       0b11011000110110)];
+  int q = PawnFlip[0][psq];
   for (int i = 0; i < 5; i++) {
-    k16slice_read_addr(k16slice_buf[7], s, BLACK, wdl_name[i], -1);
+    char name[128], path[160];
+    create_name(name, s, WHITE, wdl_name[i], -1);
+    snprintf(path, sizeof path, "../%s/%s", pawnstr[q], name);
+    k16slice_read_path_addr(k16slice_buf[7], path);
     for (uint64_t idx = 0; idx < kslice_size; idx++)
       if (kslice_bit_test(k16slice_buf[7] + offset, idx))
-        table[idx] = 4 - i;
+        table[idx] = i;
   }
 }
 
@@ -1459,6 +1464,8 @@ static void check_win_cwin(int stm)
 
     k16slice_read(-1, s, stm, "wins", -1);
     k16slice_read_andnot(-1, s, stm, "capt/win", -1);
+    if (stm == BLACK)
+      k16slice_read_andnot(-1, s, stm, "pawn/win", -1);
     check_one(stm, s, CO_REGULAR);
 
     k16slice_read(-1, s, stm, "cwin", -1);
@@ -1494,6 +1501,8 @@ static void check_cwin_draw(int stm)
     // "bloss". As a bonus, no special check is needed for the 101->100 case.
     k16slice_read(-1, s, stm, "cwin", -1);
     k16slice_read_andnot(-1, s, stm, "capt/cwin", -1);
+    if (stm == BLACK)
+      k16slice_read_andnot(-1, s, stm, "pawn/cwin", -1);
     check_one(stm, s, CO_REGULAR);
 
     k16slice_read(-1, s, stm, "draw", -1);
@@ -1528,6 +1537,8 @@ static void check_draw_bloss(int stm)
     // "bloss". So we can combine draw+ with bloss-.
     k16slice_read(-1, s, stm, "draw", -1);
     k16slice_read_andnot(-1, s, stm, "capt/draw", -1);
+    if (stm == BLACK)
+      k16slice_read_andnot(-1, s, stm, "pawn/draw", -1);
     check_one(stm, s, CO_DRAW);
 
     k16slice_read(-1, s, stm, "bloss", -1);
@@ -1561,6 +1572,8 @@ static void check_bloss_loss(int stm)
 
     k16slice_read(-1, s, stm, "bloss", -1);
     k16slice_read_andnot(-1, s, stm, "capt/bloss", -1);
+    if (stm == BLACK)
+      k16slice_read_andnot(-1, s, stm, "pawn/bloss", -1);
     check_one(stm, s, CO_BLOSS);
 
     k16slice_read(-1, s, stm, "loss", -1);
@@ -1589,6 +1602,8 @@ static void check_loss(int stm)
 
     k16slice_read(-1, s, stm, "loss", -1);
     k16slice_read_andnot(-1, s, stm, "capt/loss", -1);
+    if (stm == BLACK)
+      k16slice_read_andnot(-1, s, stm, "pawn/loss", -1);
     check_one(stm, s, CO_LOSS);
 
     while (k16slice_iter_out(&iter, &s));
@@ -1780,12 +1795,8 @@ static void depermute_wdl_pawn_worker(struct ThreadData *thread)
 
 static uint64_t wdl_cnt[2][5];
 
-static void k16slice_read_addr(void *p, int slice, int stm, const char *name,
-    int n)
+static void k16slice_read_path_addr(void *p, const char *str)
 {
-  char str[64];
-  create_name(str, slice, stm, name, n);
-
   FILE *F = fopen(str, "rb");
   if (!F && errno != ENOENT) {
     fprintf(stderr, "Could not open %s for reading.\n", str);
@@ -1807,6 +1818,14 @@ static void k16slice_read_addr(void *p, int slice, int stm, const char *name,
   } else
     k16slice_clear_addr(p);
   fclose(F);
+}
+
+static void k16slice_read_addr(void *p, int slice, int stm, const char *name,
+    int n)
+{
+  char str[64];
+  create_name(str, slice, stm, name, n);
+  k16slice_read_path_addr(p, str);
 }
 
 static void k16slice_read_andnot_addr(void *p, int slice, int stm,
@@ -2055,6 +2074,11 @@ static void update_dtz_stats(struct DtzTable2 *table, int stm, int s)
       char capt_name[32];
       strcat(strcpy(capt_name, "capt/"), wdl_name[i]);
       k16slice_read_andnot_addr(k16slice_buf[0], s, stm, capt_name, -1);
+      if (stm == BLACK) {
+        char pawn_name[32];
+        strcat(strcpy(pawn_name, "pawn/"), wdl_name[i]);
+        k16slice_read_andnot_addr(k16slice_buf[0], s, stm, pawn_name, -1);
+      }
     }
     int m = WdlToMap[i];
     win_loss = i > 2 ? 0 : 1;
@@ -2085,6 +2109,8 @@ static void decompress_kslice_dtz_p(struct Tbase *tb, int stm, int q)
   if (!tb->table[t])
     tb->table[t] = init_new_table(tb, g_pos.num, DTZ, t, q);
   struct DtzTable2 *table = tb->table[t];
+  if (table == (struct DtzTable2 *)1)
+    return;
 
   int const_value = -1;
   if (!table->precomp) {
@@ -2130,6 +2156,8 @@ static void decompress_kslice_dtz_pk(struct Tbase *tb, int stm, int q,
   if (!tb->table[t])
     tb->table[t] = init_new_table(tb, g_pos.num, DTZ, t, tsq);
   struct DtzTable2 *table = tb->table[t];
+  if (table == (struct DtzTable2 *)1)
+    return;
 
   int const_value = -1;
   if (!table->precomp) {
@@ -2177,14 +2205,27 @@ void verify(void)
   else
     strcpy(name, g_tablename);
 
-  struct Tbase *tb = init_tbase(&entry, name, WDL, false);
-  if (!tb) {
+  struct Tbase *wdl_tb = init_tbase(&entry, name, WDL, false);
+  if (!wdl_tb) {
     fprintf(stderr, "Could not open %s.rtbw.\n", g_tablename);
     exit(EXIT_FAILURE);
   }
 
-  if (tb->layout != LT_PAWN_P && tb->layout != LT_PAWN_PK) {
-    fprintf(stderr, "Layout type %d is currently not supported.\n", tb->layout);
+  if (wdl_tb->layout != LT_PAWN_P && wdl_tb->layout != LT_PAWN_PK) {
+    fprintf(stderr, "Layout type %d is currently not supported.\n",
+        wdl_tb->layout);
+    exit(EXIT_FAILURE);
+  }
+
+  struct Tbase *dtz_tb = init_tbase(&entry, name, DTZ, false);
+  if (!dtz_tb) {
+    fprintf(stderr, "Could not open %s.rtbz.\n", g_tablename);
+    exit(EXIT_FAILURE);
+  }
+
+  if (dtz_tb->layout != LT_PAWN_P && dtz_tb->layout != LT_PAWN_PK) {
+    fprintf(stderr, "Layout type %d is currently not supported.\n",
+        dtz_tb->layout);
     exit(EXIT_FAILURE);
   }
 
@@ -2193,188 +2234,24 @@ void verify(void)
 
   mtx_init(&report_mutex, mtx_plain);
 
-  for (int q = 0; q < 24; q++) {
-    g_slice.sq[2] = InvPawnFlip[0][q];
-    make_dir(pawnstr[q]);
-    change_dir(pawnstr[q]);
-
-  calc_sub_kslices(WHITE);
-  calc_sub_kslices(BLACK);
-  calc_psub_kslices();
-
-  calc_pawn_capts();
-
-  calc_illegal_both();
-
-  calc_capt(WHITE, 2);
-  calc_capt(BLACK, 2);
-  calc_capt(WHITE, 1);
-  calc_capt(BLACK, 1);
-  calc_capt(WHITE, 0);
-  calc_capt(BLACK, 0);
-  calc_capt(WHITE, -1);
-  calc_capt(BLACK, -1);
-  calc_capt(WHITE, -2);
-  calc_capt(BLACK, -2);
-
-  // Release memory for K-slice bitmaps we don't need for now.
-  for (int i = 7; i < 12; i++)
-    if (k16slice_buf[i]) {
-      free(k16slice_buf[i]);
-      k16slice_buf[i] = nullptr;
-    }
-
-  // Allocate memory for decompressed WDL data.
-  size_t wdl_table_size = tb->layout == LT_PAWN_P
+  size_t wdl_table_size = wdl_tb->layout == LT_PAWN_P
                         ? 63 * 62 * kslice_size
                         : 62 * kslice_size;
-  tb_table = alloc_huge((wdl_table_size + 63) & ~0x3f);
-  if (!tb_table)
+  uint8_t *wdl_tb_table = alloc_huge((wdl_table_size + 63) & ~0x3f);
+  if (!wdl_tb_table)
     out_of_mem();
 
-  for (int stm = 0; stm < 2; stm++) {
-    char phase[64];
-    snprintf(phase, sizeof phase, "loading %ctm WDL slices", "wb"[stm]);
-
-    for (int i = 0; i < 5; i++)
-      create_dir(-1, stm, wdl_name[i]);
-
-    tb_ri[stm] = ri;
-    g_slice.stm = stm;
-    flip[stm] = !symmetric ? !tb->flipped : stm != WHITE;
-    btm_side[stm] = (stm == WHITE) == flip[stm];
-
-    for (int k = 0; k < ri.numsets; k++) {
-      int pt = g_set_pt[k] ^ (flip[stm] << 3);
-      for (int j = 0; j < g_pos.num; j++)
-        if (tb->pt[j] == pt) {
-          tb_ri[stm].first[k] = j;
-          break;
-        }
-    }
-
-    if (tb->layout == LT_PAWN_P) {
-      show_progress(phase, 0, 1, false);
-      decompress_kslice_wdl_p(tb, stm, q);
-      show_progress(phase, 1, 1, true);
-    } else {
-      int num_done = 0;
-      int psq = InvPawnFlip[0][q];
-      for (int s = 0; s < 240; s++) {
-        show_progress(phase, num_done++, 240, false);
-        for (int i = 0; i < 5; i++)
-          k16slice_clear_addr(k16slice_buf[i]);
-
-        for (int r = 0; r < 16; r++) {
-          g_slice.sq[2] = psq;
-          g_slice.sq[0] = KK16Square[s][r][0];
-          g_slice.sq[1] = KK16Square[s][r][1];
-          g_slice.stm = stm;
-          if (is_broken(&g_slice))
-            continue;
-          int ksq = g_slice.sq[stm];
-          fill_wdl_pk_kslice(tb, stm, q, ksq);
-        }
-        finish_wdl_kslice(stm, s);
-      }
-      show_progress(phase, 240, 240, true);
-    }
-
-    for (int i = 4; i >= 0; i--)
-      printf("wdl_cnt[%d][%d] = %lu\n", stm, i, wdl_cnt[stm][i]);
-  }
-
-  // Allocate memory for the K-slice bitmaps we released earlier.
-  for (int i = 7; i < 12; i++)
-    k16slice_buf[i] = alloc_k16slice();
-
-  g_slice.sq[2] = InvPawnFlip[0][q];
-  if (g_slice.sq[2] >= 16) {
-    merged_table = alloc_huge(kslice_size);
-    if (!merged_table)
-      out_of_mem();
-    if (g_slice.sq[2] >= 48) {
-      merged_table2 = alloc_huge(kslice_size);
-      if (!merged_table2)
-        out_of_mem();
-    }
-  }
-
-  memset(&pawn_cnt, 0, sizeof pawn_cnt);
-  calc_pawn_moves();
-
-  if (merged_table) {
-    free(merged_table);
-    merged_table = nullptr;
-    if (merged_table2) {
-      free(merged_table2);
-      merged_table2 = nullptr;
-    }
-  }
-
-	  check_win_cwin(WHITE);
-	  check_cwin_draw(WHITE);
-	  check_draw_bloss(WHITE);
-  check_bloss_loss(WHITE);
-  check_loss(WHITE);
-
-  if (!symmetric) {
-    check_win_cwin(BLACK);
-    check_cwin_draw(BLACK);
-    check_draw_bloss(BLACK);
-    check_bloss_loss(BLACK);
-    check_loss(BLACK);
-  }
-
-	  free(tb_table);
-	
-	  change_dir("..");
-	  }
-	
-	  XXH128_hash_t wdl_checksum = XXH3_128bits(wdl_cnt, sizeof wdl_cnt);
-	  p = (uint64_t *)((uint8_t *)tb->data + 4);
-	  table_is_ok = memcmp(&wdl_checksum, p, 16) == 0;
-	  if (table_is_ok)
-	    printf("\x1b[92mWDL counts checksum is OK.\x1b[0m\n");
-	  else
-	    printf("\x1b[91mWDL counts checksum does not match.\x1b[0m\n");
-	
-	  if (table_is_ok && num_fails == 0)
-	    printf("\x1b[92mWDL table is OK.\x1b[0m\n");
-	  else
-	    printf("\x1b[91mWDL table is not OK.\x1b[0m\n");
-	
-	  // Release memory for K-slice bitmaps we don't need for now.
-  for (int i = 1; i < 12; i++)
-    if (k16slice_buf[i]) {
-      free(k16slice_buf[i]);
-      k16slice_buf[i] = nullptr;
-    }
-
-  tb = init_tbase(&entry, name, DTZ, false);
-  if (!tb) {
-    fprintf(stderr, "Could not open %s.rtbz.\n", g_tablename);
-    exit(EXIT_FAILURE);
-  }
-
-  if (tb->layout != LT_PAWN_P && tb->layout != LT_PAWN_PK) {
-    fprintf(stderr, "Layout type %d is currently not supported.\n", tb->layout);
-    exit(EXIT_FAILURE);
-  }
-
-  // Allocate memory for decompressed and depermuted DTZ data
-  // (1 byte per position).
-  size_t dtz_tb_table_size = tb->layout == LT_PAWN_P
+  size_t dtz_tb_table_size = dtz_tb->layout == LT_PAWN_P
                            ? 63 * 62 * kslice_size
                            : 62 * kslice_size;
-  tb_table = alloc_huge((dtz_tb_table_size + 63) & ~0x3f);
+  uint8_t *dtz_tb_table = alloc_huge((dtz_tb_table_size + 63) & ~0x3f);
   dtz_table = alloc_huge((kslice_size + 63) & ~0x3f);
-  if (!tb_table || !dtz_table)
+  if (!dtz_tb_table || !dtz_table)
     out_of_mem();
 
-  bool one_sided = tb->dist_format & WTM_OR_BTM;
-  int one_sided_stm = (tb->dist_format & WTM_ONLY) ? WHITE : BLACK;
-  bool wins_only = tb->dist_format & WIN_ONLY;
+  bool one_sided = dtz_tb->dist_format & WTM_OR_BTM;
+  int one_sided_stm = (dtz_tb->dist_format & WTM_ONLY) ? WHITE : BLACK;
+  bool wins_only = dtz_tb->dist_format & WIN_ONLY;
   bool has_stm[2] = {
     !one_sided || one_sided_stm == WHITE,
     !symmetric && (!one_sided || one_sided_stm == BLACK)
@@ -2402,51 +2279,198 @@ void verify(void)
   memset(dtz_freq, 0, g_num_threads * sizeof *dtz_freq);
 
   for (int q = 0; q < 24; q++) {
-  g_slice.sq[2] = InvPawnFlip[0][q];
-  change_dir(pawnstr[q]);
+    g_slice.sq[2] = InvPawnFlip[0][q];
+    make_dir(pawnstr[q]);
+    change_dir(pawnstr[q]);
 
-  for (int stm = 0; stm < 2; stm++) {
-    tb_ri[stm] = ri;
-    g_slice.stm = stm;
-    flip[stm] = !symmetric ? !tb->flipped : stm != WHITE;
-    btm_side[stm] = (stm == WHITE) == flip[stm];
+    for (int i = 1; i < 12; i++)
+      if (!k16slice_buf[i])
+        k16slice_buf[i] = alloc_k16slice();
 
-    for (int k = 0; k < ri.numsets; k++) {
-      int pt = g_set_pt[k] ^ (flip[stm] << 3);
-      for (int j = 0; j < g_pos.num; j++)
-        if (tb->pt[j] == pt) {
-          tb_ri[stm].first[k] = j;
-          break;
+    calc_sub_kslices(WHITE);
+    calc_sub_kslices(BLACK);
+    calc_psub_kslices();
+
+    calc_pawn_capts();
+
+    calc_illegal_both();
+
+    calc_capt(WHITE, 2);
+    calc_capt(BLACK, 2);
+    calc_capt(WHITE, 1);
+    calc_capt(BLACK, 1);
+    calc_capt(WHITE, 0);
+    calc_capt(BLACK, 0);
+    calc_capt(WHITE, -1);
+    calc_capt(BLACK, -1);
+    calc_capt(WHITE, -2);
+    calc_capt(BLACK, -2);
+
+    // Release memory for K-slice bitmaps we don't need for now.
+    for (int i = 7; i < 12; i++)
+      if (k16slice_buf[i]) {
+        free(k16slice_buf[i]);
+        k16slice_buf[i] = nullptr;
+      }
+
+    tb_table = wdl_tb_table;
+
+    for (int stm = 0; stm < 2; stm++) {
+      char phase[64];
+      snprintf(phase, sizeof phase, "loading %ctm WDL slices", "wb"[stm]);
+
+      for (int i = 0; i < 5; i++)
+        create_dir(-1, stm, wdl_name[i]);
+
+      tb_ri[stm] = ri;
+      g_slice.stm = stm;
+      flip[stm] = !symmetric ? !wdl_tb->flipped : stm != WHITE;
+      btm_side[stm] = (stm == WHITE) == flip[stm];
+
+      for (int k = 0; k < ri.numsets; k++) {
+        int pt = g_set_pt[k] ^ (flip[stm] << 3);
+        for (int j = 0; j < g_pos.num; j++)
+          if (wdl_tb->pt[j] == pt) {
+            tb_ri[stm].first[k] = j;
+            break;
+          }
+      }
+
+      if (wdl_tb->layout == LT_PAWN_P) {
+        show_progress(phase, 0, 1, false);
+        decompress_kslice_wdl_p(wdl_tb, stm, q);
+        show_progress(phase, 1, 1, true);
+      } else {
+        int num_done = 0;
+        int psq = InvPawnFlip[0][q];
+        for (int s = 0; s < 240; s++) {
+          show_progress(phase, num_done++, 240, false);
+          for (int i = 0; i < 5; i++)
+            k16slice_clear_addr(k16slice_buf[i]);
+
+          for (int r = 0; r < 16; r++) {
+            g_slice.sq[2] = psq;
+            g_slice.sq[0] = KK16Square[s][r][0];
+            g_slice.sq[1] = KK16Square[s][r][1];
+            g_slice.stm = stm;
+            if (is_broken(&g_slice))
+              continue;
+            int ksq = g_slice.sq[stm];
+            fill_wdl_pk_kslice(wdl_tb, stm, q, ksq);
+          }
+          finish_wdl_kslice(stm, s);
         }
-    }
-  }
+        show_progress(phase, 240, 240, true);
+      }
 
-  int num_total = (tb->layout == LT_PAWN_P ? 24 : 1512)
-                * (has_stm[WHITE] + has_stm[BLACK]);
-  int num_done = 0;
-  if (tb->layout == LT_PAWN_P) {
+      for (int i = 4; i >= 0; i--)
+        printf("wdl_cnt[%d][%d] = %lu\n", stm, i, wdl_cnt[stm][i]);
+    }
+
+    // Allocate memory for the K-slice bitmaps we released earlier.
+    for (int i = 7; i < 12; i++)
+      k16slice_buf[i] = alloc_k16slice();
+
+    g_slice.sq[2] = InvPawnFlip[0][q];
+    if (g_slice.sq[2] >= 16) {
+      merged_table = alloc_huge(kslice_size);
+      if (!merged_table)
+        out_of_mem();
+      if (g_slice.sq[2] >= 48) {
+        merged_table2 = alloc_huge(kslice_size);
+        if (!merged_table2)
+          out_of_mem();
+      }
+    }
+
+    memset(&pawn_cnt, 0, sizeof pawn_cnt);
+    calc_pawn_moves();
+
+    if (merged_table) {
+      free(merged_table);
+      merged_table = nullptr;
+      if (merged_table2) {
+        free(merged_table2);
+        merged_table2 = nullptr;
+      }
+    }
+
+    check_win_cwin(WHITE);
+    check_cwin_draw(WHITE);
+    check_draw_bloss(WHITE);
+    check_bloss_loss(WHITE);
+    check_loss(WHITE);
+
+    check_win_cwin(BLACK);
+    check_cwin_draw(BLACK);
+    check_draw_bloss(BLACK);
+    check_bloss_loss(BLACK);
+    check_loss(BLACK);
+
+    for (int i = 1; i < 12; i++)
+      if (k16slice_buf[i]) {
+        free(k16slice_buf[i]);
+        k16slice_buf[i] = nullptr;
+      }
+
+    tb_table = dtz_tb_table;
+    for (int stm = 0; stm < 2; stm++) {
+      tb_ri[stm] = ri;
+      g_slice.stm = stm;
+      flip[stm] = !symmetric ? !dtz_tb->flipped : stm != WHITE;
+      btm_side[stm] = (stm == WHITE) == flip[stm];
+
+      for (int k = 0; k < ri.numsets; k++) {
+        int pt = g_set_pt[k] ^ (flip[stm] << 3);
+        for (int j = 0; j < g_pos.num; j++)
+          if (dtz_tb->pt[j] == pt) {
+            tb_ri[stm].first[k] = j;
+            break;
+          }
+      }
+    }
+
+    int num_total = (dtz_tb->layout == LT_PAWN_P ? 1 : 63)
+      * (has_stm[WHITE] + has_stm[BLACK]);
+    int num_done = 0;
+    if (dtz_tb->layout == LT_PAWN_P) {
       for (int stm = 0; stm < 2; stm++) {
         if (!has_stm[stm]) continue;
         show_progress("loading DTZ slices", num_done++, num_total, false);
-        decompress_kslice_dtz_p(tb, stm, q);
+        decompress_kslice_dtz_p(dtz_tb, stm, q);
       }
-  } else {
+    } else {
       int psq = InvPawnFlip[0][q];
       for (int ksq = 0; ksq < 64; ksq++) {
         if (ksq == psq) continue;
         for (int stm = 0; stm < 2; stm++) {
           if (!has_stm[stm]) continue;
           show_progress("loading DTZ slices", num_done++, num_total, false);
-          decompress_kslice_dtz_pk(tb, stm, q, ksq);
+          decompress_kslice_dtz_pk(dtz_tb, stm, q, ksq);
         }
       }
-  }
-  show_progress("loading DTZ slices", num_total, num_total, true);
+    }
+    show_progress("loading DTZ slices", num_total, num_total, true);
 
-  change_dir("..");
+    tb_table = wdl_tb_table;
+    change_dir("..");
   }
 
-  free(tb_table);
+  XXH128_hash_t wdl_checksum = XXH3_128bits(wdl_cnt, sizeof wdl_cnt);
+  p = (uint64_t *)((uint8_t *)wdl_tb->data + 4);
+  table_is_ok = memcmp(&wdl_checksum, p, 16) == 0;
+  if (table_is_ok)
+    printf("\x1b[92mWDL counts checksum is OK.\x1b[0m\n");
+  else
+    printf("\x1b[91mWDL counts checksum does not match.\x1b[0m\n");
+
+  if (table_is_ok && num_fails == 0)
+    printf("\x1b[92mWDL table is OK.\x1b[0m\n");
+  else
+    printf("\x1b[91mWDL table is not OK.\x1b[0m\n");
+
+  free(wdl_tb_table);
+  free(dtz_tb_table);
   free(dtz_table);
   kslice_free_buffers();
   mtx_destroy(&report_mutex);
@@ -2464,7 +2488,7 @@ void verify(void)
   XXH128_hash_t dtz_checksum = freq_to_hash(MAX_VAL + DRAW_RULE,
       freq[0][0], freq[0][1], freq[1][0], freq[1][1]);
 
-  p = (uint64_t *)((uint8_t *)tb->data + 20);
+  p = (uint64_t *)((uint8_t *)dtz_tb->data + 20);
   table_is_ok = memcmp(&dtz_checksum, p, 16) == 0;
   if (table_is_ok)
     printf("\x1b[92mDTZ stored values checksum is OK.\x1b[0m\n");
