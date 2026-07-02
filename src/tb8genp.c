@@ -38,7 +38,7 @@ int8_t g_sets[2][8];
 int8_t g_piece_set[2][8];
 uint8_t g_set_pt[8];
 bool flipped = false;
-bool g_only_generate, g_use_rans, symmetric, used_rans = false;
+bool g_only_generate, g_use_rans, symmetric = false, used_rans = false;
 bool g_cleanup;
 bool one_sided, wins_only;
 int one_sided_stm;
