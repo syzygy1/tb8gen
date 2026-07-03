@@ -137,6 +137,7 @@ void k16slice_release(int s);
 void k16slice_set(int s);
 void k16slice_set_addr(void *p);
 void kslice_set_addr(void *p);
+void kslice_clear_addr(void *p);
 void k16slice_clear(int s);
 void k16slice_clear_addr(void *p);
 void k16slice_not(int s);

@@ -271,6 +271,12 @@ void kslice_set_addr(void *p)
   run_threaded(set_worker, work_cl);
 }
 
+void kslice_clear_addr(void *p)
+{
+  work_p = p;
+  run_threaded(clear_worker, work_cl);
+}
+
 void k16slice_set_addr(void *p)
 {
   work_p = p;

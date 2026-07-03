@@ -30,7 +30,7 @@ const char side[2][8] = { "white", "black" };
 
 static uint64_t capt_cnt[2][5], sub_cnt[2][5];
 static uint64_t psub_cnt[5], pcapt_cnt[5], pawn_cnt[5];
-static uint8_t *merged_table, *merged_table2;
+static uint8_t *merged_table, *merged_table2, *wdl_pk_table;
 
 static void k16slice_read_addr(void *p, int slice, int stm, const char *name,
     int n);
@@ -1684,29 +1684,28 @@ static uint64_t depermute_pawn_trivial_idx(struct IdxState *is,
 
 INLINE void store_wdl(uint64_t idx, uint8_t *restrict tmp, int v)
 {
-  uint64_t *p[5];
-  for (int i = 0; i < 5; i++)
-    p[i] = (uint64_t *)(k16slice_buf[i] + work_k16_offset);
+  uint64_t **const p = (uint64_t **)k16slice_buf;
 
   tmp[idx & 63] = v;
   if ((idx & 63) == 63) {
+    uint64_t widx = (work_k16_offset >> 3) + (idx >> 6);
 #ifdef __AVX512BW__
     __m512i x = _mm512_load_si512((__m512i *)tmp);
-    p[0][idx >> 6] = _mm512_cmpeq_epu8_mask(x, _mm512_set1_epi8(0));
-    p[1][idx >> 6] = _mm512_cmpeq_epu8_mask(x, _mm512_set1_epi8(1));
-    p[2][idx >> 6] = _mm512_cmpeq_epu8_mask(x, _mm512_set1_epi8(2));
-    p[3][idx >> 6] = _mm512_cmpeq_epu8_mask(x, _mm512_set1_epi8(3));
-    p[4][idx >> 6] = _mm512_cmpeq_epu8_mask(x, _mm512_set1_epi8(4));
+    p[0][widx] = _mm512_cmpeq_epu8_mask(x, _mm512_set1_epi8(0));
+    p[1][widx] = _mm512_cmpeq_epu8_mask(x, _mm512_set1_epi8(1));
+    p[2][widx] = _mm512_cmpeq_epu8_mask(x, _mm512_set1_epi8(2));
+    p[3][widx] = _mm512_cmpeq_epu8_mask(x, _mm512_set1_epi8(3));
+    p[4][widx] = _mm512_cmpeq_epu8_mask(x, _mm512_set1_epi8(4));
 #else
     uint64_t w[5] = { 0 };
     for (int k = 0; k < 64; k++)
       if (tmp[k] < 5)
         w[tmp[k]] |= 1ULL << k;
-    p[0][idx >> 6] = w[0];
-    p[1][idx >> 6] = w[1];
-    p[2][idx >> 6] = w[2];
-    p[3][idx >> 6] = w[3];
-    p[4][idx >> 6] = w[4];
+    p[0][widx] = w[0];
+    p[1][widx] = w[1];
+    p[2][widx] = w[2];
+    p[3][widx] = w[3];
+    p[4][widx] = w[4];
 #endif
   }
 }
@@ -1897,10 +1896,11 @@ static void decompress_kslice_wdl_p(struct Tbase *tb, int stm, int q)
         continue;
       work_k16_offset = k16offset(g_slice.sq);
       if (const_value >= 0) {
-        kslice_set_addr(k16slice_buf[const_value] + work_k16_offset);
         for (int i = 0; i < 5; i++)
-          if (i != const_value)
-            memset(k16slice_buf[i] + work_k16_offset, 0, kslice_alloc_size);
+          if (i == const_value)
+            kslice_set_addr(k16slice_buf[i] + work_k16_offset);
+          else
+            kslice_clear_addr(k16slice_buf[i] + work_k16_offset);
       } else
         run_threaded(depermute_wdl_pawn_worker, &work_g_static);
     }
@@ -1908,8 +1908,79 @@ static void decompress_kslice_wdl_p(struct Tbase *tb, int stm, int q)
   }
 }
 
-static void fill_wdl_pk_kslice(struct Tbase *tb, int stm, int q,
-    int ksq)
+static void depermute_wdl_pk_byte_worker(struct ThreadData *thread)
+{
+  const uint8_t *restrict src = tb_table;
+  uint8_t *restrict dst = wdl_pk_table;
+  const struct RankInfo *map_ri = &tb_ri[g_slice.stm];
+  const struct RankInfo *dst_ri = &ri;
+  struct RankInfo rank_ri;
+  struct IdxState is;
+
+  uint64_t idx_dec_buf[NUM];
+
+  init_perm_rank_pawn(&rank_ri, table_info, map_ri);
+  idx_state_init(&is, thread->begin, g_slice.sq, dst_ri, false);
+
+  uint64_t idx = thread->begin, end = thread->end;
+  int fill = 0;
+  int head = 0;
+
+  for (; fill < NUM && idx < end;
+      fill++, idx++, idx_state_inc(&is, dst_ri)) {
+    uint64_t idx_dec = depermute_pawn_trivial_idx(&is, table_info);
+    __builtin_prefetch(src + idx_dec, 0, 3);
+    idx_dec_buf[fill] = idx_dec;
+  }
+
+  for (; idx < end; idx++, idx_state_inc(&is, dst_ri)) {
+    uint64_t idx_dec = depermute_pawn_trivial_idx(&is, table_info);
+    __builtin_prefetch(src + idx_dec, 0, 3);
+    dst[idx - NUM] = src[idx_dec_buf[head]];
+    idx_dec_buf[head] = idx_dec;
+    head = (head + 1) & (NUM - 1);
+  }
+
+  for (uint64_t out = idx - fill; fill-- > 0; out++) {
+    dst[out] = src[idx_dec_buf[head]];
+    head = (head + 1) & (NUM - 1);
+  }
+}
+
+static void split_wdl_pk_byte_worker(struct ThreadData *thread)
+{
+  alignas(64) uint8_t tmp[64];
+  uint64_t idx = thread->begin, end = thread->end;
+
+  for (; idx < end; idx++)
+    store_wdl(idx, tmp, wdl_pk_table[idx]);
+  for (; idx & 0x3f; idx++)
+    store_wdl(idx, tmp, 0);
+}
+
+static int calc_wdl_pk_pairs(int stm, int psq, bool pair[64][64])
+{
+  memset(pair, 0, 64 * 64 * sizeof pair[0][0]);
+
+  int count = 0;
+  g_slice.sq[2] = psq;
+  g_slice.stm = stm;
+  for (int s = 0; s < 240; s++)
+    for (int r = 0; r < 16; r++) {
+      g_slice.sq[0] = KK16Square[s][r][0];
+      g_slice.sq[1] = KK16Square[s][r][1];
+      if (is_broken(&g_slice))
+        continue;
+      if (!pair[g_slice.sq[WHITE]][g_slice.sq[BLACK]]) {
+        pair[g_slice.sq[WHITE]][g_slice.sq[BLACK]] = true;
+        count++;
+      }
+    }
+  return count;
+}
+
+static void write_wdl_pk_kslices(struct Tbase *tb, int stm, int q, int ksq,
+    bool pair[64][64], int *num_done, int num_total)
 {
   int psq = InvPawnFlip[0][q];
   int tsq = q * 63 + ksq - (ksq > psq);
@@ -1918,27 +1989,107 @@ static void fill_wdl_pk_kslice(struct Tbase *tb, int stm, int q,
     tb->table[t] = init_new_table(tb, g_pos.num, WDL, t, tsq);
   struct TbTable2 *table = tb->table[t];
 
-  int const_value = -1;
-  if (!table->precomp) {
+  bool is_const = !table->precomp;
+  if (is_const) {
     struct TbTableConst *tbl = (struct TbTableConst *)table;
-    const_value = tbl->const_value;
+    memset(wdl_pk_table, tbl->const_value, kslice_size);
   } else {
     decompress_table(table, tb_table, 62 * kslice_size);
     table_info = table;
   }
 
-  g_slice.sq[2] = psq;
-  g_slice.sq[stm] = ksq;
-  g_slice.stm = stm;
-  work_pk_layout = true;
-  work_k16_offset = k16offset(g_slice.sq);
-  if (const_value >= 0) {
-    kslice_set_addr(k16slice_buf[const_value] + work_k16_offset);
+  for (int other = 0; other < 64; other++) {
+    int wk = stm == WHITE ? ksq : other;
+    int bk = stm == WHITE ? other : ksq;
+    if (!pair[wk][bk])
+      continue;
+
+    show_progress("depermuting WDL PK slices", (*num_done)++, num_total,
+        false);
+
+    g_slice.sq[2] = psq;
+    g_slice.sq[WHITE] = wk;
+    g_slice.sq[BLACK] = bk;
+    g_slice.stm = stm;
+    work_pk_layout = true;
+    if (!is_const)
+      run_threaded(depermute_wdl_pk_byte_worker, &work_g_static);
+
+    char str[64];
+    create_name_sq(str, wk, bk, stm, "wdl_pk", -1);
+    FILE *F = file_open_write(str);
+    write_data(F, wdl_pk_table, kslice_size);
+    fclose(F);
+    file_rename(str);
+  }
+}
+
+static void read_wdl_pk_kslice(int stm, int wk, int bk)
+{
+  char str[64];
+  create_name_sq(str, wk, bk, stm, "wdl_pk", -1);
+  FILE *F = fopen(str, "rb");
+  if (!F) {
+    fprintf(stderr, "Could not open %s for reading.\n", str);
+    exit(EXIT_FAILURE);
+  }
+  read_data(F, wdl_pk_table, kslice_size);
+  fclose(F);
+}
+
+static void remove_wdl_pk_kslice(int stm, int wk, int bk)
+{
+  char str[64];
+  create_name_sq(str, wk, bk, stm, "wdl_pk", -1);
+  if (unlink(str) != 0) {
+    fprintf(stderr, "Could not remove %s.\n", str);
+    exit(EXIT_FAILURE);
+  }
+}
+
+static void decompress_kslice_wdl_pk(struct Tbase *tb, int stm, int q,
+    const char *phase)
+{
+  int psq = InvPawnFlip[0][q];
+  bool pair[64][64];
+
+  int num_total = calc_wdl_pk_pairs(stm, psq, pair);
+  create_dir(-1, stm, "wdl_pk");
+
+  int num_done = 0;
+  for (int ksq = 0; ksq < 64; ksq++) {
+    if (ksq == psq)
+      continue;
+    write_wdl_pk_kslices(tb, stm, q, ksq, pair, &num_done, num_total);
+  }
+  show_progress("depermuting WDL PK slices", num_total, num_total, true);
+
+  num_done = 0;
+  for (int s = 0; s < 240; s++) {
+    show_progress(phase, num_done++, 240, false);
     for (int i = 0; i < 5; i++)
-      if (i != const_value)
-        memset(k16slice_buf[i] + work_k16_offset, 0, kslice_alloc_size);
-  } else
-    run_threaded(depermute_wdl_pawn_worker, &work_g_static);
+      k16slice_clear_addr(k16slice_buf[i]);
+
+    for (int r = 0; r < 16; r++) {
+      g_slice.sq[0] = KK16Square[s][r][0];
+      g_slice.sq[1] = KK16Square[s][r][1];
+      g_slice.sq[2] = psq;
+      g_slice.stm = stm;
+      if (is_broken(&g_slice))
+        continue;
+
+      work_k16_offset = k16offset(g_slice.sq);
+      read_wdl_pk_kslice(stm, g_slice.sq[WHITE], g_slice.sq[BLACK]);
+      run_threaded(split_wdl_pk_byte_worker, &work_g_static);
+      remove_wdl_pk_kslice(stm, g_slice.sq[WHITE], g_slice.sq[BLACK]);
+    }
+    finish_wdl_kslice(stm, s);
+  }
+  show_progress(phase, 240, 240, true);
+
+  char str[16];
+  sprintf(str, "wdl_pk/%c", "wb"[stm]);
+  rmdir(str);
 }
 
 static void depermute_dtz_pawn_worker(struct ThreadData *thread)
@@ -2231,6 +2382,11 @@ void verify(void)
   uint8_t *wdl_tb_table = alloc_huge((wdl_table_size + 63) & ~0x3f);
   if (!wdl_tb_table)
     out_of_mem();
+  if (wdl_tb->layout == LT_PAWN_PK) {
+    wdl_pk_table = alloc_huge((kslice_size + 63) & ~0x3f);
+    if (!wdl_pk_table)
+      out_of_mem();
+  }
 
   size_t dtz_tb_table_size = dtz_tb->layout == LT_PAWN_P
                            ? 63 * 62 * kslice_size
@@ -2306,31 +2462,14 @@ void verify(void)
         decompress_kslice_wdl_p(wdl_tb, stm, q);
         show_progress(phase, 1, 1, true);
       } else {
-        int num_done = 0;
-        int psq = InvPawnFlip[0][q];
-        for (int s = 0; s < 240; s++) {
-          show_progress(phase, num_done++, 240, false);
-          for (int i = 0; i < 5; i++)
-            k16slice_clear_addr(k16slice_buf[i]);
-
-          for (int r = 0; r < 16; r++) {
-            g_slice.sq[0] = KK16Square[s][r][0];
-            g_slice.sq[1] = KK16Square[s][r][1];
-            g_slice.sq[2] = psq;
-            g_slice.stm = stm;
-            if (is_broken(&g_slice))
-              continue;
-            int ksq = g_slice.sq[stm];
-            fill_wdl_pk_kslice(wdl_tb, stm, q, ksq);
-          }
-          finish_wdl_kslice(stm, s);
-        }
-        show_progress(phase, 240, 240, true);
+        decompress_kslice_wdl_pk(wdl_tb, stm, q, phase);
       }
 
       for (int i = 4; i >= 0; i--)
         printf("wdl_cnt[%d][%d] = %lu\n", stm, i, wdl_cnt[stm][i]);
     }
+    if (wdl_tb->layout == LT_PAWN_PK)
+      rmdir("wdl_pk");
 
     // Allocate memory for the K-slice bitmaps we released earlier.
     for (int i = 7; i < 12; i++)
