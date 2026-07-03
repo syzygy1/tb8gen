@@ -323,6 +323,8 @@ int main(int argc, char **argv)
     collect_stats(WHITE);
     collect_stats(BLACK);
 
+    calc_partial_stats_checksum(q, g_stats);
+
     fprintf(stdout, "\n########## %s - %s ##########\n", g_tablename,
         pawnstr[q]);
     print_stats(stdout, WHITE);

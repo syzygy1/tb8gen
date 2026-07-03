@@ -20,6 +20,8 @@
 #ifdef HAS_PAWNS
 #include "generatep.h"
 #include "kslicep.h"
+
+XXH128_hash_t dtz_partial_checksum[24];
 #endif
 
 uint64_t g_stats[2][MAX_STATS];
@@ -207,6 +209,34 @@ XXH128_hash_t freq_to_hash(int n, uint64_t *f0, uint64_t *f1, uint64_t *f2,
   return XXH3_128bits(v, 32 * n);
 }
 
+// Stats of the values actually stored in the compressed DTZ table.
+static XXH128_hash_t calc_stored_dtz_checksum(uint64_t stats[2][MAX_STATS])
+{
+  uint64_t freq[2][2][MAX_VAL + DRAW_RULE];
+  stats_to_freq(stats[0], freq[0]);
+  stats_to_freq(stats[1], freq[1]);
+
+  if (one_sided) {
+    memset(freq[one_sided_stm ^ 1], 0, 16 * (MAX_VAL + DRAW_RULE));
+  }
+  else if (wins_only) {
+    memset(freq[0][1], 0, 8 * (MAX_VAL + DRAW_RULE));
+    memset(freq[1][1], 0, 8 * (MAX_VAL + DRAW_RULE));
+  }
+  else {
+    memset(freq[0][0], 0, 8 * (MAX_VAL + DRAW_RULE));
+    memset(freq[1][0], 0, 8 * (MAX_VAL + DRAW_RULE));
+  }
+
+  return freq_to_hash(MAX_VAL + DRAW_RULE, freq[0][0], freq[0][1], freq[1][0],
+      freq[1][1]);
+}
+
+void calc_partial_stats_checksum(int q, uint64_t stats[2][MAX_STATS])
+{
+  dtz_partial_checksum[q] = calc_stored_dtz_checksum(stats);
+}
+
 void calc_stats_checksums(void)
 {
   // WDL counts.
@@ -237,20 +267,11 @@ void calc_stats_checksums(void)
   stats_to_freq(g_stats[0], freq[0]);
   stats_to_freq(g_stats[1], freq[1]);
 
-  if (one_sided) {
-    memset(freq[one_sided_stm ^ 1], 0, 16 * (MAX_VAL + DRAW_RULE));
-  }
-  else if (wins_only) {
-    memset(freq[0][1], 0, 8 * (MAX_VAL + DRAW_RULE));
-    memset(freq[1][1], 0, 8 * (MAX_VAL + DRAW_RULE));
-  }
-  else {
-    memset(freq[0][0], 0, 8 * (MAX_VAL + DRAW_RULE));
-    memset(freq[1][0], 0, 8 * (MAX_VAL + DRAW_RULE));
-  }
-
-  dtz_checksum[1] = freq_to_hash(MAX_VAL + DRAW_RULE, freq[0][0], freq[0][1],
-      freq[1][0], freq[1][1]);
+#ifndef HAS_PAWNS
+  dtz_checksum[1] = calc_stored_dtz_checksum(g_stats);
+#else
+  dtz_checksum[1] = XXH3_128bits(dtz_partial_checksum, 24 * 16);
+#endif
 }
 
 // calculate DTZ entropy

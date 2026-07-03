@@ -2102,6 +2102,7 @@ int probe_wdl_helper(Position *pos, bool *capture_is_best)
         } else {
           int l = i == pos->num ? j : i;
           pos->pt[l] += QUEEN - PAWN;
+          v = -2;
           for (int k = 0; k < 4; k++, pos->pt[l]--)
             if (v < 2)
               v = max(v, -probe_wdl(pos, -2, -best_cap));
@@ -2324,7 +2325,7 @@ int probe_dtz_helper(Position *pos, int wdl)
           int v;
           if (rank18(to)) {
             pos->pt[i] += QUEEN - PAWN;
-            int v = -2;
+            v = -2;
             for (int k = 0; k < 4; k++, pos->pt[i]--)
               if (v < wdl)
                 v = max(v, -probe_wdl(pos, -2, -v));

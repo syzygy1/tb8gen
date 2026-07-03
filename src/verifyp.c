@@ -383,8 +383,8 @@ static void calc_psub_kslices(void)
 
     uint64_t c[5];
 
-    if (k16slice_sub_test_count(s, WHITE, name[4], -1, &c[0])) {
-      for (int i = 0; i < 5; i++)
+    if (k16slice_sub_test_count(s, WHITE, name[4], -1, &c[4])) {
+      for (int i = 0; i < 4; i++)
         k16slice_sub_test_count(s, WHITE, name[i], -1, &c[i]);
     } else {
       for (int i = 0; i < 5; i++)
@@ -599,9 +599,6 @@ static void calc_king_captures_pawn(int s, int lower, int upper)
 
 static void calc_capt(int stm, int wdl)
 {
-  if (!sub_cnt[stm ^ 1][2 - wdl])
-    return;
-
   char capt_name[32], pcapt_name[32], sub_name[32], psub_name[32];
   strcat(strcpy(capt_name, "capt/" ), wdl_name[2 + wdl]);
   strcat(strcpy(pcapt_name, "pcapt/"), wdl_name[2 + wdl]);
@@ -1201,6 +1198,7 @@ static bool check_dtz_W101(struct IdxState *is, Bitboard occ)
   pos.sq[2] = g_slice.sq[2];
   pos.stm = g_slice.stm;
   pos.occ = occ;
+  idx_state_to_sq(is, pos.sq, &ri);
 
   // First check that the position has dtz == 101.
   if (probe_dtz(&pos) != DRAW_RULE + 1)
@@ -1239,29 +1237,28 @@ static bool check_dtz_L101(struct IdxState *is, Bitboard occ)
   pos.sq[2] = g_slice.sq[2];
   pos.stm = g_slice.stm;
   pos.occ = occ;
+  idx_state_to_sq(is, pos.sq, &ri);
 
   // First check that the position has dtz == -101.
   if (probe_dtz(&pos) != -DRAW_RULE - 1)
     return false;
 
-  // Now check that the best quiet move reaches dtz == 100.
+  // We already found out that all quiet moves are losing,
+  // i.e. they result in a win for the other side.
+  // We must now check that there is one that gives dtz == 100.
   bool pos_ok = false;
   for (int i = 0; i < pos.num; i++) {
-    if ((pos.pt[i] >> 3) != pos.stm) continue;
+    if ((pos.pt[i] >> 3) != pos.stm || (pos.pt[i] & 7) == PAWN) continue;
     int from = pos.sq[i];
     Bitboard b = piece_moves(pos.pt[i], from, pos.occ);
     while (b) {
       int to = pop_lsb(&b);
       if (do_move(&pos, from, to, i)) {
         bool capture_is_best;
-        int dtz, wdl = probe_wdl_helper(&pos, &capture_is_best);
-        if (wdl != 2)
-          return false;
-        if (!capture_is_best)
-          dtz = probe_dtz_helper(&pos, wdl);
-        undo_move(&pos, from, to, i);
-        if (dtz == DRAW_RULE)
+        int wdl = probe_wdl_helper(&pos, &capture_is_best);
+        if (!capture_is_best && probe_dtz_helper(&pos, wdl) == DRAW_RULE)
           pos_ok = true;
+        undo_move(&pos, from, to, i);
       }
     }
   }
@@ -1646,22 +1643,6 @@ static void init_perm_rank_pawn(struct RankInfo *rank_ri,
   }
 }
 
-static uint64_t depermute_pawn_idx(struct IdxState *is,
-    const struct RankInfo *rank_ri)
-{
-  alignas(64) Bitboard bb[8];
-  for (int k = 0; k <= ri.numsets; k++)
-    bb[k] = is->bb[k];
-
-  bb[0] = bit(g_slice.sq[2]);
-  if (work_pk_layout)
-    bb[0] |= bit(g_slice.sq[g_slice.stm]);
-  bb[ri.numsets + 1] = bit(g_slice.sq[0]);
-  bb[ri.numsets + 2] = bit(g_slice.sq[1]);
-
-  return perm_rank_bb(bb, rank_ri);
-}
-
 static void table_squares_from_idx_state(uint8_t sq[MAX_PIECES],
     struct IdxState *is)
 {
@@ -1699,26 +1680,6 @@ static uint64_t depermute_pawn_trivial_idx(struct IdxState *is,
   }
 
   return rank_trivial_from(sq, 0, occ, table->first, table->ri);
-}
-
-static int pawn_pk_tsq(int q)
-{
-  int stm = g_slice.stm;
-  uint8_t mirror = flip[stm] ? 0x38 : 0x00;
-  int p0 = g_slice.sq[flip[stm] ? BLACK : WHITE] ^ mirror;
-  int p1 = g_slice.sq[flip[stm] ? WHITE : BLACK] ^ mirror;
-  int psq = g_slice.sq[2] ^ mirror;
-
-  if (psq & 0x04) {
-    p0 ^= 0x07;
-    p1 ^= 0x07;
-    psq ^= 0x07;
-  }
-  if (btm_side[stm])
-    Swap(p0, p1);
-
-  assert(PawnFlip[0][psq] == q);
-  return q * 63 + p0 - (p0 > psq);
 }
 
 INLINE void store_wdl(uint64_t idx, uint8_t *restrict tmp, int v)
@@ -2020,11 +1981,27 @@ static void depermute_dtz_pawn_worker(struct ThreadData *thread)
   }
 }
 
-static bool dtz_stored[2][5];
 static uint16_t freq_map[MAX_VAL];
 static uint64_t (*dtz_freq)[2][2][MAX_VAL + DRAW_RULE];
 static int win_loss;
 static struct DtzTable2 unmapped_dtz_table;
+
+static void calc_partial_dtz_checksum(int q)
+{
+  uint64_t freq[2][2][MAX_VAL + DRAW_RULE] = { 0 };
+
+  for (int t = 0; t < g_num_threads; t++)
+    for (int stm = 0; stm < 2; stm++)
+      for (int wl = 0; wl < 2; wl++)
+        for (int i = 0; i < MAX_VAL + DRAW_RULE; i++)
+          freq[stm][wl][i] += dtz_freq[t][stm][wl][i];
+
+  if (symmetric)
+    memcpy(freq[1], freq[0], sizeof freq[1]);
+
+  dtz_partial_checksum[q] = freq_to_hash(MAX_VAL + DRAW_RULE, freq[0][0],
+      freq[0][1], freq[1][0], freq[1][1]);
+}
 
 static void update_stats_worker(struct ThreadData *thread)
 {
@@ -2047,6 +2024,16 @@ static void update_dtz_stats(struct DtzTable2 *table, int stm, int s)
 {
   static constexpr int WdlToMap[5] = { 1, 3, 0, 2, 0 };
   static constexpr int offset[4] = { 0, 0, 100, 100 };
+  bool dtz_stored[5] = { false };
+
+  if (!(table->dist_format & WIN_OR_LOSS)) {
+    dtz_stored[0] = dtz_stored[1] = true;
+    dtz_stored[3] = dtz_stored[4] = true;
+  } else if (table->dist_format & WIN_ONLY) {
+    dtz_stored[3] = dtz_stored[4] = true;
+  } else {
+    dtz_stored[0] = dtz_stored[1] = true;
+  }
 
   int bound[4] = { 0 };
   switch (table->mapped) {
@@ -2067,7 +2054,7 @@ static void update_dtz_stats(struct DtzTable2 *table, int stm, int s)
   }
 
   for (int i = 0; i < 5; i++) {
-    if (!dtz_stored[stm][i])
+    if (!dtz_stored[i])
       continue;
     k16slice_read_addr(k16slice_buf[0], s, stm, wdl_name[i], -1);
     if (i == 3 || i == 4) {
@@ -2105,7 +2092,7 @@ static void update_dtz_stats(struct DtzTable2 *table, int stm, int s)
 static void decompress_kslice_dtz_p(struct Tbase *tb, int stm, int q)
 {
   int psq = InvPawnFlip[0][q];
-  int t = (tb->dist_format & TWO_SIDED) ? 2 * q + btm_side[stm] : q;
+  int t = !symmetric ? 2 * q + btm_side[stm] : q;
   if (!tb->table[t])
     tb->table[t] = init_new_table(tb, g_pos.num, DTZ, t, q);
   struct DtzTable2 *table = tb->table[t];
@@ -2116,6 +2103,8 @@ static void decompress_kslice_dtz_p(struct Tbase *tb, int stm, int q)
   if (!table->precomp) {
     struct TbTableConst *tbl = (struct TbTableConst *)table;
     const_value = tbl->const_value;
+    unmapped_dtz_table.mapped = 0;
+    unmapped_dtz_table.dist_format = tbl->dist_format;
     table = &unmapped_dtz_table;
   } else {
     decompress_table((struct TbTable2 *)table, tb_table,
@@ -2152,7 +2141,7 @@ static void decompress_kslice_dtz_pk(struct Tbase *tb, int stm, int q,
 {
   int psq = InvPawnFlip[0][q];
   int tsq = q * 63 + ksq - (ksq > psq);
-  int t = (tb->dist_format & TWO_SIDED) ? 2 * tsq + btm_side[stm] : tsq;
+  int t = !symmetric ? 2 * tsq + btm_side[stm] : tsq;
   if (!tb->table[t])
     tb->table[t] = init_new_table(tb, g_pos.num, DTZ, t, tsq);
   struct DtzTable2 *table = tb->table[t];
@@ -2163,6 +2152,8 @@ static void decompress_kslice_dtz_pk(struct Tbase *tb, int stm, int q,
   if (!table->precomp) {
     struct TbTableConst *tbl = (struct TbTableConst *)table;
     const_value = tbl->const_value;
+    unmapped_dtz_table.mapped = 0;
+    unmapped_dtz_table.dist_format = tbl->dist_format;
     table = &unmapped_dtz_table;
   } else {
     decompress_table((struct TbTable2 *)table, tb_table, 62 * kslice_size);
@@ -2249,32 +2240,6 @@ void verify(void)
   if (!dtz_tb_table || !dtz_table)
     out_of_mem();
 
-  bool one_sided = dtz_tb->dist_format & WTM_OR_BTM;
-  int one_sided_stm = (dtz_tb->dist_format & WTM_ONLY) ? WHITE : BLACK;
-  bool wins_only = dtz_tb->dist_format & WIN_ONLY;
-  bool has_stm[2] = {
-    !one_sided || one_sided_stm == WHITE,
-    !symmetric && (!one_sided || one_sided_stm == BLACK)
-  };
-
-  memset(dtz_stored, 0, sizeof dtz_stored);
-  printf("DTZ format: ");
-  if (one_sided) {
-    printf("%s to move only\n", side[one_sided_stm]);
-    dtz_stored[one_sided_stm][0] = dtz_stored[one_sided_stm][1] = true;
-    dtz_stored[one_sided_stm][3] = dtz_stored[one_sided_stm][4] = true;
-  }
-  else if (wins_only) {
-    printf("wins only\n");
-    dtz_stored[WHITE][3] = dtz_stored[WHITE][4] = true;
-    dtz_stored[BLACK][3] = dtz_stored[BLACK][4] = true;
-  }
-  else {
-    printf("losses only\n");
-    dtz_stored[WHITE][0] = dtz_stored[WHITE][1] = true;
-    dtz_stored[BLACK][0] = dtz_stored[BLACK][1] = true;
-  }
-
   dtz_freq = alloc_aligned(g_num_threads * sizeof *dtz_freq, 64);
   memset(dtz_freq, 0, g_num_threads * sizeof *dtz_freq);
 
@@ -2349,9 +2314,9 @@ void verify(void)
             k16slice_clear_addr(k16slice_buf[i]);
 
           for (int r = 0; r < 16; r++) {
-            g_slice.sq[2] = psq;
             g_slice.sq[0] = KK16Square[s][r][0];
             g_slice.sq[1] = KK16Square[s][r][1];
+            g_slice.sq[2] = psq;
             g_slice.stm = stm;
             if (is_broken(&g_slice))
               continue;
@@ -2430,12 +2395,12 @@ void verify(void)
       }
     }
 
-    int num_total = (dtz_tb->layout == LT_PAWN_P ? 1 : 63)
-      * (has_stm[WHITE] + has_stm[BLACK]);
+    int num_stm = symmetric ? 1 : 2;
+    int num_total = (dtz_tb->layout == LT_PAWN_P ? 1 : 63) * num_stm;
     int num_done = 0;
+    memset(dtz_freq, 0, g_num_threads * sizeof *dtz_freq);
     if (dtz_tb->layout == LT_PAWN_P) {
-      for (int stm = 0; stm < 2; stm++) {
-        if (!has_stm[stm]) continue;
+      for (int stm = 0; stm < num_stm; stm++) {
         show_progress("loading DTZ slices", num_done++, num_total, false);
         decompress_kslice_dtz_p(dtz_tb, stm, q);
       }
@@ -2443,14 +2408,14 @@ void verify(void)
       int psq = InvPawnFlip[0][q];
       for (int ksq = 0; ksq < 64; ksq++) {
         if (ksq == psq) continue;
-        for (int stm = 0; stm < 2; stm++) {
-          if (!has_stm[stm]) continue;
+        for (int stm = 0; stm < num_stm; stm++) {
           show_progress("loading DTZ slices", num_done++, num_total, false);
           decompress_kslice_dtz_pk(dtz_tb, stm, q, ksq);
         }
       }
     }
     show_progress("loading DTZ slices", num_total, num_total, true);
+    calc_partial_dtz_checksum(q);
 
     tb_table = wdl_tb_table;
     change_dir("..");
@@ -2475,18 +2440,7 @@ void verify(void)
   kslice_free_buffers();
   mtx_destroy(&report_mutex);
 
-  uint64_t freq[2][2][MAX_VAL + DRAW_RULE] = { 0 };
-  for (int t = 0; t < g_num_threads; t++)
-    for (int stm = 0; stm < 2; stm++)
-      for (int wl = 0; wl < 2; wl++)
-        for (int i = 0; i < MAX_VAL + DRAW_RULE; i++)
-          freq[stm][wl][i] += dtz_freq[t][stm][wl][i];
-
-  if (symmetric)
-    memcpy(freq[1], freq[0], sizeof freq[1]);
-
-  XXH128_hash_t dtz_checksum = freq_to_hash(MAX_VAL + DRAW_RULE,
-      freq[0][0], freq[0][1], freq[1][0], freq[1][1]);
+  XXH128_hash_t dtz_checksum = XXH3_128bits(dtz_partial_checksum, 24 * 16);
 
   p = (uint64_t *)((uint8_t *)dtz_tb->data + 20);
   table_is_ok = memcmp(&dtz_checksum, p, 16) == 0;
@@ -2535,8 +2489,11 @@ void verify(void)
     char what[8];
 
     if (sscanf(line, "%lu positions %7s in %u ply.", &n, what, &ply) != 3) {
-      if (sscanf(line, "%lu (%lu) positions %7s in %u ply.", &n, &dummy, what,
-            &ply) != 4)
+      uint64_t dummy2;
+      if (sscanf(line, "%lu (%lu) positions %7s in %u ply.", &n, &dummy,
+            what, &ply) != 4
+          && sscanf(line, "%lu (%lu,%lu) positions %7s in %u ply.", &n,
+            &dummy, &dummy2, what, &ply) != 5)
         continue;
     }
 
@@ -2551,7 +2508,7 @@ void verify(void)
     if (ply >= MAX_STATS / 2)
       break;
 
-    stats[stm][wl][ply] = n;
+    stats[stm ^ flipped][wl][ply] = n;
   }
   fclose(F);
 
