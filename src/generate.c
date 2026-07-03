@@ -265,16 +265,6 @@ INLINE bool check_moves(int stm, const int pc, int s,
     Bitboard b = piece_attacks(pc, lsb(from_bb), occ);
 
     if (check_captures) {
-      // FIXME: figure out how best to filter out illegal capture moves.
-      // - full legality check? slow...
-      // - ensure that illegal positions in subtables are marked as
-      //   wins for the opponent side.
-      // - do "smart" legality check?
-      //   - probably too much work
-      //   - if not in check, then capture is fine if not pinned or along
-      //     pinning ray.
-      //   - otherwise need to capture (sole) checking piece.
-      //   - probably don't want this.
       Bitboard attacks = b & occ & ~is->bb[0];
       while (attacks) {
         Bitboard to_bb = attacks & -attacks;
@@ -1285,8 +1275,8 @@ static bool calc_L_forward(int stm, int n)
     }
     cnt += num;
 
-    while (kslice_iter_out(&iter, &s))
-      kslice_delete(s, stm, "X", n);
+    kslice_delete(s, stm, "X", n);
+    while (kslice_iter_out(&iter, &s));
   }
 
   g_stats[stm][MAX_STATS - 1 - n] = cnt;
@@ -1439,14 +1429,14 @@ skip_X:
         read_wins(s1, s1, stm ^ 1, n - 1);
         if (!nonsparse)
           kslice_sub_read(s1, s1, stm ^ 1,
-              n <= DRAW_RULE || !sub_cnt[stm ^ 1][3] ? "sub/win" : "sub/cwin");
+              n <= DRAW_RULE ? "sub/win" : "sub/cwin");
       }
 
       if (nonsparse) {
-        read_wins(-1, s, stm, n - 1);
-        kslice_read_or(-1, s, stm, n <= DRAW_RULE ? "noloss" : "nobloss", -1);
-        kslice_not(-1, s);
-        kslice_read_and(-1, s, stm, "X", n);
+        kslice_read(-1, s, stm, "X", n);
+        read_wins_andnot(-1, s, stm, n - 1);
+        kslice_read_andnot(-1, s, stm, n <= DRAW_RULE ? "noloss" : "nobloss",
+            -1);
         cnt += num = check_losses_fast(stm, s);
       } else {
         kslice_read(-1, s, stm, "X", n);
@@ -1456,8 +1446,8 @@ skip_X:
     } else if (partial && kslice_test_count(s, stm, "L", n, &num))
       cnt += num;
 
-    while (kslice_iter_out(&iter, &s))
-      kslice_delete(s, stm, "X", n);
+    kslice_delete(s, stm, "X", n);
+    while (kslice_iter_out(&iter, &s));
   }
 
   g_stats[stm][MAX_STATS - 1 - n] = cnt;
@@ -1726,7 +1716,7 @@ void generate(void)
     uint64_t total = 0;
     for (int i = 0; i < MAX_STATS; i++)
       total += g_stats[stm][i];
-    g_stats[stm][MAX_STATS / 2 + 2] = 462 * kslice_size - total;
+    g_stats[stm][MAX_STATS / 2 + 2] = total_positions() - total;
   }
 
   F = file_open_write("generate_info");
@@ -1749,7 +1739,7 @@ void delete_intermediate_slices(void)
   }
 
   if (file_exists("sub")) {
-    for (int i = 0; i < 5; i++) {
+    for (int i = 0; i < 7; i++) {
       if (i == 2)
         continue;
       char name[64];
@@ -1786,4 +1776,6 @@ void cleanup_generation(void)
     delete_dir(-1, dir);
   }
   delete_dir(-1, "capt");
+  delete_dir(-1, "nobloss");
+  delete_dir(-1, "noloss");
 }

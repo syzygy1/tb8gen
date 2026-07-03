@@ -148,8 +148,9 @@ void delete_bitmaps(int stm, int s)
   }
   kslice_delete(s, stm, "capt/win", -1);
   kslice_delete(s, stm, "capt/cwin", -1);
-  kslice_delete(s, stm, "capt/draw", -1);
   kslice_delete(s, stm, "capt/bloss", -1);
+  kslice_delete(s, stm, "nobloss", -1);
+  kslice_delete(s, stm, "noloss", -1);
 }
 
 void merge(int stm)

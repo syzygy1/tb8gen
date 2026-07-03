@@ -17,7 +17,7 @@ static void NAME(convert_data_piece)(struct ThreadData *thread)
 
   uint64_t idx_dec_buf[NUM];
 
-  int stm = g_pos.stm;
+  int stm = g_slice.stm;
 
   init_source_rank_ri_10(&rank_ri, perm_ii);
   p10_idx_state_init(&is, thread->begin, perm_ii, stm);
@@ -64,7 +64,7 @@ static void NAME(convert_est_data_piece)(struct ThreadData *thread)
 
   uint64_t idx_dec_buf[NUM];
 
-  int stm = g_pos.stm;
+  int stm = g_slice.stm;
 
   for (int p = 0; p < num_cands; p++) {
     init_source_rank_ri_10(&rank_ri, &try_ii[p]);

@@ -248,7 +248,7 @@ static void join_wdl(int stm, struct tb_handle *G)
 
   bool v_wdl[5];
   prepare_wdl_map(g_stats[stm], v_wdl, has_capt_bloss);
-  compress_init_wdl(mi.v_wdl);
+  compress_init_wdl(v_wdl);
 
   uint8_t best[MAX_PIECES];
   printf("Find optimal permutation for %ctm/wdl.\n", "wb"[stm]);

@@ -1735,10 +1735,26 @@ void create_material_string(Position *pos, char str[16], bool flip)
 
 [[noreturn]] NOINLINE static void probe_failed(Position *pos, int type)
 {
-  char str[16];
-
   LOCK(fail_mutex);
-  create_material_string(pos, str, false);
+
+  int cnt_side[2] = { 0 }, cnt_pt[16] = { 0 };
+  for (int i = 0; i < pos->num; i++) {
+    cnt_side[pos->pt[i] >> 3]++;
+    cnt_pt[pos->pt[i]]++;
+  }
+
+  bool flip = false;
+  if (cnt_side[0] != cnt_side[1])
+    flip = cnt_side[1] > cnt_side[0];
+  else
+    for (int i = 6; i > 0; i--)
+      if (cnt_pt[8 + i] != cnt_pt[i]) {
+        flip = cnt_pt[8 + i] > cnt_pt[i];
+        break;
+      }
+
+  char str[16];
+  create_material_string(pos, str, flip);
   fprintf(stderr, "\nMissing table: %s%s\n", str, suffix[type]);
   exit(EXIT_FAILURE);
 }

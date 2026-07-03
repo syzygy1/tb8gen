@@ -232,10 +232,12 @@ static XXH128_hash_t calc_stored_dtz_checksum(uint64_t stats[2][MAX_STATS])
       freq[1][1]);
 }
 
+#ifdef HAS_PAWNS
 void calc_partial_stats_checksum(int q, uint64_t stats[2][MAX_STATS])
 {
   dtz_partial_checksum[q] = calc_stored_dtz_checksum(stats);
 }
+#endif
 
 void calc_stats_checksums(void)
 {
