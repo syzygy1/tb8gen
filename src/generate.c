@@ -1378,27 +1378,14 @@ static bool calc_L(int stm, int n, bool more_l)
       }
     }
 
-#if 0
-      // If there are many predecessors, it might be more efficient to
-      // remove illegal positions and positions with non-losing captures
-      // here.
-      kslice_read(-1, s, stm, n <= DRAW_RULE ? "noloss" : "nobloss", -1);
-#endif
-    while (kslice_iter_out(&iter, &s))
+    while (kslice_iter_out(&iter, &s)) {
       if (!partial || !kslice_test_count(s, stm, "X", n, &num)) {
         kslice_clear_tail(s, s);
         num = kslice_count(s, s);
         kslice_write(s, s, stm, "X", n, num);
-        xcnt += num;
-      } else {
-        if (num == UINT64_MAX) {
-          kslice_read(s, s, stm, "X", n);
-          kslice_clear_tail(s, s);
-          num = kslice_count(s, s);
-          kslice_write(s, s, stm, "X", n, num);
-        }
-        xcnt += num;
       }
+      xcnt += num;
+    }
   }
   F = file_open_write(xdone);
   file_write(&xcnt, 8, F);

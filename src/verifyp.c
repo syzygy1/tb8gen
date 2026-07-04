@@ -1190,6 +1190,20 @@ static void report_fail(int s, uint64_t idx, Bitboard occ,
   mtx_unlock(&report_mutex);
 }
 
+static bool check_dtz_W101_child(Position *pos, bool *pos_ok)
+{
+  bool capture_is_best;
+  int dtz, wdl = probe_wdl_helper(pos, &capture_is_best);
+  if (wdl == -2 && !capture_is_best)
+    dtz = probe_dtz_helper(pos, wdl);
+  if (wdl == -2) {
+    if (capture_is_best || dtz != -DRAW_RULE)
+      return false;
+    *pos_ok = true;
+  }
+  return true;
+}
+
 static bool check_dtz_W101(struct IdxState *is, Bitboard occ)
 {
   Position pos = g_pos;
@@ -1209,20 +1223,21 @@ static bool check_dtz_W101(struct IdxState *is, Bitboard occ)
   for (int i = 0; i < pos.num; i++) {
     if ((pos.pt[i] >> 3) != pos.stm) continue;
     int from = pos.sq[i];
+    bool is_pawn = (pos.pt[i] & 7) == PAWN;
     Bitboard b = piece_moves(pos.pt[i], from, pos.occ);
     while (b) {
       int to = pop_lsb(&b);
       if (do_move(&pos, from, to, i)) {
-        bool capture_is_best;
-        int dtz, wdl = probe_wdl_helper(&pos, &capture_is_best);
-        if (wdl == -2 && !capture_is_best)
-          dtz = probe_dtz_helper(&pos, wdl);
+        bool move_ok = true;
+        if (is_pawn && rank18(to)) {
+          pos.pt[i] += QUEEN - PAWN;
+          for (int k = 0; k < 4; k++, pos.pt[i]--)
+            move_ok &= check_dtz_W101_child(&pos, &pos_ok);
+        } else
+          move_ok = check_dtz_W101_child(&pos, &pos_ok);
         undo_move(&pos, from, to, i);
-        if (wdl == -2) {
-          if (capture_is_best || dtz != -DRAW_RULE)
-            return false;
-          pos_ok = true;
-        }
+        if (!move_ok)
+          return false;
       }
     }
   }
