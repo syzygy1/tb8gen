@@ -15,7 +15,14 @@ GENPOBJS = tb8genp.o movegen.o index.o generatep.o mergep.o kslicep.o \
 VERPOBJS = tb8verp.o movegen.o index.o verifyp.o kslicep.o probe.o \
 	   decompress.o rans.o huffman.o stats.o util.o threads.o hash.o
 
-OBJS = $(sort $(GENOBJS) $(VEROBJS))
+RGENOBJS = tbrgen.o movegen.o index.o rgenerate.o probe.o rstats.o \
+	   compress.o rans.o huffman.o util.o threads.o checksum.o hash.o
+
+#RGENOBJS = tbrgen.o movegen.o index.o rgenerate.o probe.o stats.o \
+#	   permute.o permute462.o permute10.o compress.o rans.o huffman.o \
+#	   util.o threads.o checksum.o hash.o
+
+OBJS = $(sort $(GENOBJS) $(VEROBJS) $(RGENOBJS))
 POBJS = $(sort $(GENPOBJS) $(VERPOBJS))
 
 include $(OBJS:%.o=$(BUILD)/%.dep)
@@ -48,6 +55,9 @@ $(TBGEN): $(GENOBJS:%=$(BUILD)/%)
 
 $(TBVER): $(VEROBJS:%=$(BUILD)/%)
 	$(CC) $(CFLAGS) -o $(TBVER) $(VEROBJS:%=$(BUILD)/%) $(LDFLAGS)
+
+$(TBRGEN): $(RGENOBJS:%=$(BUILD)/%)
+	$(CC) $(CFLAGS) -o $(TBRGEN) $(RGENOBJS:%=$(BUILD)/%) $(LDFLAGS)
 
 $(TBGENP): $(GENPOBJS:%=$(PBUILD)/%)
 	$(CC) $(CFLAGS) -o $(TBGENP) $(GENPOBJS:%=$(PBUILD)/%) $(LDFLAGS)

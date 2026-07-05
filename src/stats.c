@@ -27,6 +27,8 @@ XXH128_hash_t dtz_partial_checksum[24];
 uint64_t g_stats[2][MAX_STATS];
 XXH128_hash_t wdl_checksum, dtz_checksum[2];
 
+#include "stats_common.c"
+
 void collect_stats(int stm)
 {
   char str[64];
@@ -68,6 +70,7 @@ void collect_stats(int stm)
 #endif
 }
 
+#if 0
 void print_stats(FILE *F, int stm)
 {
   uint64_t *stats = g_stats[stm ^ flipped];
@@ -135,6 +138,7 @@ void print_stats(FILE *F, int stm)
     tot += stats[i];
   fprintf(F, "\n%lu legal positions in total.\n", tot);
 }
+#endif
 
 void print_max_fens(FILE *F, struct MaxFen *mf)
 {
@@ -276,6 +280,7 @@ void calc_stats_checksums(void)
 #endif
 }
 
+#if 0
 // calculate DTZ entropy
 static double entropy_helper(uint64_t *stats, uint64_t removed)
 {
@@ -363,3 +368,4 @@ double entropy_win_only(int stm)
 
   return entropy_helper(stats, tot);
 }
+#endif

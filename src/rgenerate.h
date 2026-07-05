@@ -10,10 +10,12 @@
 #include <inttypes.h>
 
 #include "defs.h"
+#include "threads.h"
 #include "types.h"
 
 extern uint8_t *g_table[2];
 extern size_t table_size, table_sub_size[MAX_SETS];
+extern struct Work work_g_dynamic, work_g_static;
 
 INLINE int stats_n(int n)
 {

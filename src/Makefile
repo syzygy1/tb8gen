@@ -30,9 +30,9 @@ endif
 
 export FLAGS CC CFLAGS LDFLAGS
 
-tb8gen tb8ver tb8genp tb8verp clean cleanp:
+tb8gen tb8ver tbrgen tb8genp tb8verp clean cleanp:
 	@$(MAKE) -f Makefile.regular $@
 
 all: tb8gen
 
-.PHONY: tb8gen tb8ver tb8genp tb8verp clean cleanp
+.PHONY: tb8gen tb8ver tb8genp tb8verp tbrgen clean cleanp

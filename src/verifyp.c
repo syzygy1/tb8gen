@@ -1470,9 +1470,8 @@ static void check_win_cwin(int stm)
   while (k16slice_iter_next(&iter, &s)) {
     show_progress(phase, num_done++, 240, false);
 
-    while (k16slice_iter_in(&iter, &s1)) {
+    while (k16slice_iter_in(&iter, &s1))
       k16slice_read(s1, s1, stm ^ 1, "loss", -1);
-    }
 
     k16slice_read(-1, s, stm, "wins", -1);
     k16slice_read_andnot(-1, s, stm, "capt/win", -1);

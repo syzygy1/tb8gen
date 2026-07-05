@@ -228,6 +228,9 @@ int main(int argc, char **argv)
 
   generate();
 
+  collect_stats(WHITE);
+  collect_stats(BLACK);
+
   // Estimate sizes of different DTZ formats.
   double ewh = entropy_one_sided(WHITE);
   double ebl = entropy_one_sided(BLACK);
@@ -292,12 +295,9 @@ int main(int argc, char **argv)
     }
   }
 
-  // Read out the files in "stats".
-  collect_stats(WHITE);
-  collect_stats(BLACK);
+//  calc_stats_checksums();
 
-  calc_stats_checksums();
-
+#if 0
   size_t stats_file_len = strlen(g_output_dir) + strlen(g_tablename) + 6;
   char *stats_file = malloc(stats_file_len);
   if (!stats_file)
@@ -312,12 +312,15 @@ int main(int argc, char **argv)
   fclose(F);
   file_rename(stats_file);
   free(stats_file);
+#endif
 
+#if 0
   printf("\n########## %s ##########\n", g_tablename);
   print_stats(stdout, WHITE);
   print_stats(stdout, BLACK);
   printf("\n");
-  print_max_fens(stdout, &mf);
+#endif
+//  print_max_fens(stdout, &mf);
 
 #if 0
   if (!g_only_generate) {

@@ -28,7 +28,7 @@ static constexpr uint8_t CAPT_WIN   = 0xfe;
 static constexpr uint8_t ILLEGAL    = 0xff;
 #endif
 
-static struct Work work_g_dynamic, work_g_static;
+struct Work work_g_dynamic, work_g_static;
 static struct Work work_capt_dynamic[MAX_SETS];
 
 static constexpr uint64_t GENERATE_MIN_CHUNK = 1ULL << 9;
@@ -64,7 +64,7 @@ Bitboard ridx_state_init(struct RIdxState *is, uint64_t idx,
   is->bb[0] = is->occ[0] = bit(is->sq[0]) | bit(is->sq[1]);
   for (int i = 0; i < ri->numsets; i++) {
     is->bb[i + 1] = unrank_binomial(is->sub[i + 1], ri->mult[i], is->occ[i]);
-    is->occ[i + 1] = is->occ[i] | is->bb[i];
+    is->occ[i + 1] = is->occ[i] | is->bb[i + 1];
   }
   return is->occ[ri->numsets];
 }
@@ -145,7 +145,7 @@ INLINE void ridx_state_to_sq(const struct RIdxState *is, uint8_t *restrict sq,
 {
   sq[0] = is->sq[0];
   sq[1] = is->sq[1];
-  for (int k = 1; k < ri->numsets; k++) {
+  for (int k = 0; k < ri->numsets; k++) {
     Bitboard b = is->bb[k + 1];
     int i = ri->first[k];
     while (b)
@@ -274,7 +274,7 @@ INLINE void mark_king_unmoves(int stm, uint8_t *restrict p, Bitboard occ,
       __m512i x = _mm512_load_si512((__m512i *)set_bb);
       x = flip_main_8xbb(x);
       _mm512_store_si512((__m512i *)bb, x);
-      idx = rank_bb_from(bb, s, 0, set_bb[0], &ri);
+      idx = rank_bb_from(bb, s, 0, bb[0], &ri);
       set_max_atomic(p + idx, v);
     }
   }
@@ -400,6 +400,11 @@ INLINE uint8_t check_loss(int stm, uint8_t *restrict p, Bitboard occ,
 }
 #endif
 
+static constexpr uint8_t wdl_to_capt_val[5] = {
+//  CAPT_WIN, CAPT_CWIN, CAPT_DRAW, CAPT_BLOSS, CAPT_LOSS
+  254, 253 - DRAW_RULE - 1, 127, 2 + DRAW_RULE, 2
+};
+
 static void clear_table_worker(struct ThreadData *thread)
 {
   uint8_t *restrict p = g_table[g_pos.stm];
@@ -446,11 +451,6 @@ static void clear_table(void)
     run_threaded(clear_table_worker, &work_g_static);
   }
 }
-
-static constexpr uint8_t wdl_to_capt_val[5] = {
-//  CAPT_WIN, CAPT_CWIN, CAPT_DRAW, CAPT_BLOSS, CAPT_LOSS
-  254, 253 - DRAW_RULE, 127, 2 + DRAW_RULE, 1
-};
 
 static int work_set;
 
@@ -583,11 +583,13 @@ static void calc_mates_worker(struct ThreadData *thread)
 
   for (uint64_t idx = thread->begin, end = thread->end; idx < end; idx++)
     if (table_w[idx] == 0xff) {
-      if (table_b[idx] == 0)
+      if (table_b[idx] == 0) {
         table_b[idx] = 1;
+      }
     } else if (table_b[idx] == 0xff) {
-      if (table_w[idx] == 0)
+      if (table_w[idx] == 0) {
         table_w[idx] = 1;
+      }
     }
 
 #endif
@@ -634,11 +636,12 @@ static void iter(struct ThreadData *thread)
       [[fallthrough]];
     case 2:
       uint8_t v = mark_val[t];
-      mark_king_unmoves(stm, table_opp, occ, &is, v);
-      mark_unmoves(stm, KNIGHT, table_opp, occ, &is, v);
-      mark_unmoves(stm, BISHOP, table_opp, occ, &is, v);
-      mark_unmoves(stm, ROOK  , table_opp, occ, &is, v);
-      mark_unmoves(stm, QUEEN , table_opp, occ, &is, v);
+      int prev = stm ^ 1;
+      mark_king_unmoves(prev, table_opp, occ, &is, v);
+      mark_unmoves(prev, KNIGHT, table_opp, occ, &is, v);
+      mark_unmoves(prev, BISHOP, table_opp, occ, &is, v);
+      mark_unmoves(prev, ROOK  , table_opp, occ, &is, v);
+      mark_unmoves(prev, QUEEN , table_opp, occ, &is, v);
       finished = false;
       break;
 #if 0
@@ -759,6 +762,14 @@ static void iterate(void)
 {
   memset(&mark_val, 0, sizeof mark_val);
 
+  mark_val[255] = 1;
+  mark_val[254] = mark_val[253] = loss_to_byte(2);
+  mark_val[1] = win_to_byte(1);
+  for (int n = 1; n <= DRAW_RULE; n++) {
+    mark_val[win_to_byte(n)] = loss_to_byte(n + 1);
+    mark_val[loss_to_byte(n)] = win_to_byte(n + 1);
+  }
+
   int stm = WHITE;
   int n = 0;
   while (true) {
@@ -777,17 +788,10 @@ static void iterate(void)
       action[win_to_byte(n)] = 2;
       if (n == 2) {
         action[254] = action[253] = 2;
-        mark_val[254] = mark_val[253] = loss_to_byte(2);
       }
     }
     action[loss_to_byte(n)] = 1;
     action[loss_to_byte(n + 1)] = 1;
-
-    // TODO: We can just initialize this once per epoch.
-    mark_val[win_to_byte(n - 1)]  = loss_to_byte(n);
-    mark_val[win_to_byte(n)]      = loss_to_byte(n + 1);
-    mark_val[loss_to_byte(n)]     = win_to_byte(n + 1);
-    mark_val[loss_to_byte(n + 1)] = win_to_byte(n + 2);
 
     g_pos.stm = stm;
     atomic_store_explicit(&not_finished, false, memory_order_relaxed);
@@ -807,19 +811,12 @@ static void iterate(void)
                : win_to_byte(n - 1);
 
     memset(&action, 0, sizeof action);
-    action[loss_to_byte(n - 1)] = win_to_byte(n);
-    action[loss_to_byte(n)]     = win_to_byte(n + 1);
-    action[win_to_byte(n)]      = loss_to_byte(n + 1);
-    action[win_to_byte(n + 1)]  = loss_to_byte(n + 2);
-    if (n == 1) {
+    action[loss_to_byte(n - 1)] = 1;
+    action[loss_to_byte(n)]     = 1;
+    action[win_to_byte(n)]      = 2;
+    action[win_to_byte(n + 1)]  = 2;
+    if (n == 1)
       action[254] = action[253] = 2;
-      mark_val[254] = mark_val[253] = loss_to_byte(n + 1);
-    }
-
-    mark_val[loss_to_byte(n - 1)] = 1;
-    mark_val[loss_to_byte(n)]     = 1;
-    mark_val[win_to_byte(n)]      = 2;
-    mark_val[win_to_byte(n + 1)]  = 2;
 
     g_pos.stm = stm;
 //    atomic_store_explicit(&not_finished, false, memory_order_relaxed);
