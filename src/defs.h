@@ -14,4 +14,6 @@ static constexpr int DRAW_RULE = 2 * 50;
 static constexpr int MAX_VAL = (MAX_STATS / 2 - DRAW_RULE) / 2;
 static constexpr int MAX_THREADS = 32;
 
+static constexpr size_t MIN_STREAMING_STORES_SIZE = (size_t)1024*1024;
+
 #endif

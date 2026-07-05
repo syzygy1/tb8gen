@@ -2,8 +2,6 @@
 #include <immintrin.h>
 #endif
 
-static constexpr size_t MIN_STREAMING_STORES_SIZE = (size_t)1024*1024;
-
 static void *work_p, *work_q, *work_r;
 
 static void set_worker(struct ThreadData *thread)
