@@ -8,5 +8,8 @@
 #define TBRGEN_H
 
 extern size_t table_size;
+extern size_t table_diagonal;
+extern char *g_tablename;
+extern bool symmetric;
 
 #endif

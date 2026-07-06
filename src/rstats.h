@@ -4,19 +4,16 @@
   This file is distributed under the terms of the GNU GPL, version 2.
 */
 
+#ifndef RSTATS_H
+#define RSTATS_H
+
 #include <stdint.h>
 
 #include "defs.h"
-#include "types.h"
 
+void reset_stats(void);
+void collect_stats(int stm);
+void collect_stats_before_reduce(int stm, int n);
 extern uint64_t g_stats[2][MAX_STATS];
 
-INLINE win_to_stat(int n)
-{
-  return 2 + 2 * (n > DRAW_RULE);
-}
-
-INLINE loss_to_stat(int n)
-{
-  return MAX_STATS - 1 - n;
-}
+#endif

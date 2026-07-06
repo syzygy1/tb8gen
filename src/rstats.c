@@ -9,10 +9,11 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <immintrin.h>
 
 #include "compress.h"
 #include "defs.h"
+#include "reduce.h"
+#include "rstats.h"
 #include "stats.h"
 #include "rgenerate.h"
 #include "tbrgen.h"
@@ -27,6 +28,81 @@ XXH128_hash_t wdl_checksum, dtz_checksum[2];
 #include "stats_common.c"
 
 static uint64_t (*per_thread_stats)[MAX_STATS];
+
+static int stats_first_win;
+static int stats_win_limit;
+static int stats_first_loss;
+static int stats_loss_limit;
+static bool stats_include_epoch0_special;
+static bool stats_include_unresolved;
+
+static void collect_stats_range(int stm);
+
+void reset_stats(void)
+{
+  memset(g_stats, 0, sizeof g_stats);
+}
+
+static bool stats_want_win(int n)
+{
+  return n >= stats_first_win && n < stats_win_limit;
+}
+
+static bool stats_want_loss(int n)
+{
+  return n >= stats_first_loss && n < stats_loss_limit;
+}
+
+static int byte_to_stat(uint8_t b)
+{
+  switch (b) {
+  case RAM_UNRESOLVED:
+    return stats_include_unresolved ? MAX_STATS / 2 + 2 : -1;
+  case RAM_ILLEGAL:
+    return stats_include_epoch0_special ? 0 : -1;
+  case RAM_CAPT_WIN:
+    return stats_include_epoch0_special ? 1 : -1;
+  case RAM_PAWN_WIN:
+    return epoch == 0 && stats_include_epoch0_special ? 2 : -1;
+  case RAM_CAPT_CWIN:
+    return epoch == 0 && stats_include_epoch0_special ? DRAW_RULE + 3 : -1;
+  case RAM_PAWN_CWIN:
+    return epoch == 0 && stats_include_epoch0_special ? DRAW_RULE + 4 : -1;
+  case RAM_CAPT_DRAW:
+    return stats_include_epoch0_special ? MAX_STATS / 2 + 1 : -1;
+  case RAM_PAWN_DRAW:
+    return stats_include_epoch0_special ? MAX_STATS / 2 + 2 : -1;
+  default:
+    break;
+  }
+
+  if (epoch == 0) {
+    if (b >= RAM_LOSS_IN_0 && b < RAM_PAWN_DRAW) {
+      int n = b - RAM_LOSS_IN_0;
+      return stats_want_loss(n) ? loss_to_stat(n) : -1;
+    }
+    if (b > RAM_CAPT_DRAW && b < RAM_CAPT_CWIN) {
+      int n = 253 - b - 2;
+      return stats_want_win(n) ? win_to_stat(n) : -1;
+    }
+    if (b > RAM_CAPT_CWIN && b < RAM_PAWN_WIN) {
+      int n = 253 - b;
+      return stats_want_win(n) ? win_to_stat(n) : -1;
+    }
+    return -1;
+  }
+
+  if (b > RAM_REDUCED_BLOSS && b < RAM_CAPT_DRAW) {
+    int n = b + reduce_cnt_loss[epoch - 1];
+    return stats_want_loss(n) ? loss_to_stat(n) : -1;
+  }
+  if (b > RAM_CAPT_DRAW && b < RAM_REDUCED_CWIN) {
+    int n = reduce_cnt_win[epoch - 1] - b;
+    return stats_want_win(n) ? win_to_stat(n) : -1;
+  }
+
+  return -1;
+}
 
 INLINE bool is_symmetric(Bitboard b)
 {
@@ -116,29 +192,57 @@ static void count_stats_worker(struct ThreadData *thread)
 
 void collect_stats(int stm)
 {
+  if (epoch == 0) {
+    stats_first_win = 1;
+    stats_first_loss = 0;
+  } else {
+    stats_first_win = reduce_cnt_win[epoch - 1] - 250;
+    stats_first_loss = reduce_cnt_loss[epoch - 1] + 3;
+  }
+  stats_win_limit = MAX_STATS / 2 - 3;
+  stats_loss_limit = MAX_STATS / 2 - 3;
+  stats_include_epoch0_special = epoch == 0;
+  stats_include_unresolved = true;
+  collect_stats_range(stm);
+}
+
+void collect_stats_before_reduce(int stm, int n)
+{
+  if (epoch == 0) {
+    stats_first_win = 1;
+    stats_first_loss = 0;
+  } else {
+    stats_first_win = reduce_cnt_win[epoch - 1] - 250;
+    stats_first_loss = reduce_cnt_loss[epoch - 1] + 3;
+  }
+  stats_win_limit = n - 1;
+  stats_loss_limit = n;
+  stats_include_epoch0_special = epoch == 0;
+  stats_include_unresolved = false;
+  collect_stats_range(stm);
+}
+
+static void collect_stats_range(int stm)
+{
   per_thread_stats = aligned_alloc(64, g_num_threads * MAX_STATS * 8);
   if (!per_thread_stats)
     out_of_mem();
   memset(per_thread_stats, 0, g_num_threads * MAX_STATS * 8);
-  memset(g_stats[stm], 0, sizeof g_stats[stm]);
 
   g_pos.stm = stm;
   run_threaded(count_stats_worker, &work_g_static);
 
+  uint64_t add[MAX_STATS] = { 0 };
   for (int t = 0; t < g_num_threads; t++) {
     uint64_t *restrict stats = per_thread_stats[t];
-    g_stats[stm][0] += stats[255]; // illegal
-    g_stats[stm][1] += stats[254]; // capt_win
-    g_stats[stm][2] += stats[253]; // pawn_win
-    for (int i = 1; i <= DRAW_RULE; i++)
-      g_stats[stm][i + 2] += stats[253 - i];
-    for (int i = 0; i <= DRAW_RULE; i++)
-      g_stats[stm][MAX_STATS - 1 - i] += stats[i + 1];
-    g_stats[stm][MAX_STATS / 2 + 1] += stats[127]; // capt_draw
-    g_stats[stm][MAX_STATS / 2 + 2] += stats[0]; // unresolved -> draw
+    for (int b = 0; b < 256; b++) {
+      int s = byte_to_stat(b);
+      if (s >= 0)
+        add[s] += stats[b];
+    }
   }
   for (int i = 0; i < MAX_STATS; i++)
-    g_stats[stm][i] >>= 1;
+    g_stats[stm][i] += add[i] >> 1;
 
   free(per_thread_stats);
 }

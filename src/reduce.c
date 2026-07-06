@@ -12,6 +12,7 @@
 #include "defs.h"
 #include "reduce.h"
 #include "rgenerate.h"
+#include "rstats.h"
 #include "tbrgen.h"
 #include "types.h"
 #include "util.h"
@@ -58,71 +59,129 @@ void transform_table_u16(struct ThreadData *thread)
 }
 #endif
 
+static void init_save_map(uint8_t v[256], int n)
+{
+  memset(v, 0, 256);
+
+  int first_win = 1;
+  int first_loss = 0;
+
+  if (epoch == 0) {
+    v[RAM_ILLEGAL] = RAM_ILLEGAL;
+    v[RAM_CAPT_WIN] = RAM_CAPT_WIN;
+    v[RAM_PAWN_WIN] = RAM_PAWN_WIN;
+    v[RAM_CAPT_CWIN] = RAM_CAPT_CWIN;
+    v[RAM_PAWN_CWIN] = RAM_PAWN_CWIN;
+    v[RAM_CAPT_DRAW] = RAM_CAPT_DRAW;
+    v[RAM_PAWN_DRAW] = RAM_PAWN_DRAW;
+  } else {
+    first_win = reduce_cnt_win[epoch - 1] - 250;
+    first_loss = reduce_cnt_loss[epoch - 1] + 3;
+  }
+
+  for (int i = first_win; i < n - 1; i++) {
+    uint8_t b = win_to_byte(i);
+    if (b != RAM_REDUCED_CWIN && b != RAM_REDUCED_WIN)
+      v[b] = b;
+  }
+  for (int i = first_loss; i < n; i++) {
+    uint8_t b = loss_to_byte(i);
+    if (b != RAM_REDUCED_LOSS && b != RAM_REDUCED_BLOSS)
+      v[b] = b;
+  }
+}
+
 static void save_table(uint8_t *table, int stm, int n)
 {
-  FILE *F;
   char name[64];
   uint8_t v[256];
 
   sprintf(name, "%s.%c.%d", g_tablename, "wb"[stm], epoch);
 
+  FILE *F;
   if (!(F = fopen(name, "wb"))) {
     fprintf(stderr, "Could not open %s for writing.\n", name);
     exit(EXIT_FAILURE);
   }
 
-  memset(&v, 0, sizeof v);
-
-  if (epoch == 0) {
-    v[1] = 0;
-    for (int i = 1; i < n; i++)
-      v[loss_to_byte(i)] = 256 - i;
-    for (int i = 1; i < n; i++)
-      v[win_to_byte(i)] = i;
-  }
-
+  init_save_map(v, n);
   write_data_transform_u8(F, table, table_size, v);
-
   fclose(F);
 }
 
-void reduce_tables(int n, int epoch)
+static void init_reduce_map(uint8_t v[256], int n)
 {
-  collect_stats(WHITE);
-  collect_stats(BLACK);
+  memset(v, 0, 256);
+
+  int next_reduce_cnt_win = n + 249;
+  int next_reduce_cnt_loss = n - 3;
+
+  if (epoch == 0) {
+    v[RAM_UNRESOLVED] = RAM_UNRESOLVED;
+    v[RAM_ILLEGAL] = RAM_ILLEGAL;
+    v[RAM_CAPT_WIN] = RAM_CAPT_WIN;
+    v[RAM_CAPT_DRAW] = RAM_CAPT_DRAW;
+    v[RAM_CAPT_CWIN] = RAM_REDUCED_CAPT_CWIN;
+    v[RAM_PAWN_WIN] = RAM_REDUCED_WIN;
+    v[RAM_PAWN_CWIN] = RAM_REDUCED_CWIN;
+    v[RAM_PAWN_DRAW] = RAM_UNRESOLVED;
+
+    for (int i = 1; i <= DRAW_RULE; i++)
+      v[win_to_byte(i)] = RAM_REDUCED_WIN;
+    for (int i = DRAW_RULE + 1; i < n - 1; i++)
+      v[win_to_byte(i)] = RAM_REDUCED_CWIN;
+
+    for (int i = 0; i <= DRAW_RULE; i++)
+      v[loss_to_byte(i)] = RAM_REDUCED_LOSS;
+    for (int i = DRAW_RULE + 1; i < n; i++)
+      v[loss_to_byte(i)] = RAM_REDUCED_BLOSS;
+  } else {
+    int first_win = reduce_cnt_win[epoch - 1] - 250;
+    int first_loss = reduce_cnt_loss[epoch - 1] + 3;
+
+    v[RAM_UNRESOLVED] = RAM_UNRESOLVED;
+    v[RAM_REDUCED_LOSS] = RAM_REDUCED_LOSS;
+    v[RAM_REDUCED_BLOSS] = RAM_REDUCED_BLOSS;
+    v[RAM_CAPT_DRAW] = RAM_CAPT_DRAW;
+    v[RAM_REDUCED_CWIN] = RAM_REDUCED_CWIN;
+    v[RAM_REDUCED_CAPT_CWIN] = RAM_REDUCED_CAPT_CWIN;
+    v[RAM_REDUCED_WIN] = RAM_REDUCED_WIN;
+    v[RAM_CAPT_WIN] = RAM_CAPT_WIN;
+    v[RAM_ILLEGAL] = RAM_ILLEGAL;
+
+    for (int i = first_loss; i <= DRAW_RULE; i++)
+      v[loss_to_byte(i)] = RAM_REDUCED_LOSS;
+    for (int i = max(first_loss, DRAW_RULE + 1); i < n; i++)
+      v[loss_to_byte(i)] = RAM_REDUCED_BLOSS;
+    for (int i = first_win; i <= DRAW_RULE && i < n - 1; i++)
+      v[win_to_byte(i)] = RAM_REDUCED_WIN;
+    for (int i = max(first_win, DRAW_RULE + 1); i < n - 1; i++)
+      v[win_to_byte(i)] = RAM_REDUCED_CWIN;
+  }
+
+  v[win_to_byte(n - 1)] = next_reduce_cnt_win - (n - 1);
+  v[win_to_byte(n)] = next_reduce_cnt_win - n;
+  v[loss_to_byte(n)] = n - next_reduce_cnt_loss;
+  v[loss_to_byte(n + 1)] = n + 1 - next_reduce_cnt_loss;
+}
+
+void reduce_tables(int n)
+{
+  collect_stats_before_reduce(WHITE, n);
+  collect_stats_before_reduce(BLACK, n);
 
   save_table(g_table[WHITE], WHITE, n);
   if (!symmetric)
     save_table(g_table[BLACK], BLACK, n);
 
-  uint8_t v[256] = { 0 };
-
-  if (epoch == 0) {
-    v[0] = 0; // unresolved
-    v[255] = 255; // illegal
-    v[254] = 254; // capt_win
-    v[253] = 253; // pawn_win -> reduced win
-    for (int i = 1; i <= DRAW_RULE; i++)
-      v[win_to_byte(i)] = 253;
-    v[253 - DRAW_RULE - 1] = 252; // capt_cwin -> reduced capt_cwin
-    v[253 - DRAW_RULE - 2] = 251; // pawn_cwin -> redcuded
-    for (int i = DRAW_RULE + 1; i < n; i++)
-      v[win_to_byte(i)] = 251;
-
-    for(int i = 0; i <= DRAW_RULE; i++)
-      v[loss_to_byte(i)] = 1; // loss -> reduced loss
-    for (int i = DRAW_RULE + 1; i < n; i++)
-      v[loss_to_byte(i)] = 2; // bloss -> reduced bloss
-  } else {
-    // to be done
-  }
-
-
+  uint8_t v[256];
+  init_reduce_map(v, n);
   transform_v = v;
   run_threaded(transform, &work_g_static);
 
+  reduce_cnt_win[epoch] = n + 249;
+  reduce_cnt_loss[epoch] = n - 3;
   epoch++;
-  // update reduce_cnt_win[], reduce_cnt_loss[]
 }
 
 #if 0

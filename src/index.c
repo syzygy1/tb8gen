@@ -184,22 +184,6 @@ struct TransitionCase {
 // There are 201 valid cases.
 static struct TransitionCase transition_cases[45][12][4];
 
-INLINE Bitboard flip_main_diag(Bitboard b)
-{
-  Bitboard t;
-
-  t  = (b ^ (b << 28)) & UINT64_C(0x0f0f0f0f00000000);
-  b ^= t ^ (t >> 28);
-
-  t  = (b ^ (b << 14)) & UINT64_C(0x3333000033330000);
-  b ^= t ^ (t >> 14);
-
-  t  = (b ^ (b << 7)) & UINT64_C(0x5500550055005500);
-  b ^= t ^ (t >> 7);
-
-  return b;
-}
-
 INLINE uint64_t binom(int n, int k)
 {
   return (k < 0 || k > n) ? 0 : Binomial[k][n];

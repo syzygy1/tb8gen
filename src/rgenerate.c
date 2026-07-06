@@ -13,7 +13,9 @@
 #include "index.h"
 #include "movegen.h"
 #include "probe.h"
+#include "reduce.h"
 #include "rgenerate.h"
+#include "rstats.h"
 #include "threads.h"
 #include "types.h"
 #include "util.h"
@@ -46,12 +48,14 @@ void init_generation_work(void)
         GENERATE_DYNAMIC_FACTOR, GENERATE_MIN_CHUNK);
 }
 
-struct RIdxState {
-  alignas(64) Bitboard occ[8];
-  Bitboard bb[8];
-  uint32_t sub[MAX_SETS + 1];
-  uint8_t sq[2];
-};
+INLINE void set_max_atomic(uint8_t *restrict p, uint8_t v)
+{
+  _Atomic uint8_t *restrict q = (_Atomic uint8_t *)p;
+  uint8_t old = atomic_load_explicit(q, memory_order_relaxed);
+  while (    old < v
+         && !atomic_compare_exchange_weak_explicit(q, &old, v,
+           memory_order_relaxed, memory_order_relaxed)) ;
+}
 
 Bitboard ridx_state_init(struct RIdxState *is, uint64_t idx,
     const struct RankInfo *ri)
@@ -67,99 +71,6 @@ Bitboard ridx_state_init(struct RIdxState *is, uint64_t idx,
     is->occ[i + 1] = is->occ[i] | is->bb[i + 1];
   }
   return is->occ[ri->numsets];
-}
-
-INLINE Bitboard ridx_state_inc(struct RIdxState *is, const struct RankInfo *ri)
-{
-  uint32_t *const restrict sub = is->sub;
-  int i = ri->numsets;
-
-  for (;;) {
-    i--;
-    if (++sub[i + 1] < ri->factor[i]) break;
-    sub[i + 1] = 0;
-    if (i == 0) {
-      sub[0]++;
-      is->sq[0] = KKSquare[sub[0]][0];
-      is->sq[1] = KKSquare[sub[0]][1];
-      is->bb[0] = is->occ[0] = bit(is->sq[0]) | bit(is->sq[1]);
-      break;
-    }
-  }
-
-  Bitboard occ = is->occ[i];
-  for (; i < ri->numsets; i++) {
-    occ |= is->bb[i + 1] = unrank_binomial(is->sub[i + 1], ri->mult[i], occ);
-    is->occ[i + 1] = occ;
-  }
-  return occ;
-}
-
-INLINE Bitboard ridx_state_add(struct RIdxState *is, uint64_t v,
-    const struct RankInfo *restrict ri)
-{
-  uint32_t *const restrict sub = is->sub;
-  int i = ri->numsets;
-
-  for (;;) {
-    uint64_t s = (uint64_t)sub[(--i) + 1] + v;
-    uint32_t f = ri->factor[i];
-
-    if (s < f) {
-      sub[i + 1] = s;
-      break;
-    }
-    v = divmod_recip(s, f, ri->recip[i], &sub[i + 1]);
-
-    if (i == 0) {
-      sub[0] += v;
-      is->sq[0] = KKSquare[sub[0]][0];
-      is->sq[1] = KKSquare[sub[0]][1];
-      is->bb[0] = is->occ[0] = bit(is->sq[0]) | bit(is->sq[1]);
-      break;
-    }
-  }
-
-  Bitboard occ = is->occ[i];
-  for (; i < ri->numsets; i++) {
-    occ |= is->bb[i + 1] = unrank_binomial(is->sub[i + 1], ri->mult[i], occ);
-    is->occ[i + 1] = occ;
-  }
-  return occ;
-}
-
-INLINE bool ridx_state_legal(const struct RIdxState *is, int stm, Bitboard occ)
-{
-  int ksq = is->sq[stm ^ 1];
-  for (int i = 0; g_sets[stm][i] >= 0; i++) {
-    int k = g_sets[stm][i];
-    Bitboard b = non_king_piece_attacks(g_set_pt[k], ksq, occ);
-    if (b & is->bb[k + 1])
-      return false;
-  }
-  return true;
-}
-
-INLINE void ridx_state_to_sq(const struct RIdxState *is, uint8_t *restrict sq,
-    const struct RankInfo *ri)
-{
-  sq[0] = is->sq[0];
-  sq[1] = is->sq[1];
-  for (int k = 0; k < ri->numsets; k++) {
-    Bitboard b = is->bb[k + 1];
-    int i = ri->first[k];
-    while (b)
-      sq[i++] = pop_lsb(&b);
-  }
-}
-
-INLINE void set_max_atomic(uint8_t *restrict p, uint8_t v)
-{
-  _Atomic uint8_t *restrict q = (_Atomic uint8_t *)p;
-  uint8_t old = atomic_load_explicit(q, memory_order_relaxed);
-  while (    old < v
-         && !atomic_compare_exchange_weak_explicit(q, &old, v,
-           memory_order_relaxed, memory_order_relaxed)) ;
 }
 
 INLINE void mark_king_uncaptures(int stm, int k, uint8_t *restrict p,
@@ -312,6 +223,7 @@ INLINE void mark_unmoves(int stm, const int pc, uint8_t *restrict const p,
 
 static uint8_t loss_byte;
 
+// Only quiet moves are checked because captures have been processed earlier.
 INLINE bool check_king_moves(int stm, uint8_t *restrict p, Bitboard occ,
     struct RIdxState *is)
 {
@@ -340,6 +252,7 @@ INLINE bool check_king_moves(int stm, uint8_t *restrict p, Bitboard occ,
   return true;
 }
 
+// Only quiet moves are checked because captures have been processed earlier.
 INLINE bool check_moves(int stm, const int pc, uint8_t *restrict p,
     Bitboard occ, struct RIdxState *is)
 {
@@ -374,35 +287,9 @@ INLINE bool check_moves(int stm, const int pc, uint8_t *restrict p,
   return true;
 }
 
-#if 0
-INLINE uint8_t check_loss(int stm, uint8_t *restrict p, Bitboard occ,
-    struct RIdxState *is)
-{
-  int k;
-  uint8_t v = 0xff;
-  if ((k = g_piece_set[stm][QUEEN]) >= 0) {
-    v = check_moves(stm, QUEEN, k, p, occ, is);
-    if (v == 0) return 0;
-  }
-  if ((k = g_piece_set[stm][ROOK]) >= 0) {
-    v = best(v, check_moves(stm, ROOK, k, p, occ, is));
-    if (v == 0) return 0;
-  }
-  if ((k = g_piece_set[stm][BISHOP]) >= 0) {
-    v = best(v, check_moves(stm, BISHOP, k, p, occ, is));
-    if (v == 0) return 0;
-  }
-  if ((k = g_piece_set[stm][KNIGHT]) >= 0) {
-    v = best(v, check_moves(stm, KNIGHT, k, p, occ, is));
-    if (v == 0) return 0;
-  }
-  // king unmoves
-}
-#endif
-
 static constexpr uint8_t wdl_to_capt_val[5] = {
 //  CAPT_WIN, CAPT_CWIN, CAPT_DRAW, CAPT_BLOSS, CAPT_LOSS
-  254, 253 - DRAW_RULE - 1, 127, 2 + DRAW_RULE, 2
+  RAM_CAPT_WIN, RAM_CAPT_CWIN, RAM_CAPT_DRAW, RAM_CAPT_BLOSS, RAM_CAPT_LOSS
 };
 
 static void clear_table_worker(struct ThreadData *thread)
@@ -644,11 +531,6 @@ static void iter(struct ThreadData *thread)
       mark_unmoves(prev, QUEEN , table_opp, occ, &is, v);
       finished = false;
       break;
-#if 0
-    case 3:
-      capt_bloss();
-      break;
-#endif
     default:
       unreachable();
     }
@@ -667,8 +549,9 @@ static void iter(struct ThreadData *thread)
 // CAPT_BLOSS/L101 = 102
 // ...
 // L124 = 125
-// CAPT_DRAW = 126
-// W124 = 127
+// PAWN_DRAW = 126
+// CAPT_DRAW = 127
+// W123 = 128
 // ...
 // W101 = 150
 // PAWN_CWIN = 151
@@ -693,7 +576,7 @@ uint16_t map[MAX_STATS];
 // 105 -> W101
 // ...
 // MAX_STATS / 2 + 1 -> CAPT_DRAW
-// MAX_STATS / 2 + 2 -> DRAW
+// MAX_STATS / 2 + 2 -> PAWN_DRAW/DRAW
 // ...
 // MAX_STATS - 3 -> L2
 // MAX_STATS - 2 -> L1
@@ -740,64 +623,76 @@ uint16_t map[MAX_STATS];
 // BLOSS_CAPT == L101_*
 // LOSS_CAPT == L1_*
 
-static int epoch = 0;
-
-INLINE uint8_t win_to_byte(int n)
-{
-  if (epoch == 0)
-    return 253 - n;
-  else
-    return 253 - n;
-}
-
-INLINE uint8_t loss_to_byte(int n)
-{
-  if (epoch == 0)
-    return 1 + n;
-  else
-    return 1 + n;
-}
-
 static void iterate(void)
 {
   memset(&mark_val, 0, sizeof mark_val);
 
-  mark_val[255] = 1;
-  mark_val[254] = mark_val[253] = loss_to_byte(2);
-  mark_val[1] = win_to_byte(1);
-  for (int n = 1; n <= DRAW_RULE; n++) {
-    mark_val[win_to_byte(n)] = loss_to_byte(n + 1);
-    mark_val[loss_to_byte(n)] = win_to_byte(n + 1);
+  epoch = 0;
+
+  // Initialize for epoch == 0.
+
+  mark_val[255] = 1; // illegal -> candidate mate
+  mark_val[254] = mark_val[253] = loss_to_byte(2); // capt_win -> candidate L2
+  mark_val[RAM_CAPT_CWIN] = mark_val[RAM_PAWN_CWIN] =
+    loss_to_byte(DRAW_RULE + 2);
+  mark_val[RAM_CAPT_BLOSS] = win_to_byte(DRAW_RULE + 2);
+  mark_val[1] = win_to_byte(1); // mate -> W1
+  int reduce_n;
+  for (reduce_n = 2; ; reduce_n += 2)
+    if (win_to_byte(reduce_n + 2) <= 127 || loss_to_byte(reduce_n + 3) >= 127)
+      break;
+  for (int i = 1; i < reduce_n; i++) {
+    mark_val[win_to_byte(i)] = loss_to_byte(i + 1); // W(i) -> L(i+1)
+    mark_val[loss_to_byte(i)] = win_to_byte(i + 1); // L(i) -> W(i+1)
   }
 
   int stm = WHITE;
   int n = 0;
+  const int min_stop_n = DRAW_RULE + 2;
   while (true) {
+    if (n == reduce_n) {
+      int first_win = n - 1;
+      int first_loss = n;
+
+      reduce_tables(n);
+
+      memset(&mark_val, 0, sizeof mark_val);
+      for (reduce_n += 2; ; reduce_n += 2)
+        if (   win_to_byte(reduce_n + 2) <= 127
+            || loss_to_byte(reduce_n + 3) >= 127)
+          break;
+      for (int i = first_win; i < reduce_n; i++)
+        mark_val[win_to_byte(i)] = loss_to_byte(i + 1); // W(i) -> L(i+1)
+      for (int i = first_loss; i < reduce_n; i++)
+        mark_val[loss_to_byte(i)] = win_to_byte(i + 1); // L(i) -> W(i+1)
+    }
+
     // White to move, n is even
     // W(n-1)_w -> L(n  )_b
     // W(n  )_w -> L(n+1)_b
     // L(n  )_w -> W(n+1)_b
     // L(n+1)_w -> W(n+2)_b
 
-    loss_byte =  n == 0 ? 255
-               : win_to_byte(n);
+    loss_byte = n == 0 ? 255 : win_to_byte(n);
 
     memset(&action, 0, sizeof action);
     if (n > 0) {
       action[win_to_byte(n - 1)] = 2;
       action[win_to_byte(n)] = 2;
-      if (n == 2) {
-        action[254] = action[253] = 2;
-      }
     }
+    if (n == 2)
+      action[RAM_CAPT_WIN] = action[RAM_PAWN_WIN] = 2;
+    if (n == DRAW_RULE + 2)
+      action[RAM_CAPT_CWIN] = action[RAM_PAWN_CWIN] = 2;
     action[loss_to_byte(n)] = 1;
     action[loss_to_byte(n + 1)] = 1;
+    if (n == DRAW_RULE)
+      action[RAM_CAPT_BLOSS] = 1;
 
     g_pos.stm = stm;
     atomic_store_explicit(&not_finished, false, memory_order_relaxed);
     printf("iteration %d\n", n);
     run_threaded(iter, &work_g_dynamic);
-//    if (!atomic_load_explicit(&not_finished, memory_order_relaxed)) break;
     stm ^= 1;
     n++;
 
@@ -807,8 +702,7 @@ static void iterate(void)
     // W(n  )_w -> L(n+1)_b
     // W(n+1)_w -> L(n+2)_b
 
-    loss_byte =  n == 1 ? 255
-               : win_to_byte(n - 1);
+    loss_byte = n == 1 ? 255 : win_to_byte(n - 1);
 
     memset(&action, 0, sizeof action);
     action[loss_to_byte(n - 1)] = 1;
@@ -816,13 +710,24 @@ static void iterate(void)
     action[win_to_byte(n)]      = 2;
     action[win_to_byte(n + 1)]  = 2;
     if (n == 1)
-      action[254] = action[253] = 2;
+      action[RAM_CAPT_WIN] = action[RAM_PAWN_WIN] = 2;
+    if (n == DRAW_RULE + 1) {
+      action[RAM_CAPT_BLOSS] = 1;
+      action[RAM_CAPT_CWIN] = action[RAM_PAWN_CWIN] = 2;
+    }
 
     g_pos.stm = stm;
-//    atomic_store_explicit(&not_finished, false, memory_order_relaxed);
     printf("iteration %d\n", n);
     run_threaded(iter, &work_g_dynamic);
-    if (!atomic_load_explicit(&not_finished, memory_order_relaxed)) break;
+    if (!atomic_load_explicit(&not_finished, memory_order_relaxed)) {
+      if (n >= min_stop_n)
+        break;
+      if (n < DRAW_RULE) {
+        stm = WHITE;
+        n = DRAW_RULE;
+        continue;
+      }
+    }
     stm ^= 1;
     n++;
   }
@@ -830,6 +735,7 @@ static void iterate(void)
 
 void generate(void)
 {
+  reset_stats();
   init_generation_work();
 
   printf("Initializing table.\n");
@@ -838,7 +744,7 @@ void generate(void)
   calc_captures();
   printf("Calculating illegal positions.\n");
   calc_illegal();
-  printf("Calculating cnadidate mate positions.\n");
+  printf("Calculating candidate mate positions.\n");
   calc_mates();
   iterate();
 }

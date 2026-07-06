@@ -44,6 +44,7 @@ char *g_output_dir;
 struct MaxFen mf;
 
 size_t table_size;
+size_t table_diagonal;
 size_t table_sub_size[MAX_SETS];
 
 uint8_t *g_table[2];
@@ -190,6 +191,7 @@ int main(int argc, char **argv)
   }
   ri = rank_info_62[rank_mult(mult)];
   table_size = 462 * ri.sizes[0];
+  table_diagonal = 441 * ri.sizes[0];
 
   g_table[0] = alloc_huge((table_size + 63) & ~0x3f);
   g_table[1] = alloc_huge((table_size + 63) & ~0x3f);

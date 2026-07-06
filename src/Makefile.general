@@ -15,7 +15,7 @@ GENPOBJS = tb8genp.o movegen.o index.o generatep.o mergep.o kslicep.o \
 VERPOBJS = tb8verp.o movegen.o index.o verifyp.o kslicep.o probe.o \
 	   decompress.o rans.o huffman.o stats.o util.o threads.o hash.o
 
-RGENOBJS = tbrgen.o movegen.o index.o rgenerate.o probe.o rstats.o \
+RGENOBJS = tbrgen.o movegen.o index.o rgenerate.o probe.o rstats.o reduce.o \
 	   compress.o rans.o huffman.o util.o threads.o checksum.o hash.o
 
 #RGENOBJS = tbrgen.o movegen.o index.o rgenerate.o probe.o stats.o \

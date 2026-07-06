@@ -191,6 +191,22 @@ INLINE int rank_among_free(uint8_t sq, Bitboard occ)
   return sq - popcnt(occ & ((1ULL << sq) - 1));
 }
 
+INLINE Bitboard flip_main_diag(Bitboard b)
+{
+  Bitboard t;
+
+  t  = (b ^ (b << 28)) & UINT64_C(0x0f0f0f0f00000000);
+  b ^= t ^ (t >> 28);
+
+  t  = (b ^ (b << 14)) & UINT64_C(0x3333000033330000);
+  b ^= t ^ (t >> 14);
+
+  t  = (b ^ (b << 7)) & UINT64_C(0x5500550055005500);
+  b ^= t ^ (t >> 7);
+
+  return b;
+}
+
 // Still used in rank_reflection() and in probe.c.
 INLINE uint64_t mirror_diagonal_u64(uint64_t v)
 {
