@@ -104,19 +104,6 @@ static void update_wdl_vals(bool vals[5], bool dc[4], uint8_t v)
     dc[v - 5] = true;
 }
 
-static void finish_wdl_vals(bool vals[5], bool dc[4])
-{
-  dc[3] = true;
-
-  int i, j;
-  for (i = 0; i < 4; i++)
-    if (dc[i]) break;
-  for (j = 0; j < 5; j++)
-    if (vals[j]) break;
-  if (j > i + 1)
-    vals[0] = true;
-}
-
 static void prepare_wdl_map(uint64_t *stats, bool *vals, bool has_capt_bloss)
 {
   for (int i = 0; i < 5; i++)
@@ -127,8 +114,6 @@ static void prepare_wdl_map(uint64_t *stats, bool *vals, bool has_capt_bloss)
       vals[4] = true;
       break;
     }
-  if (stats[1])
-    vals[4] = true;
   for (int i = DRAW_RULE + 4; i < MAX_STATS / 2 + 1; i++)
     if (stats[i]) {
       vals[3] = true;
@@ -148,8 +133,17 @@ static void prepare_wdl_map(uint64_t *stats, bool *vals, bool has_capt_bloss)
       break;
     }
 
-  bool dc[4] = { false, false, false, true };
-  finish_wdl_vals(vals, dc);
+  bool dc[4] = {
+    has_capt_bloss, stats[MAX_STATS / 2 + 1], stats[DRAW_RULE + 3], true
+  };
+
+  int i, j;
+  for (i = 0; i < 4; i++)
+    if (dc[i]) break;
+  for (j = 0; j < 5; j++)
+    if (vals[j]) break;
+  if (j > i + 1)
+    vals[0] = true;
 }
 
 static int ram_byte_to_stat(uint8_t b)
@@ -634,6 +628,4 @@ void rjoin_wdl(uint8_t *pcs, uint8_t *pt, int layout)
   default:
     unreachable();
   }
-
-  create_empty("done_wdl");
 }
