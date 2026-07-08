@@ -33,10 +33,6 @@
 #define STATSDIR "RTBSTATSDIR"
 #define WORKDIR "TB8DIR"
 
-Position g_pos;
-int8_t g_sets[2][8];
-int8_t g_piece_set[2][8];
-uint8_t g_set_pt[8];
 bool flipped = false;
 bool g_only_generate, g_use_rans, symmetric = false, used_rans = false;
 bool g_cleanup;
@@ -188,12 +184,11 @@ int main(int argc, char **argv)
   // Initialize main RankInfo struct.
   uint8_t mult[MAX_SETS] = { 0 };
   k = 0;
-  for (int i = 3; i < numpcs;) {
+  for (int i = 3; i < numpcs; k++) {
     int j = i;
-    for (; i < numpcs && pt[i] == pt[j]; i++)
-      pc_to_set[i] = k;
+    while (i < numpcs && pt[i] == pt[j])
+      i++;
     mult[k] = i - j;
-    k++;
   }
   ri = rank_info_61[rank_mult(mult)];
   kslice_size = ri.sizes[0];

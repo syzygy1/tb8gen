@@ -13,7 +13,7 @@
 #include <x86intrin.h>
 
 #include "defs.h"
-#include "tb8gen.h"
+#include "movegen.h"
 #include "types.h"
 
 static constexpr int MAX_MULT = MAX_PIECES - (has_pawns ? 3 : 2);
@@ -67,7 +67,9 @@ INLINE bool is_broken(struct Slice *s)
 extern struct Slice g_slice;
 
 extern struct RankInfo ri, capt_ri[MAX_SETS];
-extern int pc_to_set[MAX_PIECES];
+extern int8_t g_sets[2][8];
+extern uint8_t g_set_pt[8];
+extern int8_t g_piece_set[2][8];
 extern Bitboard Unrank2[63 * 62 / 2], Unrank3[63 * 62 * 61 / 6];
 extern uint32_t Binomial[8][64];
 extern uint64_t MirrorMask[64];

@@ -23,11 +23,9 @@ extern bool flipped;
 extern int g_num_pawns;
 extern char pawnstr[24][3];
 extern struct Work *work_g16;
-static constexpr bool has_pawns = true;
 #else
 static constexpr bool flipped = false;
 static constexpr int g_num_pawns = 0;
-static constexpr bool has_pawns = false;
 #endif
 
 extern struct MaxFen mf;
@@ -42,10 +40,6 @@ extern bool g_cleanup;
 
 extern char *g_tablename;
 extern char *g_output_dir;
-extern Position g_pos;
-extern int8_t g_sets[2][8];
-extern int8_t g_piece_set[2][8];
-extern uint8_t g_set_pt[8];
 extern struct Work *work_g, *work_capt[MAX_SETS];
 extern uint64_t g_stats[2][MAX_STATS];
 extern const char *typename[3];

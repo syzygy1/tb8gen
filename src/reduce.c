@@ -73,10 +73,11 @@ static void init_save_map(uint8_t v[256], int n)
     v[RAM_CAPT_CWIN] = RAM_CAPT_CWIN;
     v[RAM_PAWN_CWIN] = RAM_PAWN_CWIN;
     v[RAM_CAPT_DRAW] = RAM_CAPT_DRAW;
+    v[RAM_CAPT_BLOSS] = RAM_CAPT_BLOSS;
     v[RAM_PAWN_DRAW] = RAM_PAWN_DRAW;
   } else {
     first_win = reduce_cnt_win[epoch - 1] - 250;
-    first_loss = reduce_cnt_loss[epoch - 1] + 3;
+    first_loss = reduce_cnt_loss[epoch - 1] + 4;
   }
 
   for (int i = first_win; i < n - 1; i++) {
@@ -86,7 +87,9 @@ static void init_save_map(uint8_t v[256], int n)
   }
   for (int i = first_loss; i < n; i++) {
     uint8_t b = loss_to_byte(i);
-    if (b != RAM_REDUCED_LOSS && b != RAM_REDUCED_BLOSS)
+    if (   b != RAM_REDUCED_LOSS
+        && b != RAM_REDUCED_CAPT_BLOSS
+        && b != RAM_REDUCED_BLOSS)
       v[b] = b;
   }
 }
@@ -114,7 +117,7 @@ static void init_reduce_map(uint8_t v[256], int n)
   memset(v, 0, 256);
 
   int next_reduce_cnt_win = n + 249;
-  int next_reduce_cnt_loss = n - 3;
+  int next_reduce_cnt_loss = n - 4;
 
   if (epoch == 0) {
     v[RAM_UNRESOLVED] = RAM_UNRESOLVED;
@@ -122,6 +125,7 @@ static void init_reduce_map(uint8_t v[256], int n)
     v[RAM_CAPT_WIN] = RAM_CAPT_WIN;
     v[RAM_CAPT_DRAW] = RAM_CAPT_DRAW;
     v[RAM_CAPT_CWIN] = RAM_REDUCED_CAPT_CWIN;
+    v[RAM_CAPT_BLOSS] = RAM_REDUCED_CAPT_BLOSS;
     v[RAM_PAWN_WIN] = RAM_REDUCED_WIN;
     v[RAM_PAWN_CWIN] = RAM_REDUCED_CWIN;
     v[RAM_PAWN_DRAW] = RAM_UNRESOLVED;
@@ -137,10 +141,11 @@ static void init_reduce_map(uint8_t v[256], int n)
       v[loss_to_byte(i)] = RAM_REDUCED_BLOSS;
   } else {
     int first_win = reduce_cnt_win[epoch - 1] - 250;
-    int first_loss = reduce_cnt_loss[epoch - 1] + 3;
+    int first_loss = reduce_cnt_loss[epoch - 1] + 4;
 
     v[RAM_UNRESOLVED] = RAM_UNRESOLVED;
     v[RAM_REDUCED_LOSS] = RAM_REDUCED_LOSS;
+    v[RAM_REDUCED_CAPT_BLOSS] = RAM_REDUCED_CAPT_BLOSS;
     v[RAM_REDUCED_BLOSS] = RAM_REDUCED_BLOSS;
     v[RAM_CAPT_DRAW] = RAM_CAPT_DRAW;
     v[RAM_REDUCED_CWIN] = RAM_REDUCED_CWIN;
@@ -180,7 +185,7 @@ void reduce_tables(int n)
   run_threaded(transform, &work_g_static);
 
   reduce_cnt_win[epoch] = n + 249;
-  reduce_cnt_loss[epoch] = n - 3;
+  reduce_cnt_loss[epoch] = n - 4;
   epoch++;
 }
 

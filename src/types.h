@@ -8,6 +8,12 @@
 
 enum { WHITE = 0, BLACK };
 
+#ifdef HAS_PAWNS
+static constexpr bool has_pawns = true;
+#else
+static constexpr bool has_pawns = false;
+#endif
+
 typedef uint64_t Bitboard;
 
 typedef uint8_t u8;

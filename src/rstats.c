@@ -14,7 +14,6 @@
 #include "defs.h"
 #include "reduce.h"
 #include "rstats.h"
-#include "stats.h"
 #include "rgenerate.h"
 #include "tbrgen.h"
 #include "threads.h"
@@ -41,6 +40,7 @@ static void collect_stats_range(int stm);
 void reset_stats(void)
 {
   memset(g_stats, 0, sizeof g_stats);
+  memset(&mf, 0, sizeof mf);
 }
 
 static bool stats_want_win(int n)
@@ -68,6 +68,9 @@ static int byte_to_stat(uint8_t b)
     return epoch == 0 && stats_include_epoch0_special ? DRAW_RULE + 3 : -1;
   case RAM_PAWN_CWIN:
     return epoch == 0 && stats_include_epoch0_special ? DRAW_RULE + 4 : -1;
+  case RAM_CAPT_BLOSS:
+    return epoch == 0 && stats_include_epoch0_special
+      ? loss_to_stat(DRAW_RULE + 1) : -1;
   case RAM_CAPT_DRAW:
     return stats_include_epoch0_special ? MAX_STATS / 2 + 1 : -1;
   case RAM_PAWN_DRAW:
@@ -78,7 +81,7 @@ static int byte_to_stat(uint8_t b)
 
   if (epoch == 0) {
     if (b >= RAM_LOSS_IN_0 && b < RAM_PAWN_DRAW) {
-      int n = b - RAM_LOSS_IN_0;
+      int n = b - RAM_LOSS_IN_0 - (b > RAM_CAPT_BLOSS);
       return stats_want_loss(n) ? loss_to_stat(n) : -1;
     }
     if (b > RAM_CAPT_DRAW && b < RAM_CAPT_CWIN) {
@@ -158,6 +161,122 @@ INLINE bool ridx_state_sym_inc(struct RIdxStateS *is,
   return is->sym[ri->numsets];
 }
 
+static _Atomic uint64_t found_idx;
+static uint8_t find_val;
+static int find_table_stm;
+
+static void find_position_worker(struct ThreadData *thread)
+{
+  uint64_t cur = atomic_load_explicit(&found_idx, memory_order_relaxed);
+  if (thread->begin >= cur)
+    return;
+
+  uint8_t *restrict table = g_table[find_table_stm];
+  uint8_t v = find_val;
+
+  uint64_t idx, end;
+  for (idx = thread->begin, end = thread->end; idx < end; idx++)
+    if (table[idx] == v)
+      break;
+  if (idx >= end)
+    return;
+
+  uint64_t old = atomic_load_explicit(&found_idx, memory_order_relaxed);
+  while (idx < old) {
+    if (atomic_compare_exchange_weak_explicit(&found_idx, &old, idx,
+          memory_order_relaxed, memory_order_relaxed))
+      break;
+  }
+}
+
+static void write_maxfens(void)
+{
+  FILE *F = file_open_write("maxfens");
+  file_write(&mf, sizeof mf, F);
+  fclose(F);
+  file_rename("maxfens");
+}
+
+static void find_position(int table_stm, int winner, bool cursed, uint8_t val)
+{
+  find_table_stm = table_stm;
+  find_val = val;
+  atomic_store_explicit(&found_idx, UINT64_MAX, memory_order_relaxed);
+
+  run_threaded(find_position_worker, &work_g_dynamic);
+
+  uint64_t idx = atomic_load_explicit(&found_idx, memory_order_relaxed);
+  if (idx >= table_size)
+    return;
+
+  Position pos = g_pos;
+  pos.stm = table_stm;
+  struct RIdxState is;
+  ridx_state_init(&is, idx, &ri);
+  ridx_state_to_sq(&is, pos.sq, &ri);
+  pos_to_fen(&pos, mf.fen[winner][cursed], false);
+  mf.found[winner][cursed] = true;
+  write_maxfens();
+}
+
+static void maybe_update_max(int table_stm, int winner, bool cursed, int dtz,
+    uint8_t val)
+{
+  if (dtz <= mf.dtz[winner][cursed])
+    return;
+
+  int old_dtz = mf.dtz[winner][cursed];
+  bool old_found = mf.found[winner][cursed];
+  char old_fen[sizeof mf.fen[winner][cursed]];
+  memcpy(old_fen, mf.fen[winner][cursed], sizeof old_fen);
+
+  mf.dtz[winner][cursed] = dtz;
+  mf.found[winner][cursed] = false;
+
+  find_position(table_stm, winner, cursed, val);
+
+  if (!mf.found[winner][cursed]) {
+    mf.dtz[winner][cursed] = old_dtz;
+    mf.found[winner][cursed] = old_found;
+    memcpy(mf.fen[winner][cursed], old_fen, sizeof old_fen);
+  }
+}
+
+static void update_max_fens(int stm, uint64_t add[MAX_STATS])
+{
+  if (stats_include_epoch0_special) {
+    if (add[1])
+      maybe_update_max(stm, stm, false, 3, RAM_CAPT_WIN);
+    if (add[2])
+      maybe_update_max(stm, stm, false, 3, RAM_PAWN_WIN);
+    if (add[DRAW_RULE + 3])
+      maybe_update_max(stm, stm, true, 2 * (DRAW_RULE + 1) + 1,
+          RAM_CAPT_CWIN);
+    if (add[DRAW_RULE + 4])
+      maybe_update_max(stm, stm, true, 2 * (DRAW_RULE + 1) + 1,
+          RAM_PAWN_CWIN);
+    if (add[loss_to_stat(DRAW_RULE + 1)])
+      maybe_update_max(stm, stm ^ 1, true, 2 * (DRAW_RULE + 1),
+          RAM_CAPT_BLOSS);
+  }
+
+  for (int n = stats_first_win; n < stats_win_limit; n++) {
+    int s = win_to_stat(n);
+    if (!add[s])
+      continue;
+    bool cursed = n > DRAW_RULE;
+    maybe_update_max(stm, stm, cursed, 2 * n + 1, win_to_byte(n));
+  }
+
+  for (int n = stats_first_loss; n < stats_loss_limit; n++) {
+    int s = loss_to_stat(n);
+    if (!add[s])
+      continue;
+    bool cursed = n > DRAW_RULE;
+    maybe_update_max(stm, stm ^ 1, cursed, 2 * n, loss_to_byte(n));
+  }
+}
+
 static void count_stats_worker(struct ThreadData *thread)
 {
   uint64_t *restrict stats = per_thread_stats[thread->thread_id];
@@ -176,18 +295,8 @@ static void count_stats_worker(struct ThreadData *thread)
 
   struct RIdxStateS is;
   bool symmetric = ridx_state_sym_init(&is, idx, &ri);
-  for (; idx < end; idx++, symmetric = ridx_state_sym_inc(&is, &ri)) {
-#if 0
-    __m512i x = _mm512_load_si512((__m512i *)is.bb);
-    __m512i y = flip_main_8xbb(x);
-    if (_mm512_cmpeq_epi64_mask(x, y) == 0xff)
-      stats[table[idx]] += 2;
-    else
-      stats[table[idx]]++;
-#else
+  for (; idx < end; idx++, symmetric = ridx_state_sym_inc(&is, &ri))
     stats[table[idx]] += 1 + symmetric;
-#endif
-  }
 }
 
 void collect_stats(int stm)
@@ -197,7 +306,7 @@ void collect_stats(int stm)
     stats_first_loss = 0;
   } else {
     stats_first_win = reduce_cnt_win[epoch - 1] - 250;
-    stats_first_loss = reduce_cnt_loss[epoch - 1] + 3;
+    stats_first_loss = reduce_cnt_loss[epoch - 1] + 4;
   }
   stats_win_limit = MAX_STATS / 2 - 3;
   stats_loss_limit = MAX_STATS / 2 - 3;
@@ -213,7 +322,7 @@ void collect_stats_before_reduce(int stm, int n)
     stats_first_loss = 0;
   } else {
     stats_first_win = reduce_cnt_win[epoch - 1] - 250;
-    stats_first_loss = reduce_cnt_loss[epoch - 1] + 3;
+    stats_first_loss = reduce_cnt_loss[epoch - 1] + 4;
   }
   stats_win_limit = n - 1;
   stats_loss_limit = n;
@@ -243,6 +352,9 @@ static void collect_stats_range(int stm)
   }
   for (int i = 0; i < MAX_STATS; i++)
     g_stats[stm][i] += add[i] >> 1;
+
+  update_max_fens(stm, add);
+  write_maxfens();
 
   free(per_thread_stats);
 }

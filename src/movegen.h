@@ -31,6 +31,8 @@ struct Position {
 
 typedef struct Position Position;
 
+extern Position g_pos;
+
 extern const char PieceChar[];
 extern Bitboard KnightAttacks[64], KingAttacks[64];
 extern Bitboard PawnAttacks[2][64], SidesMask[64];

@@ -20,16 +20,6 @@
 #include "types.h"
 #include "util.h"
 
-#if 0
-static constexpr uint8_t LOSS_IN_0  = 0x01;
-static constexpr uint8_t CAPT_LOSS  = 0x02;
-static constexpr uint8_t CAPT_BLOSS = 0;
-static constexpr uint8_t CAPT_DRAW  = 0;
-static constexpr uint8_t CAPT_CWIN  = 0;
-static constexpr uint8_t CAPT_WIN   = 0xfe;
-static constexpr uint8_t ILLEGAL    = 0xff;
-#endif
-
 struct Work work_g_dynamic, work_g_static;
 static struct Work work_capt_dynamic[MAX_SETS];
 
@@ -57,6 +47,12 @@ INLINE void set_max_atomic(uint8_t *restrict p, uint8_t v)
            memory_order_relaxed, memory_order_relaxed)) ;
 }
 
+INLINE void set_max(uint8_t *restrict p, uint8_t v)
+{
+  if (*p < v)
+    *p = v;
+}
+
 Bitboard ridx_state_init(struct RIdxState *is, uint64_t idx,
     const struct RankInfo *ri)
 {
@@ -74,7 +70,7 @@ Bitboard ridx_state_init(struct RIdxState *is, uint64_t idx,
 }
 
 INLINE void mark_king_uncaptures(int stm, int k, uint8_t *restrict p,
-    Bitboard occ, struct RIdxState *is, uint8_t v)
+    Bitboard occ, struct RIdxState *is, uint8_t v, const bool atomic)
 {
   alignas(64) Bitboard bb[8];
   uint8_t ksq[2] = { is->sq[0], is->sq[1] };
@@ -100,7 +96,8 @@ INLINE void mark_king_uncaptures(int stm, int k, uint8_t *restrict p,
       x = flip_main_8xbb(x);
       _mm512_store_si512((__m512i *)bb, x);
       idx = rank_bb_from(bb, s, 0, bb[0], &ri);
-      set_max_atomic(p + idx, v);
+      if (atomic) set_max_atomic(p + idx, v);
+      else set_max(p + idx, v);
     }
   }
 
@@ -111,7 +108,8 @@ INLINE void mark_king_uncaptures(int stm, int k, uint8_t *restrict p,
 
 // Uncapture a piece in set k by a piece in set j.
 INLINE void mark_uncaptures(int stm, const int pc, int k,
-   uint8_t *restrict p, Bitboard occ, struct RIdxState *is, uint8_t v)
+   uint8_t *restrict p, Bitboard occ, struct RIdxState *is, uint8_t v,
+   const bool atomic)
 {
   int j = g_piece_set[stm][pc];
   if (j < 0) return;
@@ -132,7 +130,8 @@ INLINE void mark_uncaptures(int stm, const int pc, int k,
       Bitboard from_bb = b & -b;
       is->bb[j + 1] ^= from_bb;
       uint64_t idx = rank_bb_from(is->bb, idx0, l, is->occ[l], &ri);
-      set_max_atomic(p + idx, v);
+      if (atomic) set_max_atomic(p + idx, v);
+      else set_max(p + idx, v);
       is->bb[j + 1] ^= from_bb;
       b ^= from_bb;
     }
@@ -287,6 +286,66 @@ INLINE bool check_moves(int stm, const int pc, uint8_t *restrict p,
   return true;
 }
 
+// Only quiet moves are checked because captures have been processed earlier.
+INLINE uint8_t comp_king_moves(int stm, uint8_t *restrict p, Bitboard occ,
+    struct RIdxState *is)
+{
+  alignas(64) Bitboard bb[8];
+  uint8_t ksq[2] = { is->sq[0], is->sq[1] };
+  uint8_t best = 0xff;
+
+  Bitboard b = king_attacks(ksq[stm]) & ~king_attacks(ksq[stm ^ 1]) & ~occ;
+  while (b) {
+    ksq[stm] = pop_lsb(&b);
+    is->bb[0] = bit(ksq[0]) | bit(ksq[1]);
+    int s = KKMap[ksq[0]][ksq[1]];
+    int t = KK_transform[ksq[0]][ksq[1]];
+    Bitboard *set_bb = is->bb;
+    if (t) {
+      transform_set_bb(t, is->bb, bb);
+      set_bb = bb;
+    }
+    uint64_t idx = rank_bb_from(set_bb, s, 0, set_bb[0], &ri);
+    best = min(best, p[idx]);
+  }
+
+  is->bb[0] = is->occ[0];
+  return best;
+}
+
+// Only quiet moves are checked because captures have been processed earlier.
+INLINE uint8_t comp_moves(int stm, const int pc, uint8_t *restrict p,
+    Bitboard occ, struct RIdxState *is)
+{
+  int k = g_piece_set[stm][pc];
+  if (k < 0) return 0xff;
+  uint8_t best = 0xff;
+
+  uint64_t idx0 = is->sub[0];
+  for (int i = 0; i < k; i++)
+    idx0 = idx0 * ri.factor[i] + is->sub[i + 1];
+
+  Bitboard bb = is->bb[k + 1];
+  while (bb) {
+    Bitboard from_bb = bb & -bb;
+    is->bb[k + 1] ^= from_bb;
+    bb ^= from_bb;
+
+    Bitboard b = piece_moves(pc, lsb(from_bb), occ);
+    while (b) {
+      Bitboard to_bb = b & -b;
+      is->bb[k + 1] ^= to_bb;
+      uint64_t idx = rank_bb_from(is->bb, idx0, k, is->occ[k], &ri);
+      best = min(best, p[idx]);
+      is->bb[k + 1] ^= to_bb;
+      b ^= to_bb;
+    }
+    is->bb[k + 1] ^= from_bb;
+  }
+
+  return best;
+}
+
 static constexpr uint8_t wdl_to_capt_val[5] = {
 //  CAPT_WIN, CAPT_CWIN, CAPT_DRAW, CAPT_BLOSS, CAPT_LOSS
   RAM_CAPT_WIN, RAM_CAPT_CWIN, RAM_CAPT_DRAW, RAM_CAPT_BLOSS, RAM_CAPT_LOSS
@@ -366,11 +425,11 @@ static void calc_capt_worker(struct ThreadData *thread)
     ridx_state_to_sq(&is, pos.sq, &capt_ri[k]);
     pos.sq[m] = pos.sq[n];
     uint8_t v = wdl_to_capt_val[probe_wdl(&pos, -2, 2) + 2];
-    mark_king_uncaptures(stm, k, p, occ, &is, v);
-    mark_uncaptures(stm, KNIGHT, k, p, occ, &is, v);
-    mark_uncaptures(stm, BISHOP, k, p, occ, &is, v);
-    mark_uncaptures(stm, ROOK  , k, p, occ, &is, v);
-    mark_uncaptures(stm, QUEEN , k, p, occ, &is, v);
+    mark_king_uncaptures(stm, k, p, occ, &is, v, true);
+    mark_uncaptures(stm, KNIGHT, k, p, occ, &is, v, true);
+    mark_uncaptures(stm, BISHOP, k, p, occ, &is, v, true);
+    mark_uncaptures(stm, ROOK  , k, p, occ, &is, v, true);
+    mark_uncaptures(stm, QUEEN , k, p, occ, &is, v, true);
   }
 }
 
@@ -546,9 +605,10 @@ static void iter(struct ThreadData *thread)
 // L2 = 3
 // ...
 // L100 = 101
-// CAPT_BLOSS/L101 = 102
+// CAPT_BLOSS = 102
+// L101 = 103
 // ...
-// L124 = 125
+// L123 = 125
 // PAWN_DRAW = 126
 // CAPT_DRAW = 127
 // W123 = 128
@@ -620,7 +680,7 @@ uint16_t map[MAX_STATS];
 //
 // WIN_CAPT to be added to W1_*
 // CWIN_CAPT to be added to W101_*
-// BLOSS_CAPT == L101_*
+// BLOSS_CAPT to be added to L101_*
 // LOSS_CAPT == L1_*
 
 static void iterate(void)
@@ -691,7 +751,7 @@ static void iterate(void)
 
     g_pos.stm = stm;
     atomic_store_explicit(&not_finished, false, memory_order_relaxed);
-    printf("iteration %d\n", n);
+    printf("Iteration %d\n", n);
     run_threaded(iter, &work_g_dynamic);
     stm ^= 1;
     n++;
@@ -717,7 +777,7 @@ static void iterate(void)
     }
 
     g_pos.stm = stm;
-    printf("iteration %d\n", n);
+    printf("Iteration %d\n", n);
     run_threaded(iter, &work_g_dynamic);
     if (!atomic_load_explicit(&not_finished, memory_order_relaxed)) {
       if (n >= min_stop_n)
@@ -747,4 +807,119 @@ void generate(void)
   printf("Calculating candidate mate positions.\n");
   calc_mates();
   iterate();
+}
+
+static int8_t capt_bloss_val;
+alignas(64) static uint8_t restore_bloss_val[256];
+
+static void reset_bloss_captures_worker(struct ThreadData *thread)
+{
+  struct RIdxState is;
+  int k = work_set;
+
+  Position pos = g_pos;
+  int stm = pos.stm ^ 1;
+  int n = --pos.num;
+  int m = ri.last[k];
+  pos.pt[m] = pos.pt[n];
+  uint8_t v = capt_bloss_val;
+
+  uint8_t *restrict p = g_table[stm];
+
+  Bitboard occ = ridx_state_init(&is, thread->begin, &capt_ri[k]);
+  for (uint64_t idx = thread->begin, end = thread->end; idx < end;
+      idx++, occ = ridx_state_inc(&is, &capt_ri[k]))
+  {
+    if (!ridx_state_legal(&is, pos.stm, occ))
+      continue;
+    pos.occ = occ;
+    ridx_state_to_sq(&is, pos.sq, &capt_ri[k]);
+    pos.sq[m] = pos.sq[n];
+    if (probe_wdl(&pos, 0, 2) != 1)
+      continue;
+    mark_king_uncaptures(stm, k, p, occ, &is, v, false);
+    mark_uncaptures(stm, KNIGHT, k, p, occ, &is, v, false);
+    mark_uncaptures(stm, BISHOP, k, p, occ, &is, v, false);
+    mark_uncaptures(stm, ROOK  , k, p, occ, &is, v, false);
+    mark_uncaptures(stm, QUEEN , k, p, occ, &is, v, false);
+  }
+}
+
+static void reset_bloss_captures(uint8_t v)
+{
+  capt_bloss_val = v;
+  for (int k = 0; k < ri.numsets; k++) {
+    g_pos.stm = g_set_pt[k] >> 3;
+    work_set = k;
+    run_threaded(reset_bloss_captures_worker, &work_capt_dynamic[k]);
+  }
+}
+
+static void fix_bloss_worker(struct ThreadData *thread)
+{
+  struct RIdxState is;
+  int stm = g_pos.stm;
+  uint8_t *restrict table = g_table[stm];
+  uint8_t *restrict table_opp = g_table[stm ^ 1];
+
+  uint64_t last = thread->begin;
+  ridx_state_init(&is, last, &ri);
+  for (uint64_t idx = last, end = thread->end; idx < end; idx++) {
+    if (table[idx] != capt_bloss_val)
+      continue;
+    Bitboard occ = ridx_state_add(&is, idx - last, &ri);
+    last = idx;
+    uint8_t best = comp_king_moves(stm, table_opp, occ, &is);
+    best = min(best, comp_moves(stm, KNIGHT, table_opp, occ, &is));
+    best = min(best, comp_moves(stm, BISHOP, table_opp, occ, &is));
+    best = min(best, comp_moves(stm, ROOK  , table_opp, occ, &is));
+    best = min(best, comp_moves(stm, QUEEN , table_opp, occ, &is));
+    uint8_t v = restore_bloss_val[best];
+    if (v)
+      table[idx] = v;
+  }
+}
+
+static void fix_bloss(int stm)
+{
+  memset(&restore_bloss_val, 0, sizeof restore_bloss_val);
+
+  if (epoch == 0) {
+    restore_bloss_val[RAM_CAPT_WIN] = loss_to_byte(2);
+    restore_bloss_val[RAM_PAWN_WIN] = loss_to_byte(2);
+    restore_bloss_val[RAM_CAPT_CWIN] = loss_to_byte(DRAW_RULE + 2);
+    restore_bloss_val[RAM_PAWN_CWIN] = loss_to_byte(DRAW_RULE + 2);
+
+    for (int i = 1; i <= DRAW_RULE + 22; i++)
+      restore_bloss_val[win_to_byte(i)] = loss_to_byte(i + 1);
+  } else {
+    restore_bloss_val[RAM_CAPT_WIN] = RAM_REDUCED_LOSS;
+    restore_bloss_val[RAM_PAWN_WIN] = RAM_REDUCED_LOSS;
+    restore_bloss_val[RAM_REDUCED_WIN] = RAM_REDUCED_LOSS;
+    restore_bloss_val[RAM_REDUCED_CWIN] = RAM_REDUCED_BLOSS;
+    restore_bloss_val[RAM_REDUCED_CAPT_CWIN] = RAM_REDUCED_BLOSS;
+
+    int first_win = reduce_cnt_win[epoch - 1] - 250;
+    for (int i = first_win; i < MAX_STATS / 2 - 3; i++) {
+      uint8_t w = win_to_byte(i);
+      uint8_t l = loss_to_byte(i + 1);
+      if (w > RAM_CAPT_DRAW && w < RAM_REDUCED_CWIN
+          && l > RAM_REDUCED_BLOSS && l < RAM_CAPT_DRAW)
+        restore_bloss_val[w] = l;
+    }
+  }
+
+  capt_bloss_val = epoch == 0 ? RAM_CAPT_BLOSS : RAM_REDUCED_CAPT_BLOSS;
+  g_pos.stm = stm;
+  run_threaded(fix_bloss_worker, &work_g_dynamic);
+}
+
+void reset_bloss_captures_for_wdl(void)
+{
+  reset_bloss_captures(epoch == 0 ? RAM_CAPT_BLOSS : RAM_REDUCED_CAPT_BLOSS);
+}
+
+void fix_bloss_after_wdl(int stm)
+{
+  fix_bloss(stm);
 }

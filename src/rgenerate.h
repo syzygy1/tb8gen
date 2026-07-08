@@ -114,6 +114,8 @@ INLINE int stats_n(int n)
 }
 
 void generate(void);
+void reset_bloss_captures_for_wdl(void);
+void fix_bloss_after_wdl(int stm);
 Bitboard ridx_state_init(struct RIdxState *is, uint64_t idx,
     const struct RankInfo *ri);
 //void init_generation_work(void);

@@ -21,7 +21,8 @@
 #include "movegen.h"
 #include "probe.h"
 #include "rgenerate.h"
-#include "stats.h"
+#include "rstats.h"
+#include "rwdl.h"
 //#include "tb8gen.h"
 #include "threads.h"
 #include "types.h"
@@ -31,10 +32,6 @@
 #define STATSDIR "RTBSTATSDIR"
 #define WORKDIR "TB8DIR"
 
-Position g_pos;
-int8_t g_sets[2][8];
-int8_t g_piece_set[2][8];
-uint8_t g_set_pt[8];
 bool g_only_generate, g_use_rans, symmetric, used_rans = false;
 bool g_cleanup;
 bool one_sided, wins_only;
@@ -46,6 +43,7 @@ struct MaxFen mf;
 size_t table_size;
 size_t table_diagonal;
 size_t table_sub_size[MAX_SETS];
+size_t kslice_sizes[2];
 
 uint8_t *g_table[2];
 
@@ -182,14 +180,15 @@ int main(int argc, char **argv)
   // Initialize main RankInfo struct.
   uint8_t mult[MAX_SETS] = { 0 };
   k = 0;
-  for (int i = 2; i < numpcs;) {
+  for (int i = 2; i < numpcs; k++) {
     int j = i;
-    for (; i < numpcs && pt[i] == pt[j]; i++)
-      pc_to_set[i] = k;
+    while (i < numpcs && pt[i] == pt[j])
+      i++;
     mult[k] = i - j;
-    k++;
   }
   ri = rank_info_62[rank_mult(mult)];
+  kslice_sizes[0] = ri.sizes[0];
+  kslice_sizes[1] = ri.sizes[1];
   table_size = 462 * ri.sizes[0];
   table_diagonal = 441 * ri.sizes[0];
 
@@ -272,7 +271,18 @@ int main(int argc, char **argv)
   print_stats(stdout, WHITE);
   print_stats(stdout, BLACK);
   printf("\n");
+  print_max_fens(stdout, &mf);
 
+  calc_stats_checksums();
+
+  if (!g_only_generate) {
+    reset_bloss_captures_for_wdl();
+    rjoin_wdl(pcs, pt, layout);
+    fix_bloss_after_wdl(WHITE);
+    fix_bloss_after_wdl(BLACK);
+  }
+
+#if 0
   if (file_exists("maxfens")) {
     FILE *F = file_open_read("maxfens");
     file_read(&mf, sizeof mf, F);
@@ -296,8 +306,7 @@ int main(int argc, char **argv)
       mf.dtz[stm][0] = m > n ? 2 * m : n >= 1 ? 2 * n + 1 : -1;
     }
   }
-
-//  calc_stats_checksums();
+#endif
 
 #if 0
   size_t stats_file_len = strlen(g_output_dir) + strlen(g_tablename) + 6;
@@ -322,7 +331,6 @@ int main(int argc, char **argv)
   print_stats(stdout, BLACK);
   printf("\n");
 #endif
-//  print_max_fens(stdout, &mf);
 
 #if 0
   if (!g_only_generate) {

@@ -50,6 +50,8 @@ INLINE bool valid(int sq, signed char delta[2])
 
 const char PieceChar[] = " PNBRQK  pnbrqk ";
 
+Position g_pos;
+
 static Bitboard calc_attacks(int sq, signed char delta[][2], int num)
 {
   Bitboard bb = 0;

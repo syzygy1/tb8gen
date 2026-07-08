@@ -30,10 +30,6 @@
 #define STATSDIR "RTBSTATSDIR"
 #define WORKDIR "TB8DIR"
 
-Position g_pos;
-int8_t g_sets[2][8];
-int8_t g_piece_set[2][8];
-uint8_t g_set_pt[8];
 bool symmetric;
 bool g_cleanup;
 //bool one_sided, wins_only;
@@ -161,12 +157,11 @@ int main(int argc, char **argv)
   // Initialize main RankInfo struct.
   uint8_t mult[MAX_SETS] = { 0 };
   k = 0;
-  for (int i = 2; i < numpcs;) {
+  for (int i = 2; i < numpcs; k++) {
     int j = i;
-    for (; i < numpcs && pt[i] == pt[j]; i++)
-      pc_to_set[i] = k;
+    while (i < numpcs && pt[i] == pt[j])
+      i++;
     mult[k] = i - j;
-    k++;
   }
   ri = rank_info_62[rank_mult(mult)];
   kslice_sizes[0] = ri.sizes[0];

@@ -14,7 +14,9 @@
 
 struct Slice g_slice;
 struct RankInfo ri, capt_ri[MAX_SETS];
-int pc_to_set[MAX_PIECES];
+int8_t g_sets[2][8];
+uint8_t g_set_pt[8];
+int8_t g_piece_set[2][8];
 Bitboard Unrank2[63 * 62 / 2], Unrank3[63 * 62 * 61 / 6];
 uint32_t Binomial[8][64];
 uint64_t MirrorMask[64];

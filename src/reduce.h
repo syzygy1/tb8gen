@@ -22,7 +22,8 @@ enum {
   RAM_ILLEGAL = 255,
 
   RAM_REDUCED_LOSS = 1,
-  RAM_REDUCED_BLOSS = 2,
+  RAM_REDUCED_CAPT_BLOSS = 2,
+  RAM_REDUCED_BLOSS = 3,
   RAM_REDUCED_CWIN = 251,
   RAM_REDUCED_CAPT_CWIN = 252,
   RAM_REDUCED_WIN = 253,
@@ -39,7 +40,7 @@ INLINE uint8_t win_to_byte(int n)
 INLINE uint8_t loss_to_byte(int n)
 {
   if (epoch == 0)
-    return 1 + n;
+    return 1 + n + (n > DRAW_RULE);
   else
     return n - reduce_cnt_loss[epoch - 1];
 }
