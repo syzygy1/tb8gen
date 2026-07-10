@@ -189,16 +189,6 @@ static void find_position_worker(struct ThreadData *thread)
   }
 }
 
-#if 0
-static void write_maxfens(void)
-{
-  FILE *F = file_open_write("maxfens");
-  file_write(&mf, sizeof mf, F);
-  fclose(F);
-  file_rename("maxfens");
-}
-#endif
-
 static void find_position(int table_stm, int winner, bool cursed, uint8_t val)
 {
   find_table_stm = table_stm;

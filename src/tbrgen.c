@@ -192,8 +192,8 @@ int main(int argc, char **argv)
   table_size = 462 * ri.sizes[0];
   table_diagonal = 441 * ri.sizes[0];
 
-  g_table[0] = alloc_huge((table_size + 63) & ~0x3f);
-  g_table[1] = alloc_huge((table_size + 63) & ~0x3f);
+  g_table[0] = alloc_huge((table_size + 1 + 63) & ~0x3f);
+  g_table[1] = alloc_huge((table_size + 1 + 63) & ~0x3f);
   if (!g_table[0] || !g_table[1])
     out_of_mem();
 

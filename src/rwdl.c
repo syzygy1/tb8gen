@@ -295,7 +295,7 @@ static void compress_full_wdl(int stm, struct tb_handle *G, uint8_t *pcs,
   uint8_t *table = g_table[stm];
 
   bool has_capt_bloss = find_capt_bloss(stm);
-  table[table_size] = 8;
+  table[table_size] = RAM_ILLEGAL;
   prepare_wdl_map(g_stats[stm], vals, has_capt_bloss);
   compress_init_wdl(vals);
 
