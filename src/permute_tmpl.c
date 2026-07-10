@@ -16,6 +16,9 @@ static void NAME(convert_data_piece)(struct ThreadData *thread)
   uint64_t idx, end = thread->end;
   struct DecInfo di;
   uint32_t sub[MAX_PIECES];
+#ifdef TRANSFORM
+  T *restrict v = permute_v;
+#endif
 
   uint64_t idx_dec_buf[NUM];
 
@@ -41,7 +44,11 @@ static void NAME(convert_data_piece)(struct ThreadData *thread)
     decode_piece_iter(sub, pos, &di, &tb_entry);
     uint64_t idx_dec = calc_idx_piece(pos, pidx);
     __builtin_prefetch(&src[idx_dec], 0, 3);
+#ifndef TRANSFORM
     dst[idx - NUM] = src[idx_dec_buf[k]];
+#else
+    dst[idx - NUM] = v[src[idx_dec_buf[k]]];
+#endif
     idx_dec_buf[k] = idx_dec;
   }
   l = NUM;
@@ -49,7 +56,11 @@ static void NAME(convert_data_piece)(struct ThreadData *thread)
 finish:
   for (idx -= l; l > 0; l--, idx++, k++) {
     k &= NUM - 1;
+#ifndef TRANSFORM
     dst[idx] = src[idx_dec_buf[k]];
+#else
+    dst[idx] = v[src[idx_dec_buf[k]]];
+#endif
   }
 }
 
@@ -65,6 +76,9 @@ static void NAME(convert_est_data_piece)(struct ThreadData *thread)
   uint8_t pos[MAX_PIECES];
   struct DecInfo di;
   uint32_t sub[MAX_PIECES];
+#ifdef TRANSFORM
+  T *restrict v = permute_v;
+#endif
 
   uint64_t idx_cache[MAX_CANDS];
  
@@ -96,12 +110,20 @@ static void NAME(convert_est_data_piece)(struct ThreadData *thread)
 	  l = trylist[r];
           idx = calc_idx_piece(pos, pidx_list[l]);
 	  __builtin_prefetch(&table[idx], 0, 3);
+#ifndef TRANSFORM
 	  dst[r * dsize + i * seg_size + j - 1] = table[idx_cache[r]];
+#else
+	  dst[r * dsize + i * seg_size + j - 1] = v[table[idx_cache[r]]];
+#endif
 	  idx_cache[r] = idx;
 	}
       }
       for (r = p; r < q; r++)
+#ifndef TRANSFORM
 	dst[r * dsize + i * seg_size + j - 1] = table[idx_cache[r]];
+#else
+	dst[r * dsize + i * seg_size + j - 1] = v[table[idx_cache[r]]];
+#endif
       p = q;
     }
   }

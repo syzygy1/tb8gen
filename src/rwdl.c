@@ -18,7 +18,7 @@
 #include "index.h"
 #include "kslice.h"
 #include "movegen.h"
-#include "permute.h"
+#include "rpermute.h"
 #include "permute10.h"
 #include "permute462.h"
 #include "probe.h"
@@ -72,7 +72,7 @@ static void init_ram_wdl_map(void)
       ram_wdl_map[win_to_byte(n)] = n <= DRAW_RULE ? 4 : 3;
   } else {
     ram_wdl_map[RAM_REDUCED_LOSS] = 0;
-    ram_wdl_map[RAM_REDUCED_CAPT_BLOSS] = 6;
+    ram_wdl_map[RAM_REDUCED_CAPT_BLOSS] = 5;
     ram_wdl_map[RAM_REDUCED_BLOSS] = 1;
     ram_wdl_map[RAM_REDUCED_CWIN] = 3;
     ram_wdl_map[RAM_REDUCED_CAPT_CWIN] = 7;
@@ -94,6 +94,34 @@ static void init_ram_wdl_map(void)
         ram_wdl_map[b] = n <= DRAW_RULE ? 4 : 3;
     }
   }
+}
+
+static _Atomic bool found_capt_bloss;
+static uint8_t capt_bloss_val;
+
+static void find_capt_bloss_worker(struct ThreadData *thread)
+{
+  if (atomic_load_explicit(&found_capt_bloss, memory_order_relaxed))
+    return;
+
+  uint8_t v = capt_bloss_val;
+  uint8_t *restrict table = g_table[g_pos.stm];
+
+  for (uint64_t idx = thread->begin, end = thread->end; idx < end; idx++)
+    if (table[idx] == v) {
+      atomic_store_explicit(&found_capt_bloss, true, memory_order_relaxed);
+      break;
+    }
+}
+
+// FIXME: allow specification of memory area.
+static bool find_capt_bloss(int stm)
+{
+  capt_bloss_val = epoch == 0 ? RAM_CAPT_BLOSS : RAM_REDUCED_CAPT_BLOSS;
+  g_pos.stm = stm;
+  atomic_store_explicit(&found_capt_bloss, false, memory_order_relaxed);
+  run_threaded(find_capt_bloss_worker, &work_g_static);
+  return atomic_load_explicit(&found_capt_bloss, memory_order_relaxed);
 }
 
 static void update_wdl_vals(bool vals[5], bool dc[4], uint8_t v)
@@ -263,18 +291,17 @@ static bool transform_slice_stats(uint8_t *dst, const uint8_t *src, int s,
 static void compress_full_wdl(int stm, struct tb_handle *G, uint8_t *pcs,
     uint8_t *pt)
 {
-  bool vals[5] = { 0 };
-  bool dc[4] = { 0 };
-  uint8_t *table = join_table;
+  bool vals[5];
+  uint8_t *table = g_table[stm];
 
-  transform_table(table, g_table[stm], table_size, vals, dc);
+  bool has_capt_bloss = find_capt_bloss(stm);
   table[table_size] = 8;
-  prepare_wdl_map(g_stats[stm], vals, dc[0]);
+  prepare_wdl_map(g_stats[stm], vals, has_capt_bloss);
   compress_init_wdl(vals);
 
   uint8_t best[MAX_PIECES];
   printf("Find optimal permutation for %ctm/wdl.\n", "wb"[stm]);
-  permute_piece_wdl(tb_table, pcs, pt, table, best);
+  permute_piece_wdl(tb_table, pcs, pt, table, best, ram_wdl_map);
   printf("Compressing data for %ctm/wdl.\n", "wb"[stm]);
   compress_tb(G, -1, tb_table, tb_size, best, minfreq, false);
 }

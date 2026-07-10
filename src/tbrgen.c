@@ -276,10 +276,10 @@ int main(int argc, char **argv)
   calc_stats_checksums();
 
   if (!g_only_generate) {
-    reset_bloss_captures_for_wdl();
+    reset_bloss_captures();
     rjoin_wdl(pcs, pt, layout);
-    fix_bloss_after_wdl(WHITE);
-    fix_bloss_after_wdl(BLACK);
+    fix_bloss(WHITE);
+    fix_bloss(BLACK);
   }
 
 #if 0

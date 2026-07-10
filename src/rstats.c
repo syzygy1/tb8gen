@@ -189,6 +189,7 @@ static void find_position_worker(struct ThreadData *thread)
   }
 }
 
+#if 0
 static void write_maxfens(void)
 {
   FILE *F = file_open_write("maxfens");
@@ -196,6 +197,7 @@ static void write_maxfens(void)
   fclose(F);
   file_rename("maxfens");
 }
+#endif
 
 static void find_position(int table_stm, int winner, bool cursed, uint8_t val)
 {
@@ -216,7 +218,6 @@ static void find_position(int table_stm, int winner, bool cursed, uint8_t val)
   ridx_state_to_sq(&is, pos.sq, &ri);
   pos_to_fen(&pos, mf.fen[winner][cursed], false);
   mf.found[winner][cursed] = true;
-  write_maxfens();
 }
 
 static void maybe_update_max(int table_stm, int winner, bool cursed, int dtz,
@@ -354,7 +355,6 @@ static void collect_stats_range(int stm)
     g_stats[stm][i] += add[i] >> 1;
 
   update_max_fens(stm, add);
-  write_maxfens();
 
   free(per_thread_stats);
 }

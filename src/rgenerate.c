@@ -809,7 +809,7 @@ void generate(void)
   iterate();
 }
 
-static int8_t capt_bloss_val;
+static uint8_t capt_bloss_val;
 alignas(64) static uint8_t restore_bloss_val[256];
 
 static void reset_bloss_captures_worker(struct ThreadData *thread)
@@ -845,9 +845,11 @@ static void reset_bloss_captures_worker(struct ThreadData *thread)
   }
 }
 
-static void reset_bloss_captures(uint8_t v)
+// TODO: keep track of which captures include bloss captures, so we can skip
+// the captures that do not.
+void reset_bloss_captures(void)
 {
-  capt_bloss_val = v;
+  capt_bloss_val = epoch == 0 ? RAM_CAPT_BLOSS : RAM_REDUCED_CAPT_BLOSS;
   for (int k = 0; k < ri.numsets; k++) {
     g_pos.stm = g_set_pt[k] >> 3;
     work_set = k;
@@ -880,7 +882,7 @@ static void fix_bloss_worker(struct ThreadData *thread)
   }
 }
 
-static void fix_bloss(int stm)
+void fix_bloss(int stm)
 {
   memset(&restore_bloss_val, 0, sizeof restore_bloss_val);
 
@@ -912,14 +914,4 @@ static void fix_bloss(int stm)
   capt_bloss_val = epoch == 0 ? RAM_CAPT_BLOSS : RAM_REDUCED_CAPT_BLOSS;
   g_pos.stm = stm;
   run_threaded(fix_bloss_worker, &work_g_dynamic);
-}
-
-void reset_bloss_captures_for_wdl(void)
-{
-  reset_bloss_captures(epoch == 0 ? RAM_CAPT_BLOSS : RAM_REDUCED_CAPT_BLOSS);
-}
-
-void fix_bloss_after_wdl(int stm)
-{
-  fix_bloss(stm);
 }
