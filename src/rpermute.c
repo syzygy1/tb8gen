@@ -273,7 +273,7 @@ static struct {
   int rank;
 } est_data;
 
-#define TRANSFORM
+#define RAMGEN
 
 #define T u8
 #include "permute_tmpl.c"

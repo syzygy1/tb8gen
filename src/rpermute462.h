@@ -11,6 +11,6 @@
 
 void init_permute_piece_462(void);
 void permute_piece_462(void *tb_table, void *table, uint8_t *best, int type,
-    bool wide);
+    bool wide, void *v);
 
 #endif

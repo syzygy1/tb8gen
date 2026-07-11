@@ -106,7 +106,7 @@ const int16_t KKIdx[10][64] = {
      -1,  -1,  -1,  -1 , -1,  -1,  -1, 461  }
 };
 
-uint8_t KKSquare[462][2];
+uint8_t KKSquare[463][2];
 int16_t KKMap[64][64];
 
 // Regular RankInfo structs used for generation.

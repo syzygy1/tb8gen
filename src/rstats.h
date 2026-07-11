@@ -26,6 +26,8 @@ void collect_stats_before_reduce(int stm, int n);
 void print_stats(FILE *F, int stm);
 void print_max_fens(FILE *F, struct MaxFen *mf);
 
+int byte_to_stat(uint8_t b);
+
 XXH128_hash_t freq_to_hash(int n, uint64_t *f0, uint64_t *f1, uint64_t *f2,
     uint64_t *f3);
 void calc_stats_checksums(void);

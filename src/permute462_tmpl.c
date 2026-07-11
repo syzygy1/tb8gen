@@ -29,6 +29,9 @@ static void NAME(convert_data_piece)(struct ThreadData *thread)
   struct RankInfo *perm_ri = convert_data.perm_ri;
   struct RankInfo rank_ri;
   struct IdxState is;
+#ifdef RAMGEN
+  T *restrict v = permute_v;
+#endif
 
   uint64_t idx_dec_buf[NUM];
 
@@ -52,14 +55,22 @@ static void NAME(convert_data_piece)(struct ThreadData *thread)
   for (; idx < end; idx++, idx_state_inc(&is, perm_ri)) {
     uint64_t idx_dec = perm_rank_bb(is.bb, &rank_ri);
     __builtin_prefetch(src + idx_dec, 0, 3);
+#ifndef RAMGEN
     dst[idx - NUM] = src[idx_dec_buf[head]];
+#else
+    dst[idx - NUM] = v[src[idx_dec_buf[head]]];
+#endif
     idx_dec_buf[head] = idx_dec;
     head = (head + 1) & (NUM - 1);
   }
 
   // Drain pipeline.
   for (uint64_t out = idx - fill; fill-- > 0; out++) {
+#ifndef RAMGEN
     dst[out] = src[idx_dec_buf[head]];
+#else
+    dst[out] = v[src[idx_dec_buf[head]]];
+#endif
     head = (head + 1) & (NUM - 1);
   }
 }
@@ -72,6 +83,9 @@ static void NAME(convert_est_data_piece)(struct ThreadData *thread)
   T *restrict dst = est_data.dst;
   struct RankInfo rank_ri;
   struct IdxState is;
+#ifdef RAMGEN
+  T *restrict v = permute_v;
+#endif
 
   uint64_t idx_dec_buf[NUM];
 
@@ -92,13 +106,21 @@ static void NAME(convert_est_data_piece)(struct ThreadData *thread)
       for (; j < seg_size; j++, idx_state_inc(&is, &try_ri[p])) {
         uint64_t idx_dec = perm_rank_bb(is.bb, &rank_ri);
         __builtin_prefetch(table + idx_dec, 0, 3);
+#ifndef RAMGEN
         dst[p * dsize + i * seg_size + j - NUM] = table[idx_dec_buf[head]];
+#else
+        dst[p * dsize + i * seg_size + j - NUM] = v[table[idx_dec_buf[head]]];
+#endif
         idx_dec_buf[head] = idx_dec;
         head = (head + 1) & (NUM - 1);
       }
 
       for (j -= fill; fill-- > 0; j++) {
+#ifndef RAMGEN
         dst[p * dsize + i * seg_size + j] = table[idx_dec_buf[head]];
+#else
+        dst[p * dsize + i * seg_size + j] = v[table[idx_dec_buf[head]]];
+#endif
         head = (head + 1) & (NUM - 1);
       }
     }
@@ -112,6 +134,9 @@ static void NAME(convert_data_piece_ref)(struct ThreadData *thread)
   struct RankInfo *perm_ri = convert_data.perm_ri;
   struct RankInfo rank_ri;
   struct IdxState is;
+#ifdef RAMGEN
+  T *restrict v = permute_v;
+#endif
 
   uint64_t idx_dec_buf[NUM];
 
@@ -125,7 +150,11 @@ static void NAME(convert_data_piece_ref)(struct ThreadData *thread)
   // Fill pipeline.
   for (; fill < NUM && idx < end; fill++, idx++) {
     unrank_bb_ref(idx, is.bb, perm_ri);
+#ifndef RAMGEN
     uint64_t idx_dec = perm_rank_bb_ref(is.bb, &rank_ri);
+#else
+    uint64_t idx_dec = perm_rank_bb(is.bb, &rank_ri);
+#endif
     __builtin_prefetch(src + idx_dec, 0, 3);
     idx_dec_buf[fill] = idx_dec;
   }
@@ -133,16 +162,28 @@ static void NAME(convert_data_piece_ref)(struct ThreadData *thread)
   // Steady-state pipeline.
   for (; idx < end; idx++) {
     unrank_bb_ref(idx, is.bb, perm_ri);
+#ifndef RAMGEN
     uint64_t idx_dec = perm_rank_bb_ref(is.bb, &rank_ri);
+#else
+    uint64_t idx_dec = perm_rank_bb(is.bb, &rank_ri);
+#endif
     __builtin_prefetch(src + idx_dec, 0, 3);
+#ifndef RAMGEN
     dst[idx - NUM] = src[idx_dec_buf[head]];
+#else
+    dst[idx - NUM] = v[src[idx_dec_buf[head]]];
+#endif
     idx_dec_buf[head] = idx_dec;
     head = (head + 1) & (NUM - 1);
   }
 
   // Drain pipeline.
   for (uint64_t out = idx - fill; fill-- > 0; out++) {
+#ifndef RAMGEN
     dst[out] = src[idx_dec_buf[head]];
+#else
+    dst[out] = v[src[idx_dec_buf[head]]];
+#endif
     head = (head + 1) & (NUM - 1);
   }
 }
@@ -155,6 +196,9 @@ static void NAME(convert_est_data_piece_ref)(struct ThreadData *thread)
   T *restrict dst = est_data.dst;
   struct RankInfo rank_ri;
   struct IdxState is;
+#ifdef RAMGEN
+  T *restrict v = permute_v;
+#endif
 
   uint64_t idx_dec_buf[NUM];
 
@@ -167,22 +211,38 @@ static void NAME(convert_est_data_piece_ref)(struct ThreadData *thread)
 
       for (; fill < NUM && j < seg_size; fill++, j++) {
         unrank_bb_ref(segs[i] + j, is.bb, &try_ri[p]);
+#ifndef RAMGEN
         uint64_t idx_dec = perm_rank_bb_ref(is.bb, &rank_ri);
+#else
+        uint64_t idx_dec = perm_rank_bb(is.bb, &rank_ri);
+#endif
         __builtin_prefetch(table + idx_dec, 0, 3);
         idx_dec_buf[fill] = idx_dec;
       }
 
       for (; j < seg_size; j++) {
         unrank_bb_ref(segs[i] + j, is.bb, &try_ri[p]);
+#ifndef RAMGEN
         uint64_t idx_dec = perm_rank_bb_ref(is.bb, &rank_ri);
+#else
+        uint64_t idx_dec = perm_rank_bb(is.bb, &rank_ri);
+#endif
         __builtin_prefetch(table + idx_dec, 0, 3);
+#ifndef RAMGEN
         dst[p * dsize + i * seg_size + j - NUM] = table[idx_dec_buf[head]];
+#else
+        dst[p * dsize + i * seg_size + j - NUM] = v[table[idx_dec_buf[head]]];
+#endif
         idx_dec_buf[head] = idx_dec;
         head = (head + 1) & (NUM - 1);
       }
 
       for (j -= fill; fill-- > 0; j++) {
+#ifndef RAMGEN
         dst[p * dsize + i * seg_size + j] = table[idx_dec_buf[head]];
+#else
+        dst[p * dsize + i * seg_size + j] = v[table[idx_dec_buf[head]]];
+#endif
         head = (head + 1) & (NUM - 1);
       }
     }

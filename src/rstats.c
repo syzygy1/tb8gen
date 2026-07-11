@@ -53,7 +53,7 @@ static bool stats_want_loss(int n)
   return n >= stats_first_loss && n < stats_loss_limit;
 }
 
-static int byte_to_stat(uint8_t b)
+int byte_to_stat(uint8_t b)
 {
   switch (b) {
   case RAM_UNRESOLVED:

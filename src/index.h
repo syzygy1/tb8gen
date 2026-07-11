@@ -75,7 +75,7 @@ extern uint32_t Binomial[8][64];
 extern uint64_t MirrorMask[64];
 extern bool FlipTest[64][64];
 extern const int16_t KKIdx[10][64];
-extern uint8_t KKSquare[462][2];
+extern uint8_t KKSquare[463][2];
 extern int16_t KKMap[64][64];
 extern uint8_t KK_transform[64][64];
 
