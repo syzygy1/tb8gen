@@ -267,7 +267,10 @@ static size_t cmprs_idx;
 static void *cmprs_v;
 static int cmprs_type;
 
-enum { COPY, U8U8, U16U16, U16U8, COPY_U16U8, U8_OR, U8_AND, U8_ANDNOT };
+enum {
+  COPY, U8U8, U16U16, U16U8, COPY_U16U8,
+  U8_OR, U8_ANDNOT, U8_AND, U8U8_OR, U8U16_OR
+};
 
 struct CompressFrame {
   size_t cmprs_chunk;
@@ -562,7 +565,7 @@ static void decompress_logical(struct CompressState *state, uint8_t *dst,
 
 #endif
 
-    } else {
+    } else if (op == U8_AND) {
 
 #ifdef __AVX512F__
 
@@ -601,6 +604,21 @@ static void decompress_logical(struct CompressState *state, uint8_t *dst,
 
 #endif
 
+    } else if (op == U8U8_OR) {
+
+      uint8_t *restrict v8 = cmprs_v;
+
+      for (size_t off = 0; off < out.pos; off++)
+        dst[off] |= v8[buf[off]];
+
+    } else { // U8U16_OR
+
+      uint8_t *restrict v16 = cmprs_v;
+
+      for (size_t off = 0; off < out.pos; off++)
+        ((uint16_t *)dst)[off] = v16[buf[off]];
+
+      dst += out.pos; // hack
     }
 
     dst += out.pos;
@@ -776,7 +794,7 @@ static void read_data_worker(int t)
     cmprs_size -= chunk;
     UNLOCK(cmprs_mutex);
     size_t idx = state->frame->idx;
-    if (cmprs_type == U8_OR || cmprs_type == U8_AND || cmprs_type == U8_ANDNOT) {
+    if (cmprs_type >= U8_OR) {
       decompress_logical(state, dst + idx, cmprs_chunk, cmprs_type);
       continue;
     }
@@ -885,6 +903,31 @@ void read_data_andnot(FILE *F, void *dst, uint64_t size)
   cmprs_ptr = dst;
   cmprs_size = size;
   cmprs_type = U8_ANDNOT;
+  run_compression(read_data_worker);
+}
+
+void read_data_transform_or_u8(FILE *F, void *dst, uint64_t size, uint8_t *v)
+{
+  init();
+
+  cmprs_F = F;
+  cmprs_ptr = dst;
+  cmprs_size = size;
+  cmprs_v = v;
+  cmprs_type = U8U8_OR;
+  run_compression(read_data_worker);
+}
+
+void read_data_transform_or_u8_to_u16(FILE *F, void *dst, uint64_t size,
+    uint16_t *v)
+{
+  init();
+
+  cmprs_F = F;
+  cmprs_ptr = dst;
+  cmprs_size = size;
+  cmprs_v = v;
+  cmprs_type = U8U16_OR;
   run_compression(read_data_worker);
 }
 

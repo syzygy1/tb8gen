@@ -330,7 +330,7 @@ static void collect_stats_range(int stm)
   memset(per_thread_stats, 0, g_num_threads * MAX_STATS * 8);
 
   g_pos.stm = stm;
-  run_threaded(count_stats_worker, &work_g_static);
+  run_threaded(count_stats_worker, &work_g_dynamic);
 
   uint64_t add[MAX_STATS] = { 0 };
   for (int t = 0; t < g_num_threads; t++) {

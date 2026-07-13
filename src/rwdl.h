@@ -10,5 +10,6 @@
 #include <stdint.h>
 
 void rjoin_wdl(uint8_t *pcs, uint8_t *pt, int layout);
+void rjoin_dtz(uint8_t *pcs, uint8_t *pt, int layout);
 
 #endif

@@ -4,6 +4,20 @@
 #include "defs.h"
 #include "threads.h"
 
+struct MergeInfo {
+  union {
+    uint8_t v_u8[MAX_STATS];
+    uint16_t v_u16[MAX_STATS];
+  };
+  union {
+    uint16_t v_inv_u8[256];
+    uint16_t v_inv_u16[MAX_STATS];
+  };
+  bool wide;
+};
+
+extern struct MergeInfo mi[2];
+
 extern int epoch;
 extern int reduce_cnt_win[64];
 extern int reduce_cnt_loss[64];

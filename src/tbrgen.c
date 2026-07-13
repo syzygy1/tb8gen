@@ -221,6 +221,14 @@ int main(int argc, char **argv)
     g_sets[stm][k] = -1;
   }
 
+  if (!g_only_generate) {
+    if (workdir && *workdir)
+      change_dir(workdir);
+
+    make_dir(g_tablename);
+    change_dir(g_tablename);
+  }
+
   generate();
 
   collect_stats(WHITE);
@@ -270,18 +278,18 @@ int main(int argc, char **argv)
   calc_stats_checksums();
 
   if (!g_only_generate) {
-    if (layout != 0) {
       if (workdir && *workdir)
         change_dir(workdir);
 
       make_dir(g_tablename);
       change_dir(g_tablename);
-    }
 
     reset_bloss_captures();
     rjoin_wdl(pcs, pt, layout);
     fix_bloss(WHITE);
     fix_bloss(BLACK);
+
+    rjoin_dtz(pcs, pt, layout);
 
     if (layout != 0 && g_cleanup) {
       change_dir("..");

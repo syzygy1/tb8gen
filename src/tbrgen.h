@@ -32,6 +32,7 @@ extern struct MaxFen mf;
 extern int one_sided_stm;
 extern bool one_sided, wins_only;
 
+extern bool g_only_generate;
 extern bool g_use_rans;
 extern bool used_rans;
 extern bool symmetric;

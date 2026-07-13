@@ -68,7 +68,6 @@ static struct P10IdxInfo best_ii;
 
 static uint8_t perm_tmp[MAX_SETS];
 
-static uint16_t P10Square[64];
 static uint8_t InvSquare[64];
 
 static int32_t current_size = -1;
@@ -140,8 +139,6 @@ static void init_source_rank_ri_10(struct RankInfo *rank_ri,
 uint64_t p10_bb_to_idx(struct P10IdxState *is,
     const struct RankInfo *rank_ri, int k2sq)
 {
-  assert(P10Square[k2sq] != UINT16_MAX);
-
   alignas(64) Bitboard bb[8];
   const Bitboard *set_bb = is->bb;
   int t = KK_transform[is->sq[0]][is->sq[1]];
@@ -227,8 +224,8 @@ void init_permute_piece_10(int k)
 
     for (int i = 0; i < ri.numsets; i++)
       set_pt[i + 1] = g_set_pt[i];
-    set_pt[0] = g_pos.pt[g_slice.stm ^ 1];
   }
+  set_pt[0] = g_pos.pt[g_slice.stm ^ 1];
 
   if (num[k] != current_size) {
     current_size = num[k];
@@ -239,11 +236,8 @@ void init_permute_piece_10(int k)
 
   int n = 0;
   for (int l = 0; l < 64; l ++)
-    if (KKIdx[k][l] >= 0) {
-      P10Square[l] = KKIdx[k][l];
+    if (KKIdx[k][l] >= 0)
       InvSquare[n++] = l;
-    } else
-      P10Square[l] = UINT16_MAX;
   assert(n == current_size);
 }
 
