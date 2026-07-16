@@ -278,12 +278,6 @@ int main(int argc, char **argv)
   calc_stats_checksums();
 
   if (!g_only_generate) {
-      if (workdir && *workdir)
-        change_dir(workdir);
-
-      make_dir(g_tablename);
-      change_dir(g_tablename);
-
     reset_bloss_captures();
     rjoin_wdl(pcs, pt, layout);
     fix_bloss(WHITE);

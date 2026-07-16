@@ -34,13 +34,14 @@
 
 static constexpr int minfreq = 8;
 
-static void *join_table, *tb_table;
+static void *dtz_table, *tb_table;
 static uint8_t ram_wdl_map[256];
+struct DtzMap dtzmap;
 
 extern XXH128_hash_t wdl_checksum;
 
 static struct Work work_stats;
-static bool dtz_w, dtz_b;
+static bool dtz[2];
 
 static char *create_final_name(int type)
 {
@@ -101,10 +102,10 @@ static void init_ram_wdl_map(void)
 
 static _Atomic bool found_capt_bloss;
 static uint8_t capt_bloss_val;
-static uint8_t *work_table;
-static uint64_t (*per_thread_stats)[256];
+static void *work_table;
+static uint64_t (*per_thread_stats)[MAX_STATS];
 
-static void wdl_collect_stats_worker(struct ThreadData *thread)
+static void collect_stats_u8_worker(struct ThreadData *thread)
 {
   uint64_t *restrict stats = per_thread_stats[thread->thread_id];
   uint8_t *restrict table = work_table;
@@ -113,13 +114,24 @@ static void wdl_collect_stats_worker(struct ThreadData *thread)
     stats[table[idx]]++;
 }
 
+static void collect_stats_u16_worker(struct ThreadData *thread)
+{
+  uint64_t *restrict stats = per_thread_stats[thread->thread_id];
+  uint16_t *restrict table = work_table;
+
+  for (uint64_t idx = thread->begin, end = thread->end; idx < end; idx++)
+    stats[table[idx]]++;
+}
+
 static void wdl_collect_stats(uint8_t *restrict table, uint64_t *restrict stats)
 {
   if (!per_thread_stats)
-    per_thread_stats = aligned_alloc(64, g_num_threads * 256 * 8);
-  memset(per_thread_stats, 0, g_num_threads * 256 * 8);
+    per_thread_stats = aligned_alloc(64, g_num_threads * MAX_STATS * 8);
+  if (!per_thread_stats)
+    out_of_mem();
+  memset(per_thread_stats, 0, g_num_threads * MAX_STATS * 8);
   work_table = table;
-  run_threaded(wdl_collect_stats_worker, &work_stats);
+  run_threaded(collect_stats_u8_worker, &work_stats);
 
   for (int t = 0; t < g_num_threads; t++)
     for (int b = 0; b < 256; b++) {
@@ -151,6 +163,42 @@ static bool find_capt_bloss(uint8_t *table)
   atomic_store_explicit(&found_capt_bloss, false, memory_order_relaxed);
   run_threaded(find_capt_bloss_worker, &work_stats);
   return atomic_load_explicit(&found_capt_bloss, memory_order_relaxed);
+}
+
+static void dtz_collect_stats_u8(int stm, uint8_t *restrict table,
+    uint64_t *restrict stats)
+{
+  if (!per_thread_stats)
+    per_thread_stats = aligned_alloc(64, g_num_threads * MAX_STATS * 8);
+  if (!per_thread_stats)
+    out_of_mem();
+  memset(per_thread_stats, 0, g_num_threads * MAX_STATS * 8);
+  work_table = table;
+
+  run_threaded(collect_stats_u8_worker, &work_stats);
+
+  for (int t = 0; t < g_num_threads; t++)
+    for (int i = 0; i < 256; i++)
+      stats[val_to_stats[stm][i]] += per_thread_stats[t][i];
+  stats[0] = 0;
+}
+
+static void dtz_collect_stats_u16(int stm, uint16_t *restrict table,
+    uint64_t *restrict stats)
+{
+  if (!per_thread_stats)
+    per_thread_stats = aligned_alloc(64, g_num_threads * MAX_STATS * 8);
+  if (!per_thread_stats)
+    out_of_mem();
+  memset(per_thread_stats, 0, g_num_threads * MAX_STATS * 8);
+  work_table = table;
+
+  run_threaded(collect_stats_u16_worker, &work_stats);
+
+  for (int t = 0; t < g_num_threads; t++)
+    for (int i = 0; i < MAX_STATS; i++)
+      stats[val_to_stats[stm][i]] += per_thread_stats[t][i];
+  stats[0] = 0;
 }
 
 static int sort_list(uint64_t *freq, uint16_t *map, uint16_t *inv_map)
@@ -431,9 +479,8 @@ static void join_full_wdl(uint8_t *pcs, uint8_t *pt)
 {
   init_permute_piece(pcs, pt);
 
-  join_table = alloc_huge(table_size + 1);
   tb_table = alloc_huge(tb_size + 1);
-  if (!join_table || !tb_table)
+  if (!tb_table)
     out_of_mem();
 
   compress_alloc_wdl();
@@ -444,19 +491,20 @@ static void join_full_wdl(uint8_t *pcs, uint8_t *pt)
   merge_tb(G);
   compress_free_wdl();
 
-  free(join_table);
   free(tb_table);
 }
 
 static void compress_full_dtz(int stm, struct tb_handle *G, uint8_t *pcs,
     uint8_t *pt)
 {
-  sort_values(g_stats
-  uint8_t *table = g_table[stm];
+  uint16_t v[MAX_STATS];
+  uint8_t *table = dtz_table;
 
+  // check how the maps connect
   table[table_size] = RAM_ILLEGAL;
-  prepare_wdl_map(g_stats[stm], vals, has_capt_bloss);
-  compress_init_wdl(vals);
+  sort_values(stm, g_stats[stm], &dtzmap, 441 * ri.sizes[0] + 21 * ri.sizes[1]);
+  prepare_dtz_map(v, &dtzmap);
+  compress_alloc_dtz(dtz_wide[stm]);
 
   uint8_t best[MAX_PIECES];
   printf("Find optimal permutation for %ctm/wdl.\n", "wb"[stm]);
@@ -465,26 +513,28 @@ static void compress_full_dtz(int stm, struct tb_handle *G, uint8_t *pcs,
   compress_tb(G, -1, tb_table, tb_size, best, minfreq, false);
 }
 
-static void join_full_dtz(uint8_t *pcs, uint8_t *pt)
+#if 0
+static void join_full_dtz(int stm, uint8_t *pcs, uint8_t *pt)
 {
   init_permute_piece(pcs, pt);
 
-  join_table = alloc_huge(table_size + 1);
-  tb_table = alloc_huge(tb_size + 1);
-  if (!join_table || !tb_table)
-    out_of_mem();
-
   compress_alloc_wdl();
+
   struct tb_handle *G = create_tb(g_tablename, WDL, 6);
-  compress_full_wdl(WHITE, G, pcs, pt);
-  if (!symmetric)
-    compress_full_wdl(BLACK, G, pcs, pt);
+
+  if (!one_sided || one_sided_stm == WHITE)
+    compress_full_dtz(WHITE, G, pcs, pt);
+
+  if (   (one_sided && one_sided_stm == BLACK)
+      || (!one_sided && !symmetric))
+    compress_full_dtz(BLACK, G, pcs, pt);
+
   merge_tb(G);
   compress_free_wdl();
 
-  free(join_table);
   free(tb_table);
 }
+#endif
 
 static void join_final_462(int type)
 {
@@ -652,7 +702,7 @@ static void compress_462_wdl(int stm)
   }
 }
 
-// This should be invoked with join_table pointing to an u8 or u16
+// This should be invoked with dtz_table pointing to an u8 or u16
 // reconstructed table. The table's values should be stats[] values when
 // mapped through mi[stm].v_inv_u8/u16[].
 static void compress_462_dtz(int stm)
@@ -660,8 +710,6 @@ static void compress_462_dtz(int stm)
   uint16_t v[MAX_STATS];
   uint8_t w8[256];
   uint16_t w16[MAX_STATS];
-  char str[64];
-  struct MergeInfo *m = &mi[stm];
   void *vv;
 
   work_init(&work_stats, ri.sizes[0], 0, WORK_DYNAMIC, 16, 512);
@@ -673,41 +721,44 @@ static void compress_462_dtz(int stm)
     g_slice.sq[1] = KKSquare[s][1];
     g_slice.stm = stm;
 
-    if (!m->wide) {
+    if (!dtz_wide[stm]) {
 
-      uint8_t *table = join_table;
+      uint8_t *table = (uint8_t *)dtz_table + s * ri.sizes[0];
 
       uint64_t stats[MAX_STATS] = { 0 };
-      dtz_collect_stats_u8(table, stats, m->v_inv_u8);
+      dtz_collect_stats_u8(stm, table, stats);
       sort_values(stm, stats, &dtzmap, ri.sizes[0]);
       prepare_dtz_map(v, &dtzmap);
 
       for (int i = 0; i < 256; i++)
-        w8[i] = v[m->v_inv_u8[i]];
+        w8[i] = v[val_to_stats[stm][i]];
       vv = w8;
 
     } else {
 
-      uint16_t *table = join_table;
+      uint16_t *table = (uint16_t *)dtz_table + s * ri.sizes[0];
 
       uint64_t stats[MAX_STATS] = { 0 };
-      dtz_collect_stats_u16(table, stats, m->v_inv_u16);
+      dtz_collect_stats_u16(stm, table, stats);
       sort_values(stm, stats, &dtzmap, ri.sizes[0]);
       prepare_dtz_map(v, &dtzmap);
 
       for (int i = 0; i < MAX_STATS; i++)
-        w16[i] = v[m->v_inv_u16[i]];
+        w16[i] = v[val_to_stats[stm][i]];
       vv = w16;
 
     }
 
+    char name[64];
+    create_name(name, s, stm, "dtz", -1);
+
     uint8_t best[MAX_SETS];
     printf("Find optimal permutation for %ctm/dtz, slice = %d.\n", "wb"[stm],
         s);
-    permute_piece_462(tb_table, join_table, best, DTZ, m->wide, vv);
+    permute_piece_462(tb_table, dtz_table, best, DTZ, dtz_wide[stm], vv);
     printf("Compressing data for %ctm/dtz, slice = %d.\n", "wb"[stm], s);
     compress_data_slice(name, stm, DTZ, tb_table, ri.sizes[s >= 441], best,
-        minfreq, m->wide, false);
+        minfreq, dtz_wide[stm], false);
   }
 }
 
@@ -724,39 +775,57 @@ static void join_462_wdl(void)
   if (!symmetric)
     compress_462_wdl(BLACK);
   compress_free_wdl();
-  join_final_462_wdl();
+  join_final_462(WDL);
 
   free(tb_table);
 }
 
-static void join_final_10_wdl(void)
+static void join_final_10(int type)
 {
   char str[64];
   struct stat st;
   uint64_t slice_size[20];
-  bool has_stm[2] = { true, !symmetric };
+  bool has_stm[2] = {
+    type == WDL || !one_sided || one_sided_stm == WHITE,
+    !symmetric && (type == WDL || !one_sided || one_sided_stm == BLACK)
+  };
 
   uint8_t *buf = calloc(1, 2 * 10 * sizeof(uint64_t) + 1000);
   if (!buf)
     out_of_mem();
 
   uint8_t *p = buf;
-  write_le_u32(p, magic2[WDL]);
+  write_le_u32(p, magic2[type]);
   p += 4;
-  memcpy(p, &wdl_checksum, sizeof wdl_checksum);
-  p += sizeof wdl_checksum;
-  *p++ = 1;
+
+  if (type == WDL) {
+    memcpy(p, &wdl_checksum, sizeof wdl_checksum);
+    p += sizeof wdl_checksum;
+  } else if (type == DTZ) {
+    memcpy(p, &dtz_checksum, sizeof dtz_checksum);
+    p += sizeof dtz_checksum;
+  }
+
+  *p++ = 1; // version number
   *p++ = g_pos.num;
   for (int i = 2; i < g_pos.num; i++)
     *p++ = (g_pos.pt[i] & 7) | ((g_pos.pt[i] & 8) << 4);
   *p++ = LT_PIECE_K;
+  if (type != WDL) {
+    uint8_t dist_format = (has_stm[WHITE] && has_stm[BLACK]) ? TWO_SIDED : 0;
+    if (one_sided)
+      dist_format |= WTM_OR_BTM | (one_sided_stm == WHITE ? WTM_ONLY : 0);
+    else
+      dist_format |= WIN_OR_LOSS | (wins_only ? WIN_ONLY : 0);
+    *p++ = dist_format;
+  }
   p = buf + (((p - buf) + 7) & ~7);
 
   int num = 0;
   for (int k = 0; k < 10; k++)
     for (int stm = 0; stm < 2; stm++) {
       if (!has_stm[stm]) continue;
-      create_name_10(str, k, stm, "wdl");
+      create_name_10(str, k, stm, typename[type]);
       if (stat(str, &st) < 0) {
         fprintf(stderr, "Could not access %s.\n", str);
         exit(EXIT_FAILURE);
@@ -778,7 +847,7 @@ static void join_final_10_wdl(void)
       offset += slice_size[i];
     }
 
-  char *fname = create_final_name(WDL);
+  char *fname = create_final_name(type);
   char *tmp = malloc(strlen(fname) + 5);
   if (!tmp)
     out_of_mem();
@@ -790,40 +859,53 @@ static void join_final_10_wdl(void)
   }
 
   write_data_fd(fd, buf, (p - buf) + num * sizeof(uint64_t));
+
   free(buf);
 
-  for (int pass = 0; pass < 2; pass++) {
-    if (pass == 1) {
-      off_t size = lseek(fd, 0, SEEK_CUR);
-      if (size == (off_t)-1) {
-        fprintf(stderr, "Could not lseek().\n");
-        exit(EXIT_FAILURE);
-      }
-      size_t pad = (0x40 - (size & 0x3f)) & 0x3f;
-      if (pad) {
-        char zeros[64] = { 0 };
-        write_data_fd(fd, zeros, pad);
-      }
-    }
-    int n = 0;
-    for (int k = 0; k < 10; k++)
-      for (int stm = 0; stm < 2; stm++) {
-        if (!has_stm[stm]) continue;
-        bool small = slice_size[n] < 64;
-        if ((pass == 0) == small) {
-          create_name_10(str, k, stm, "wdl");
-          int slice_fd = open(str, O_RDONLY);
-          if (slice_fd < 0) {
-            fprintf(stderr, "Could not open %s.\n", str);
-            exit(EXIT_FAILURE);
-          }
-          copy_data_fd(slice_fd, fd, slice_size[n]);
-          close(slice_fd);
+  int n = 0;
+  for (int k = 0; k < 10; k++) {
+    for (int stm = 0; stm < 2; stm++) {
+      if (!has_stm[stm]) continue;
+      if (slice_size[n] < 64) {
+        create_name_10(str, k, stm, typename[type]);
+        int slice_fd = open(str, O_RDONLY);
+        if (slice_fd < 0) {
+          fprintf(stderr, "Could not open %s.\n", str);
+          exit(EXIT_FAILURE);
         }
-        n++;
+        copy_data_fd(slice_fd, fd, slice_size[n]);
+        close(slice_fd);
       }
+      n++;
+    }
   }
-
+  off_t size = lseek(fd, 0, SEEK_CUR);
+  if (size == (off_t)-1) {
+    fprintf(stderr, "Could not lseek().\n");
+    exit(EXIT_FAILURE);
+  }
+  size_t pad = (0x40 - (size & 0x3f)) & 0x3f;
+  if (pad) {
+    char zeros[64] = { 0 };
+    write_data_fd(fd, zeros, pad);
+  }
+  n = 0;
+  for (int k = 0; k < 10; k++) {
+    for (int stm = 0; stm < 2; stm++) {
+      if (!has_stm[stm]) continue;
+      if (slice_size[n] >= 64) {
+        create_name_10(str, k, stm, typename[type]);
+        int slice_fd = open(str, O_RDONLY);
+        if (slice_fd < 0) {
+          fprintf(stderr, "Could not open %s.\n", str);
+          exit(EXIT_FAILURE);
+        }
+        copy_data_fd(slice_fd, fd, slice_size[n]);
+        close(slice_fd);
+      }
+      n++;
+    }
+  }
   close(fd);
   add_xxhash(tmp);
   file_rename(fname);
@@ -833,11 +915,12 @@ static void join_final_10_wdl(void)
 
 static void compress_10_wdl(int stm)
 {
+  work_init(&work_stats, ri.sizes[0], 0, WORK_DYNAMIC, 16, 512);
+
   create_dir(-1, stm, "wdl");
   g_slice.stm = stm;
   for (int k = 0; k < 10; k++) {
     init_permute_piece_10(k);
-    work_init(&work_stats, ri.sizes[0], 0, WORK_DYNAMIC, 16, 512);
 
     int num = 0;
     uint64_t stats[MAX_STATS] = { 0 };
@@ -872,11 +955,83 @@ static void compress_10_wdl(int stm)
   }
 }
 
+static void compress_10_dtz(int stm)
+{
+  uint16_t v[MAX_STATS];
+  uint8_t w8[256];
+  uint16_t w16[MAX_STATS];
+  void *vv;
+
+  work_init(&work_stats, ri.sizes[0], 0, WORK_DYNAMIC, 16, 512);
+
+  create_dir(-1, stm, "dtz");
+
+  g_slice.stm = stm;
+  for (int k = 0; k < 10; k++) {
+    init_permute_piece_10(k);
+
+    int num = 0;
+    uint64_t stats[MAX_STATS] = { 0 };
+    g_slice.sq[stm] = InvTriangle[k];
+
+    if (!dtz_wide[stm]) {
+
+      for (int l = 0; l < 64; l++) {
+        if (KKIdx[k][l] < 0)
+          continue;
+        g_slice.sq[stm ^ 1] = l;
+        int s = KKMap[g_slice.sq[0]][g_slice.sq[1]];
+        uint8_t *restrict table = (uint8_t *)dtz_table + s * ri.sizes[0];
+        dtz_collect_stats_u8(stm, table, stats);
+        num++;
+      }
+
+      sort_values(stm, stats, &dtzmap, num * ri.sizes[0]);
+      prepare_dtz_map(v, &dtzmap);
+
+      for (int i = 0; i < 256; i++)
+        w8[i] = v[val_to_stats[stm][i]];
+      vv = w8;
+
+    } else {
+
+      for (int l = 0; l < 64; l++) {
+        if (KKIdx[k][l] < 0)
+          continue;
+        g_slice.sq[stm ^ 1] = l;
+        int s = KKMap[g_slice.sq[0]][g_slice.sq[1]];
+        uint16_t *restrict table = (uint16_t *)dtz_table + s * ri.sizes[0];
+        dtz_collect_stats_u16(stm, table, stats);
+        num++;
+      }
+
+      sort_values(stm, stats, &dtzmap, num * ri.sizes[0]);
+      prepare_dtz_map(v, &dtzmap);
+
+      for (int i = 0; i < MAX_STATS; i++)
+        w16[i] = v[val_to_stats[stm][i]];
+      vv = w16;
+
+    }
+
+    char name[64];
+    create_name_10(name, k, stm, "dtz");
+
+    uint8_t best[MAX_SETS];
+    printf("Find optimal permutation for %ctm/wdl, slice = %d.\n", "wb"[stm],
+        k);
+    permute_piece_10(tb_table, dtz_table, best, DTZ, dtz_wide[stm], vv);
+    printf("Compressing data for %ctm/wdl, slice = %d.\n", "wb"[stm], k);
+    compress_data_slice(name, stm, DTZ, tb_table, num * ri.sizes[0], best,
+        minfreq, dtz_wide[stm], true);
+  }
+}
+
+
 static void join_10_wdl(void)
 {
-  join_table = alloc_huge(58 * kslice_size);
   tb_table = alloc_huge(58 * kslice_size + 1);
-  if (!join_table || !tb_table)
+  if (!tb_table)
     out_of_mem();
 
   compress_alloc_wdl();
@@ -884,9 +1039,8 @@ static void join_10_wdl(void)
   if (!symmetric)
     compress_10_wdl(BLACK);
   compress_free_wdl();
-  join_final_10_wdl();
+  join_final_10(WDL);
 
-  free(join_table);
   free(tb_table);
 }
 
@@ -909,43 +1063,87 @@ void rjoin_wdl(uint8_t *pcs, uint8_t *pt, int layout)
   }
 }
 
-static void join_dtz(uint8_t *pcs, uint8_t *pcs, int layout)
+static struct tb_handle *dtz_G;
+static uint8_t *dtz_pcs;
+static uint8_t *dtz_pt;
+
+static void join_dtz_side(int stm, int layout)
 {
+  if (dtz_wide[stm]) {
+    dtz_table = alloc_huge(2 * (table_size + 1));
+    if (!dtz_table)
+      out_of_mem();
+    reconstruct_table(stm, g_table[stm], dtz_table);
+    free(g_table[stm]);
+    g_table[stm] = nullptr;
+  } else {
+    reconstruct_table(stm, g_table[stm], g_table[stm]);
+    dtz_table = g_table[stm];
+  }
   switch (layout) {
   case 0:
-    join_full_dtz(pcs, pt);
+    compress_full_dtz(stm, dtz_G, dtz_pcs, dtz_pt);
     break;
   case 1:
-    join_10_dtz();
+    compress_10_dtz(stm);
     break;
   case 2:
-    join_462_dtz();
+    compress_462_dtz(stm);
     break;
-  default:
-    unreachable();
+  }
+  if (dtz_wide[stm]) {
+    free(dtz_table);
+    dtz_table = nullptr;
+  } else {
+    free(g_table[stm]);
+    g_table[stm] = nullptr;
   }
 }
 
 void rjoin_dtz(uint8_t *pcs, uint8_t *pt, int layout)
 {
-  dtz_w = !one_sided || one_sided_stm == WHITE;
-  dtz_b = one_sided ? one_sided_stm == BLACK : !symmetric;
-  bool dtz_b_done = false;
+  dtz_pcs = pcs;
+  dtz_pt = pt;
+  if (layout == 0)
+    dtz_G = create_tb(g_tablename, DTZ, 10);
+
+  bool dtz_w = !one_sided || one_sided_stm == WHITE;
+  bool dtz_b = one_sided ? one_sided_stm == BLACK : !symmetric;
 
   if (dtz_w)
-    create_merge_info(WHITE);
+    create_stats_to_val(WHITE);
+  else
+    free(g_table[WHITE]);
   if (dtz_b)
-    create_merge_info(BLACK);
-  if ((dtz_w && mi[WHITE].wide) && (dtz_b && !mi[BLACK].wide)) {
-    join_dtz(BLACK);
-    dtz_b_done = true;
+    create_stats_to_val(WHITE);
+  else
+    free(g_table[BLACK]);
+  if (dtz_w && dtz_b && dtz_wide[WHITE] && !dtz_wide[BLACK]) {
+    join_dtz_side(BLACK, layout);
+    join_dtz_side(WHITE, layout);
+  } else {
+    if (dtz[WHITE]) {
+      if (dtz_b && dtz_wide[BLACK]) {
+        // save_table(BLACK);
+        join_dtz_side(WHITE, layout);
+        // load_table(BLACK);
+      } else {
+        join_dtz_side(WHITE, layout);
+      }
+    }
+    if (dtz[BLACK])
+      join_dtz_side(BLACK, layout);
   }
-  if (dtz_w)
-    join_dtz(WHITE);
-  if (dtz_b && !dtz_b_done)
-    join_dtz(BLACK);
 
-    // use g_stats to construct a mapping from stats to u8 if possible or
-    // u16 otherwise
-
+  switch (layout) {
+  case 0:
+    merge_tb(dtz_G);
+    break;
+  case 1:
+    join_final_10(DTZ);
+    break;
+  case 2:
+    join_final_462(DTZ);
+    break;
+  }
 }

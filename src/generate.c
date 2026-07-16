@@ -1401,7 +1401,7 @@ static bool calc_L(int stm, int n, bool more_l)
 skip_X:
 
   uint64_t cnt = 0;
-  bool nonsparse = xcnt * 100 > total_positions();
+  const bool nonsparse = xcnt * 100 > total_positions();
   num_done = 0;
   snprintf(phase, sizeof phase, "\x1b[%sm%d/L/%c\x1b[0m",
       clr_L[(2 * n + stm) & 3], n, "wb"[stm]);
@@ -1429,7 +1429,12 @@ skip_X:
         kslice_read(-1, s, stm, "X", n);
         cnt += num = check_losses(stm, s);
       }
+      uint64_t num2 = kslice_count(-1, s);
       kslice_write(-1, s, stm, "L", n, num);
+      if (num != num2) {
+        printf("slice = %d; %lu != %lu\n", s, num, num2);
+        abort();
+      }
     } else if (partial && kslice_test_count(s, stm, "L", n, &num))
       cnt += num;
 

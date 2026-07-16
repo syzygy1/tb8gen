@@ -17,8 +17,6 @@
 #include "types.h"
 #include "util.h"
 
-struct MergeInfo mi[2];
-
 int epoch;
 int reduce_cnt_win[64];
 int reduce_cnt_loss[64];
@@ -79,6 +77,7 @@ static void save_table(uint8_t *table, int stm, int n)
   file_rename(name);
 }
 
+#if 0
 static int ram_byte_to_stat(uint8_t b)
 {
   if (epoch != 0) {
@@ -148,6 +147,7 @@ static int ram_byte_to_stat(uint8_t b)
 
   return -1;
 }
+#endif
 
 // For epoch == 0:
 // - Losses L0 - L100 collapse to RAM_REDUCED_LOSS (byte 1).
@@ -291,11 +291,8 @@ void unlink_saves(int stm)
 #undef MAX
 #undef T
 
-// mi.v[]    :stats -> ram_byte / ram_u16
-// mi.inv_v[]:ram_byte -> stats
-
-static uint16_t stats_to_val[2][MAX_STATS];
-static uint16_t val_to_stats[2][MAX_STATS];
+uint16_t stats_to_val[2][MAX_STATS];
+uint16_t val_to_stats[2][MAX_STATS];
 bool dtz_wide[2];
 
 void create_stats_to_val(int stm)
@@ -392,6 +389,8 @@ void reconstruct_pass(int stm, void *table, uint16_t v[256], int k)
     read_data_transform_or_u8(F, table, table_size, v8);
   }
 }
+
+// FIXME: make sure that final CAPT_BLOSS positions are correct.
 
 // If dtz_wide[stm], then dst must point to an u16 buffer.
 // If !dtz_wide[stm], then we must have dst == src.
