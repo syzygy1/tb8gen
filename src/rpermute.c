@@ -424,9 +424,11 @@ void permute_piece_wdl(void *tb_table, uint8_t *pcs, uint8_t *pt,
 }
 
 void permute_piece_dtz(void *tb_table, uint8_t *pcs, uint8_t *pt, void *table,
-    uint8_t *best, bool wide)
+    uint8_t *best, bool wide, void *v)
 {
   int bestp;
+  permute_v = v;
+
   estimate_compression(table, &bestp, pcs, wide, false);
 
   for (int i = 0; i < tb_entry.num; i++)

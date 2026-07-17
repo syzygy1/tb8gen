@@ -15,7 +15,7 @@ void init_permute_piece(uint8_t *pcs, uint8_t *pt);
 void permute_piece_wdl(void *tb_table, uint8_t *pcs, uint8_t *pt, void *table,
    uint8_t *best, void *v);
 void permute_piece_dtz(void *tb_table, uint8_t *pcs, uint8_t *pt, void *table,
-   uint8_t *best, bool wide);
+    uint8_t *best, bool wide, void *v);
 
 void init_permute_pawn(uint8_t *pcs, uint8_t *pt);
 void *init_permute_rank(uint8_t *pcs, int rank, void *tb_table,

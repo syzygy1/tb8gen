@@ -317,16 +317,21 @@ void create_stats_to_val(int stm)
       n += (stats[i] != 0);
       s_to_v[i] = n;
     }
+    s_to_v[DRAW_RULE + 3] = s_to_v[DRAW_RULE + 4] = n;
     for (int i = DRAW_RULE + 5; i < MAX_STATS / 2 + 1; i++) {
       n += (stats[i] != 0);
       s_to_v[i] = n;
     }
   }
+  s_to_v[MAX_STATS / 2 + 1] = s_to_v[MAX_STATS / 2 + 2] = n;
   if (losses) {
     for (int i = MAX_STATS / 2 - 4; i >= 0; i--) {
       n += (stats[MAX_STATS - 1 - i] != 0);
       s_to_v[MAX_STATS - 1 - i] = n;
     }
+  } else {
+    for (int i = MAX_STATS / 2 - 4; i >= 0; i--)
+      s_to_v[MAX_STATS - 1 - i] = n;
   }
 
   memset(val_to_stats[stm], 0, sizeof val_to_stats[stm]);
@@ -334,6 +339,12 @@ void create_stats_to_val(int stm)
   for (int i = 0, j = -1; i < MAX_STATS; i++)
     if (s_to_v[i] != j)
       val_to_stats[stm][j = s_to_v[i]] = i;
+
+  s_to_v[1] = s_to_v[2] = s_to_v[DRAW_RULE + 3] = s_to_v[DRAW_RULE + 4] = 0;
+  s_to_v[MAX_STATS / 2 + 1] = s_to_v[MAX_STATS / 2 + 2] = 0;
+  if (!losses)
+    for (int i = MAX_STATS / 2 - 4; i >= 0; i--)
+      s_to_v[MAX_STATS - 1 - i] = 0;
   dtz_wide[stm] = n >= 256;
 }
 
