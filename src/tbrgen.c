@@ -275,49 +275,6 @@ int main(int argc, char **argv)
   printf("\n");
   print_max_fens(stdout, &mf);
 
-  calc_stats_checksums();
-
-  if (!g_only_generate) {
-    reset_bloss_captures();
-    rjoin_wdl(pcs, pt, layout);
-    fix_bloss(WHITE);
-    fix_bloss(BLACK);
-
-    rjoin_dtz(pcs, pt, layout);
-
-    if (layout != 0 && g_cleanup) {
-      change_dir("..");
-      rmdir(g_tablename);
-    }
-  }
-
-#if 0
-  if (file_exists("maxfens")) {
-    FILE *F = file_open_read("maxfens");
-    file_read(&mf, sizeof mf, F);
-    fclose(F);
-  } else {
-    for (int stm = 0; stm < 2; stm++) {
-      int n, m;
-      for (n = MAX_STATS / 2 - 4; n > DRAW_RULE; n--)
-        if (g_stats[stm][stats_n(n)])
-          break;
-      for (m = MAX_STATS / 2 - 4; m > n; m--)
-        if (g_stats[stm ^ 1][MAX_STATS - 1 - m])
-          break;
-      mf.dtz[stm][1] = m > n ? 2 * m : n > DRAW_RULE ? 2 * n + 1 : -1;
-      for (n = DRAW_RULE; n >= 1; n--)
-        if (g_stats[stm][stats_n(n)])
-          break;
-      for (m = DRAW_RULE; m > n; m--)
-        if (g_stats[stm ^ 1][MAX_STATS - 1 - m])
-          break;
-      mf.dtz[stm][0] = m > n ? 2 * m : n >= 1 ? 2 * n + 1 : -1;
-    }
-  }
-#endif
-
-#if 0
   size_t stats_file_len = strlen(g_output_dir) + strlen(g_tablename) + 6;
   char *stats_file = malloc(stats_file_len);
   if (!stats_file)
@@ -332,34 +289,21 @@ int main(int argc, char **argv)
   fclose(F);
   file_rename(stats_file);
   free(stats_file);
-#endif
 
-#if 0
-  printf("\n########## %s ##########\n", g_tablename);
-  print_stats(stdout, WHITE);
-  print_stats(stdout, BLACK);
-  printf("\n");
-#endif
-
-#if 0
   if (!g_only_generate) {
+    calc_stats_checksums();
+    reset_bloss_captures();
+    rjoin_wdl(pcs, pt, layout);
+    fix_bloss(WHITE);
+    fix_bloss(BLACK);
 
-    switch (layout) {
-      case 0:
-        join_slices(pcs, pt);
-        break;
-      case 1:
-        join_slices_10();
-        break;
-      case 2:
-        join_slices_462();
-        break;
+    rjoin_dtz(pcs, pt, layout);
+
+    if (layout != 0 && g_cleanup) {
+      change_dir("..");
+      rmdir(g_tablename);
     }
-
   }
-
-  report_io();
-#endif
 
   return 0;
 }

@@ -469,7 +469,8 @@ static void decompress_logical(struct CompressState *state, uint8_t *dst,
       exit(EXIT_FAILURE);
     }
 
-    assert((out.pos & 0x3f) == 0);
+    if (op == U8_OR || op == U8_ANDNOT || op == U8_AND)
+      assert((out.pos & 0x3f) == 0);
 
     if (op == U8_OR) {
 
@@ -613,10 +614,10 @@ static void decompress_logical(struct CompressState *state, uint8_t *dst,
 
     } else { // U8U16_OR
 
-      uint8_t *restrict v16 = cmprs_v;
+      uint16_t *restrict v16 = cmprs_v;
 
       for (size_t off = 0; off < out.pos; off++)
-        ((uint16_t *)dst)[off] = v16[buf[off]];
+        ((uint16_t *)dst)[off] |= v16[buf[off]];
 
       dst += out.pos; // hack
     }
@@ -795,7 +796,12 @@ static void read_data_worker(int t)
     UNLOCK(cmprs_mutex);
     size_t idx = state->frame->idx;
     if (cmprs_type >= U8_OR) {
-      decompress_logical(state, dst + idx, cmprs_chunk, cmprs_type);
+      // Frame offsets describe the byte-oriented source stream.  U8U16_OR
+      // expands every source byte to one u16, so its destination offset is
+      // twice the frame offset.  Using the source offset here misaligns all
+      // frames after the first one and corrupts the reconstructed u16 table.
+      size_t dst_idx = cmprs_type == U8U16_OR ? 2 * idx : idx;
+      decompress_logical(state, dst + dst_idx, cmprs_chunk, cmprs_type);
       continue;
     }
     if (cmprs_type == COPY) {

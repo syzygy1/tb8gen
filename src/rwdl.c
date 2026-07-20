@@ -122,6 +122,33 @@ static void collect_stats_u16_worker(struct ThreadData *thread)
     stats[table[idx]]++;
 }
 
+static int byte_to_wdl_stat(uint8_t b)
+{
+  // Capture blessed losses are handled as WDL don't-cares through
+  // find_capt_bloss(), not as an ordinary blessed-loss value in a slice.
+  if (epoch == 0 && b == RAM_CAPT_BLOSS)
+    return -1;
+
+  int s = byte_to_stat(b);
+  if (s >= 0 || epoch == 0)
+    return s;
+
+  switch (b) {
+  case RAM_REDUCED_LOSS:
+    return MAX_STATS - 1;
+  case RAM_REDUCED_BLOSS:
+    return loss_to_stat(DRAW_RULE + 1);
+  case RAM_REDUCED_CWIN:
+    return DRAW_RULE + 4;
+  case RAM_REDUCED_CAPT_CWIN:
+    return DRAW_RULE + 3;
+  case RAM_REDUCED_WIN:
+    return 2;
+  default:
+    return -1;
+  }
+}
+
 static void wdl_collect_stats(uint8_t *restrict table, uint64_t *restrict stats)
 {
   if (!per_thread_stats)
@@ -134,7 +161,7 @@ static void wdl_collect_stats(uint8_t *restrict table, uint64_t *restrict stats)
 
   for (int t = 0; t < g_num_threads; t++)
     for (int b = 0; b < 256; b++) {
-      int s = byte_to_stat(b);
+      int s = byte_to_wdl_stat(b);
       if (s >= 0)
         stats[s] += per_thread_stats[t][b];
     }
@@ -930,10 +957,10 @@ static void compress_10_dtz(int stm)
     create_name_10(name, k, stm, "dtz");
 
     uint8_t best[MAX_SETS];
-    printf("Find optimal permutation for %ctm/wdl, slice = %d.\n", "wb"[stm],
+    printf("Find optimal permutation for %ctm/dtz, slice = %d.\n", "wb"[stm],
         k);
     permute_piece_10(tb_table, dtz_table, best, DTZ, dtz_wide[stm], vv);
-    printf("Compressing data for %ctm/wdl, slice = %d.\n", "wb"[stm], k);
+    printf("Compressing data for %ctm/dtz, slice = %d.\n", "wb"[stm], k);
     compress_data_slice(name, stm, DTZ, tb_table, num * ri.sizes[0], best,
         minfreq, dtz_wide[stm], true);
   }

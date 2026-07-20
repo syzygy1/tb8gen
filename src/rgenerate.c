@@ -49,8 +49,15 @@ INLINE void set_max_atomic(uint8_t *restrict p, uint8_t v)
 
 INLINE void set_max(uint8_t *restrict p, uint8_t v)
 {
-  if (*p < v)
+  // The non-atomic path restores CAPT_BLOSS after generation.  Match the
+  // merge generator: only a position already classified as a blessed loss
+  // becomes a capture blessed loss.
+  if (epoch == 0) {
+    if (*p > RAM_CAPT_BLOSS && *p < RAM_PAWN_DRAW)
+      *p = v;
+  } else if (*p >= RAM_REDUCED_BLOSS && *p < RAM_CAPT_DRAW) {
     *p = v;
+  }
 }
 
 Bitboard ridx_state_init(struct RIdxState *is, uint64_t idx,
@@ -90,7 +97,8 @@ INLINE void mark_king_uncaptures(int stm, int k, uint8_t *restrict p,
       set_bb = bb;
     }
     uint64_t idx = rank_bb_from(set_bb, s, 0, set_bb[0], &ri);
-    set_max_atomic(p + idx, v);
+    if (atomic) set_max_atomic(p + idx, v);
+    else set_max(p + idx, v);
     if (is->sub[0] < 441 && s >= 441) {
       __m512i x = _mm512_load_si512((__m512i *)set_bb);
       x = flip_main_8xbb(x);

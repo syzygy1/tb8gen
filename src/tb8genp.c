@@ -160,7 +160,7 @@ int main(int argc, char **argv)
 
   g_pos.num = numpcs;
 
-  // Flip all piece colors if the pawn is white.
+  // Flip colors if the pawn is white.
   if (pcs[WPAWN] > 0) {
     for (int i = 0; i < numpcs; i++)
       pt[i] ^= 0x08;
@@ -226,9 +226,9 @@ int main(int argc, char **argv)
     work_capt[i] = create_work(g_total_work, capt_ri[i].sizes[0], 0x1ff);
   init_generation_work();
 
-  for (int i = 0; i < 24; i++) {
-    pawnstr[i][0] = 'a' + (i / 6);
-    pawnstr[i][1] = '1' + (((i % 6) + 1) ^ (flipped ? 7 : 0));
+  for (int q = 0; q < 24; q++) {
+    pawnstr[q][0] = 'a' + (q / 6);
+    pawnstr[q][1] = '1' + (((q % 6) + 1) ^ (flipped ? 7 : 0));
   }
 
   if (workdir && *workdir)
@@ -320,8 +320,7 @@ int main(int argc, char **argv)
 
     calc_partial_stats_checksum(q, g_stats);
 
-    fprintf(stdout, "\n########## %s - %s ##########\n", g_tablename,
-        pawnstr[q]);
+    printf("\n########## %s - %s ##########\n", g_tablename, pawnstr[q]);
     print_stats(stdout, WHITE);
     print_stats(stdout, BLACK);
     fprintf(stdout, "\n");

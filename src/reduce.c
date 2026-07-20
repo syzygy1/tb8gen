@@ -449,9 +449,11 @@ void reconstruct_table(int stm, void *src, void *dst)
   for (int i = 0; 255 - i >= 128; i++)
     v[255 - i] = MAX_STATS - 1 - i;
   for (int i = 1; i <= DRAW_RULE; i++)
-    v[1 + i] = 2 + i;
-  for (int i = DRAW_RULE + 1; 1 + i < 128; i++)
-    v[1 + i] = 4 + i;
+    v[i] = 2 + i;
+  for (int i = DRAW_RULE + 1; i < 128; i++)
+    v[i] = 4 + i;
+  for (int i = 0; i < 256; i++)
+    v[i] = stats_to_val[stm][v[i]];
   reconstruct_pass(stm, dst, v, 0);
 
   for (int k = 1 ; k < epoch; k++) {
@@ -462,6 +464,8 @@ void reconstruct_table(int stm, void *src, void *dst)
     int first_win = reduce_cnt_win[k - 1] - 250;
     for (int i = 0; 1 + i < 128; i++)
       v[1 + i] = 4 + (first_win + i);
+    for (int i = 0; i < 256; i++)
+      v[i] = stats_to_val[stm][v[i]];
     reconstruct_pass(stm, dst, v, k);
   }
 }

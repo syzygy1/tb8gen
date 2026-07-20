@@ -34,6 +34,7 @@ static int stats_first_loss;
 static int stats_loss_limit;
 static bool stats_include_epoch0_special;
 static bool stats_include_unresolved;
+static bool stats_include_capt_draw;
 
 static void collect_stats_range(int stm);
 
@@ -65,16 +66,26 @@ int byte_to_stat(uint8_t b)
   case RAM_PAWN_WIN:
     return epoch == 0 && stats_include_epoch0_special ? 2 : -1;
   case RAM_CAPT_CWIN:
-    return epoch == 0 && stats_include_epoch0_special ? DRAW_RULE + 3 : -1;
+    if (epoch == 0)
+      return stats_include_epoch0_special ? DRAW_RULE + 3 : -1;
+    // These epoch-0 special bytes are ordinary distance values after the
+    // first reduction.
+    break;
   case RAM_PAWN_CWIN:
-    return epoch == 0 && stats_include_epoch0_special ? DRAW_RULE + 4 : -1;
+    if (epoch == 0)
+      return stats_include_epoch0_special ? DRAW_RULE + 4 : -1;
+    break;
   case RAM_CAPT_BLOSS:
-    return epoch == 0 && stats_include_epoch0_special
-      ? loss_to_stat(DRAW_RULE + 1) : -1;
+    if (epoch == 0)
+      return stats_include_epoch0_special
+        ? loss_to_stat(DRAW_RULE + 1) : -1;
+    break;
   case RAM_CAPT_DRAW:
-    return stats_include_epoch0_special ? MAX_STATS / 2 + 1 : -1;
+    return stats_include_capt_draw ? MAX_STATS / 2 + 1 : -1;
   case RAM_PAWN_DRAW:
-    return stats_include_epoch0_special ? MAX_STATS / 2 + 2 : -1;
+    if (epoch == 0)
+      return stats_include_capt_draw ? MAX_STATS / 2 + 2 : -1;
+    break;
   default:
     break;
   }
@@ -148,6 +159,7 @@ INLINE bool ridx_state_sym_inc(struct RIdxStateS *is,
     if (i == 0) {
       sub[0]++;
       is->occ[0] = bit(KKSquare[sub[0]][0]) | bit(KKSquare[sub[0]][1]);
+      is->sym[0] = is_symmetric(is->occ[0]);
       break;
     }
   }
@@ -303,6 +315,7 @@ void collect_stats(int stm)
   stats_loss_limit = MAX_STATS / 2 - 3;
   stats_include_epoch0_special = epoch == 0;
   stats_include_unresolved = true;
+  stats_include_capt_draw = true;
   collect_stats_range(stm);
 }
 
@@ -319,6 +332,8 @@ void collect_stats_before_reduce(int stm, int n)
   stats_loss_limit = n;
   stats_include_epoch0_special = epoch == 0;
   stats_include_unresolved = false;
+  // Capture draws can still be replaced by cursed wins after a reduction.
+  stats_include_capt_draw = false;
   collect_stats_range(stm);
 }
 
